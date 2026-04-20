@@ -94,8 +94,15 @@ Observação: este fluxo ainda não possui um arquivo `.md` dedicado. No momento
 
 - `docs/debian-a11y-minimal-vm.md`: tutorial manual de criação da VM acessível.
 - `docs/generate-vm.md`: documentação do fluxo automatizado com `scripts/setup-vm.sh`.
+- `docs/github-releases.md`: documentação complementar sobre distribuição e publicação de releases no GitHub, incluindo o papel de `.github` e `packer`.
 - `scripts/setup-vm.sh`: script para criação automática da VM a partir de uma ISO Debian.
 - `scripts/install-release-vm.sh`: script para baixar e instalar uma VM pronta via release do GitHub.
 - `.env.example`: arquivo de exemplo para configurar a geração automática da VM.
 - `packer/`: arquivos relacionados à geração da imagem da VM.
 - `releases/`: diretório usado para armazenar discos e artefatos baixados ou gerados.
+
+## Distribuição e releases
+
+Para entender como a VM é construída no CI e publicada no GitHub Releases, consulte:
+
+- `docs/github-releases.md`
