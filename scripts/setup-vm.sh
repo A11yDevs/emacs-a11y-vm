@@ -2,7 +2,7 @@
 # ==============================================================================
 # setup-vm.sh — Cria uma VM Debian 13 acessível no VirtualBox (sem GUI)
 #
-# Automatiza os passos descritos em debian-a11-minimal-vm.md:
+# Automatiza os passos descritos em docs/debian-a11y-minimal-vm.md:
 #   - VM mínima, totalmente textual (sem desktop/X11)
 #   - Áudio AC97 para síntese de voz
 #   - espeakup (Speakup + eSpeak-NG) habilitado em todo boot
@@ -11,16 +11,17 @@
 #
 # Uso:
 #   1. cp .env.example .env   (e edite o .env)
-#   2. ./setup-vm.sh
+#   2. ./scripts/setup-vm.sh
 #
-# Todas as variáveis são lidas do arquivo .env na mesma pasta do script.
-# Veja .env.example para a lista completa de opções.
+# Todas as variáveis são lidas do arquivo .env na raiz do repositório.
+# Veja .env.example na raiz do repositório para a lista completa de opções.
 # ==============================================================================
 set -euo pipefail
 
 # --- Carregar .env ------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$REPO_DIR/.env"
 
 if [[ ! -f "$ENV_FILE" ]]; then
     echo "Erro: arquivo .env não encontrado."

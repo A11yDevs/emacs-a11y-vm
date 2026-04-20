@@ -1,6 +1,6 @@
 # Gerando a VM acessível automaticamente
 
-Este documento explica como usar o script `setup-vm.sh` para criar uma VM Debian 13 totalmente textual, sem interface gráfica e com síntese de voz (Speakup + eSpeak-NG) habilitada desde o boot. O script automatiza os passos descritos no [guia de instalação manual](debian-a11-minimal-vm.md).
+Este documento explica como usar o script `scripts/setup-vm.sh` para criar uma VM Debian 13 totalmente textual, sem interface gráfica e com síntese de voz (Speakup + eSpeak-NG) habilitada desde o boot. O script automatiza os passos descritos no [guia de instalação manual](debian-a11y-minimal-vm.md).
 
 ## Pré-requisitos
 
@@ -53,10 +53,10 @@ VM_KEYBOARD=br
 
 ## Criar a VM
 
-Execute o script:
+Execute o script a partir da raiz do repositório:
 
 ```bash
-./setup-vm.sh
+./scripts/setup-vm.sh
 ```
 
 O script irá:
@@ -131,4 +131,4 @@ sudo apt update
 sudo apt install emacspeak
 ```
 
-Consulte o [guia de instalação manual](debian-a11-minimal-vm.md) para dicas de acessibilidade (volume, velocidade da voz, alto contraste) e configurações adicionais.
+Consulte o [guia de instalação manual](debian-a11y-minimal-vm.md) para dicas de acessibilidade (volume, velocidade da voz, alto contraste) e configurações adicionais.
