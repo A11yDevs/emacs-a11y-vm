@@ -10,9 +10,9 @@ O projeto atualmente oferece três formas principais de uso:
 
 ## Opções disponíveis
 
-### 1. Criação manual: docs/debian-a11y-minimal-vm.md
+### 1. Criação manual: [docs/debian-a11y-minimal-vm.md](docs/debian-a11y-minimal-vm.md)
 
-O arquivo `docs/debian-a11y-minimal-vm.md` é um tutorial passo a passo para criar manualmente uma VM Debian mínima e acessível no VirtualBox.
+O arquivo [docs/debian-a11y-minimal-vm.md](docs/debian-a11y-minimal-vm.md) é um tutorial passo a passo para criar manualmente uma VM Debian mínima e acessível no VirtualBox.
 
 Esse guia cobre:
 
@@ -23,9 +23,9 @@ Esse guia cobre:
 
 Use este caminho se você quiser controlar cada etapa da instalação e entender o processo completo.
 
-### 2. Geração automática: docs/generate-vm.md
+### 2. Geração automática: [docs/generate-vm.md](docs/generate-vm.md)
 
-O arquivo `docs/generate-vm.md` documenta o uso do script `scripts/setup-vm.sh`, que automatiza a criação de uma VM Debian com emacs-a11y.
+O arquivo [docs/generate-vm.md](docs/generate-vm.md) documenta o uso do script [scripts/setup-vm.sh](scripts/setup-vm.sh), que automatiza a criação de uma VM Debian com emacs-a11y.
 
 Esse fluxo:
 
@@ -44,9 +44,9 @@ cp .env.example .env
 ./scripts/setup-vm.sh
 ```
 
-### 3. Instalação a partir de release: scripts/install-release-vm.sh
+### 3. Instalação a partir de release: [scripts/install-release-vm.sh](scripts/install-release-vm.sh)
 
-O script `scripts/install-release-vm.sh` baixa uma release de VM emacs-a11y disponível no GitHub e instala essa VM no VirtualBox a partir de um disco VMDK pronto.
+O script [scripts/install-release-vm.sh](scripts/install-release-vm.sh) baixa uma release de VM emacs-a11y disponível no GitHub e instala essa VM no VirtualBox a partir de um disco VMDK pronto.
 
 Esse fluxo:
 
@@ -82,27 +82,27 @@ Após criar a VM, o acesso padrão por SSH é:
 ssh -p 2222 a11ydevs@localhost
 ```
 
-Observação: este fluxo ainda não possui um arquivo `.md` dedicado. No momento, a referência principal é o próprio script `scripts/install-release-vm.sh` e esta seção do README.
+Observação: este fluxo ainda não possui um arquivo `.md` dedicado. No momento, a referência principal é o próprio script [scripts/install-release-vm.sh](scripts/install-release-vm.sh) e esta seção do README.
 
 ## Qual opção usar?
 
-- Use `docs/debian-a11y-minimal-vm.md` se quiser aprender e executar a instalação manualmente.
-- Use `docs/generate-vm.md` e `scripts/setup-vm.sh` se quiser gerar a VM automaticamente a partir de uma ISO do Debian.
-- Use `scripts/install-release-vm.sh` se quiser instalar rapidamente uma VM pronta publicada como release no GitHub.
+- Use [docs/debian-a11y-minimal-vm.md](docs/debian-a11y-minimal-vm.md) se quiser aprender e executar a instalação manualmente.
+- Use [docs/generate-vm.md](docs/generate-vm.md) e [scripts/setup-vm.sh](scripts/setup-vm.sh) se quiser gerar a VM automaticamente a partir de uma ISO do Debian.
+- Use [scripts/install-release-vm.sh](scripts/install-release-vm.sh) se quiser instalar rapidamente uma VM pronta publicada como release no GitHub.
 
 ## Arquivos principais do repositório
 
-- `docs/debian-a11y-minimal-vm.md`: tutorial manual de criação da VM acessível.
-- `docs/generate-vm.md`: documentação do fluxo automatizado com `scripts/setup-vm.sh`.
-- `docs/github-releases.md`: documentação complementar sobre distribuição e publicação de releases no GitHub, incluindo o papel de `.github` e `packer`.
-- `scripts/setup-vm.sh`: script para criação automática da VM a partir de uma ISO Debian.
-- `scripts/install-release-vm.sh`: script para baixar e instalar uma VM pronta via release do GitHub.
-- `.env.example`: arquivo de exemplo para configurar a geração automática da VM.
-- `packer/`: arquivos relacionados à geração da imagem da VM.
-- `releases/`: diretório usado para armazenar discos e artefatos baixados ou gerados.
+- [docs/debian-a11y-minimal-vm.md](docs/debian-a11y-minimal-vm.md): tutorial manual de criação da VM acessível.
+- [docs/generate-vm.md](docs/generate-vm.md): documentação do fluxo automatizado com [scripts/setup-vm.sh](scripts/setup-vm.sh).
+- [docs/github-releases.md](docs/github-releases.md): documentação complementar sobre distribuição e publicação de releases no GitHub, incluindo o papel de [.github](.github) e [packer](packer).
+- [scripts/setup-vm.sh](scripts/setup-vm.sh): script para criação automática da VM a partir de uma ISO Debian.
+- [scripts/install-release-vm.sh](scripts/install-release-vm.sh): script para baixar e instalar uma VM pronta via release do GitHub.
+- [.env.example](.env.example): arquivo de exemplo para configurar a geração automática da VM.
+- [packer](packer): arquivos relacionados à geração da imagem da VM.
+- [releases](releases): diretório usado para armazenar discos e artefatos baixados ou gerados.
 
 ## Distribuição e releases
 
 Para entender como a VM é construída no CI e publicada no GitHub Releases, consulte:
 
-- `docs/github-releases.md`
+- [docs/github-releases.md](docs/github-releases.md)
