@@ -1,0 +1,207 @@
+name: Build & Release Debian A11y VM
+
+# Dispara:
+#   - ao criar uma tag vX.Y.Z  → release público
+#   - manualmente (workflow_dispatch) → pré-release para testes
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Marcar como pré-release'
+        type: boolean
+        default: true
+
+# Permissão para criar releases e fazer upload de artefatos
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120   # instalação do Debian leva ~40-60 min em CI
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Código-fonte
+      # ------------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. Habilitar KVM (runners ubuntu-latest suportam virtualização HW)
+      # ------------------------------------------------------------------
+      - name: Habilitar KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -la /dev/kvm
+
+      # ------------------------------------------------------------------
+      # 3. Dependências do sistema
+      # ------------------------------------------------------------------
+      - name: Instalar qemu-utils
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils
+
+      # ------------------------------------------------------------------
+      # 4. Cache da ISO do Debian (evita baixar 400 MB a cada execução)
+      # ------------------------------------------------------------------
+      - name: Cache da ISO
+        id: cache-iso
+        uses: actions/cache@v4
+        with:
+          path: debian-netinst.iso
+          key: ${{ vars.DEBIAN_ISO_CACHE_KEY || 'debian-amd64-netinst-2025' }}
+
+      - name: Baixar ISO do Debian
+        if: steps.cache-iso.outputs.cache-hit != 'true'
+        run: |
+          # URL configurável via variável de repositório DEBIAN_ISO_URL.
+          # Padrão: Debian 12 (bookworm) stable — atualize conforme necessário.
+          ISO_URL="${{ vars.DEBIAN_ISO_URL || 'https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.11.0-amd64-netinst.iso' }}"
+          echo "Baixando: $ISO_URL"
+          wget -q --show-progress "$ISO_URL" -O debian-netinst.iso
+          echo "ISO baixado: $(du -sh debian-netinst.iso | cut -f1)"
+
+      # ------------------------------------------------------------------
+      # 5. Packer
+      # ------------------------------------------------------------------
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: latest
+
+      - name: Inicializar plugins do Packer
+        run: packer init packer/debian-a11y.pkr.hcl
+
+      # ------------------------------------------------------------------
+      # 6. Build da imagem
+      # ------------------------------------------------------------------
+      - name: Construir imagem Debian A11y
+        run: |
+          packer build \
+            -var "iso_url=file://${{ github.workspace }}/debian-netinst.iso" \
+            -var "iso_checksum=none" \
+            -var "output_dir=${{ github.workspace }}/output" \
+            packer/debian-a11y.pkr.hcl
+        env:
+          PACKER_LOG: 1
+          PACKER_LOG_PATH: packer.log
+
+      # ------------------------------------------------------------------
+      # 7. Converter e compactar artefatos de release
+      # ------------------------------------------------------------------
+      - name: Gerar artefatos de release
+        run: |
+          cd output
+          VM="debian-a11ydevs"
+
+          echo "==> Compactando QCOW2..."
+          qemu-img convert -c -f qcow2 -O qcow2 \
+            "${VM}.qcow2" "${VM}-compressed.qcow2"
+          mv "${VM}-compressed.qcow2" "${VM}.qcow2"
+
+          echo "==> Convertendo para VMDK (VirtualBox)..."
+          qemu-img convert -f qcow2 -O vmdk \
+            -o adapter_type=lsilogic,subformat=streamOptimized \
+            "${VM}.qcow2" "${VM}.vmdk"
+
+          echo "==> Tamanhos finais:"
+          du -sh "${VM}.qcow2" "${VM}.vmdk"
+
+      # ------------------------------------------------------------------
+      # 8. Determinar nome e tipo de release
+      # ------------------------------------------------------------------
+      - name: Definir metadados da release
+        id: meta
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"          >> "$GITHUB_OUTPUT"
+          else
+            TAG="dev-$(date +%Y%m%d-%H%M%S)"
+            echo "tag=$TAG"                                          >> "$GITHUB_OUTPUT"
+            echo "prerelease=${{ inputs.prerelease || 'true' }}"    >> "$GITHUB_OUTPUT"
+          fi
+
+      # ------------------------------------------------------------------
+      # 9. Publicar release no GitHub
+      # ------------------------------------------------------------------
+      - name: Criar GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: "Debian A11y VM ${{ steps.meta.outputs.tag }}"
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          body: |
+            ## Debian A11y VM — ${{ steps.meta.outputs.tag }}
+
+            VM Debian mínima com síntese de voz (Speakup + eSpeak-NG) ativa desde o boot.
+            Sem interface gráfica. Emacs pré-instalado.
+
+            ### Formatos disponíveis
+
+            | Arquivo | Uso |
+            |---------|-----|
+            | `debian-a11ydevs.qcow2` | QEMU / KVM / libvirt |
+            | `debian-a11ydevs.vmdk` | VirtualBox (disco avulso) |
+
+            ### Importar no VirtualBox
+
+            ```bash
+            # 1. Criar nova VM (Debian 64-bit, sem disco)
+            VBoxManage createvm --name debian-a11y --ostype Debian_64 --register
+
+            # 2. Configurar hardware mínimo
+            VBoxManage modifyvm debian-a11y \
+              --memory 2048 --cpus 2 \
+              --audio-driver default --audio-controller ac97 \
+              --audio-enabled on --audio-out on \
+              --nic1 nat
+
+            # 3. Adicionar o VMDK como disco principal
+            VBoxManage storagectl debian-a11y --name SATA --add sata
+            VBoxManage storageattach debian-a11y \
+              --storagectl SATA --port 0 --device 0 \
+              --type hdd --medium debian-a11ydevs.vmdk
+
+            # 4. Iniciar
+            VBoxManage startvm debian-a11y --type headless
+            ```
+
+            ### Credenciais padrão
+
+            | Usuário | Senha |
+            |---------|-------|
+            | `a11ydevs` | `a11ydevs` |
+            | `root` | `a11ydevs` |
+
+            > ⚠️ **Altere as senhas imediatamente após o primeiro acesso.**
+
+            ### Acesso SSH
+
+            ```bash
+            # Porta 2222 do host → porta 22 da VM (via NAT)
+            ssh -p 2222 a11ydevs@localhost
+            ```
+          files: |
+            output/debian-a11ydevs.qcow2
+            output/debian-a11ydevs.vmdk
+
+      # ------------------------------------------------------------------
+      # 10. Guardar log do Packer em caso de falha
+      # ------------------------------------------------------------------
+      - name: Upload do log do Packer (em caso de falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packer-log
+          path: packer.log
+          retention-days: 7

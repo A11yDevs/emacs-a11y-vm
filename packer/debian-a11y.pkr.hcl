@@ -1,0 +1,154 @@
+# ==============================================================================
+# debian-a11y.pkr.hcl — Build da VM Debian acessível via QEMU
+#
+# Uso local (requer QEMU + KVM):
+#   packer init packer/debian-a11y.pkr.hcl
+#   packer build \
+#     -var "iso_url=file:///caminho/para/debian-netinst.iso" \
+#     -var "iso_checksum=none" \
+#     packer/debian-a11y.pkr.hcl
+#
+# No CI (GitHub Actions), as variáveis são passadas pelo workflow.
+# ==============================================================================
+
+packer {
+  required_plugins {
+    qemu = {
+      version = ">= 1.1.0"
+      source  = "github.com/hashicorp/qemu"
+    }
+  }
+}
+
+# ------------------------------------------------------------------------------
+# Variáveis
+# ------------------------------------------------------------------------------
+
+variable "iso_url" {
+  type        = string
+  description = "URL ou caminho local (file://) da ISO netinst do Debian."
+  default     = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.11.0-amd64-netinst.iso"
+}
+
+variable "iso_checksum" {
+  type        = string
+  description = "Checksum da ISO (ex: sha256:abc123…). Use 'none' para desabilitar."
+  default     = "none"
+}
+
+variable "output_dir" {
+  type        = string
+  description = "Diretório de saída para a imagem gerada."
+  default     = "output"
+}
+
+variable "vm_name" {
+  type    = string
+  default = "debian-a11ydevs"
+}
+
+variable "disk_size" {
+  type    = string
+  default = "16G"
+}
+
+variable "memory" {
+  type    = number
+  default = 2048
+}
+
+variable "cpus" {
+  type    = number
+  default = 2
+}
+
+variable "ssh_username" {
+  type    = string
+  default = "a11ydevs"
+}
+
+variable "ssh_password" {
+  type      = string
+  default   = "a11ydevs"
+  sensitive = true
+}
+
+# ------------------------------------------------------------------------------
+# Source: QEMU builder
+# ------------------------------------------------------------------------------
+
+source "qemu" "debian-a11y" {
+  # --- ISO ---------------------------------------------------------------
+  iso_url      = var.iso_url
+  iso_checksum = var.iso_checksum
+
+  # --- Saída -------------------------------------------------------------
+  vm_name          = "${var.vm_name}.qcow2"
+  output_directory = var.output_dir
+  format           = "qcow2"
+
+  # --- Hardware ----------------------------------------------------------
+  cpus        = var.cpus
+  memory      = var.memory
+  disk_size   = var.disk_size
+  accelerator = "kvm"        # KVM disponível nos runners ubuntu-latest
+
+  # Placa de rede virtio para melhor desempenho
+  net_device = "virtio-net"
+
+  # Modo headless (sem janela gráfica — necessário no CI)
+  headless = true
+
+  # VGA mínimo; a VM é puramente textual
+  display = "none"
+
+  # --- Servidor HTTP do Packer (serve o preseed.cfg) --------------------
+  http_directory = "${path.root}/http"
+  http_port_min  = 8100
+  http_port_max  = 8199
+
+  # --- Sequência de boot ------------------------------------------------
+  # O instalador Debian netinst usa ISOLINUX (BIOS).
+  # ESC → prompt "boot:" → comando de instalação automática com preseed via HTTP.
+  boot_wait = "12s"
+  boot_command = [
+    "<esc><wait2>",
+    "auto priority=critical ",
+    "url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg ",
+    "hostname=${var.vm_name} domain=local ",
+    "speakup.synth=soft ",
+    "<enter>"
+  ]
+
+  # --- SSH (Packer usa para verificar que a instalação terminou) --------
+  communicator = "ssh"
+  ssh_username = var.ssh_username
+  ssh_password = var.ssh_password
+  ssh_port     = 22
+  # Tempo generoso: download de pacotes + instalação completa
+  ssh_timeout  = "90m"
+
+  # Desligar a VM ao fim do build
+  shutdown_command = "echo '${var.ssh_password}' | sudo -S shutdown -P now"
+}
+
+# ------------------------------------------------------------------------------
+# Build
+# ------------------------------------------------------------------------------
+
+build {
+  name    = "debian-a11y"
+  sources = ["source.qemu.debian-a11y"]
+
+  # Verificação mínima pós-instalação
+  provisioner "shell" {
+    inline = [
+      "echo '=== Verificando instalação ==='",
+      "uname -a",
+      "systemctl is-enabled espeakup && echo 'espeakup: OK' || echo 'espeakup: AVISO — serviço não encontrado'",
+      "command -v emacs  && emacs --version | head -1 || echo 'emacs: AVISO — não encontrado'",
+      "command -v ssh    && ssh -V || echo 'ssh: AVISO — não encontrado'",
+      "grep -q 'speakup.synth=soft' /etc/default/grub && echo 'GRUB speakup: OK' || echo 'GRUB speakup: AVISO'",
+    ]
+  }
+}
