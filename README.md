@@ -44,9 +44,12 @@ cp .env.example .env
 ./scripts/setup-vm.sh
 ```
 
-### 3. Instalação a partir de release: [scripts/install-release-vm.sh](scripts/install-release-vm.sh)
+### 3. Instalação a partir de release
 
-O script [scripts/install-release-vm.sh](scripts/install-release-vm.sh) baixa uma release de VM emacs-a11y disponível no GitHub e instala essa VM no VirtualBox a partir de um disco VMDK pronto.
+Há dois scripts disponíveis para baixar uma release de VM emacs-a11y do GitHub e instalar no VirtualBox a partir de um disco VMDK pronto:
+
+- **Linux/macOS**: [scripts/install-release-vm.sh](scripts/install-release-vm.sh)
+- **Windows**: [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1)
 
 Esse fluxo:
 
@@ -57,6 +60,8 @@ Esse fluxo:
 - configura rede NAT com redirecionamento de porta para SSH
 
 Use este caminho quando você quiser subir rapidamente uma VM já pronta, sem passar pela instalação do Debian.
+
+#### Linux/macOS (Bash)
 
 Exemplo com a última release:
 
@@ -76,19 +81,65 @@ No macOS, se necessário, force explicitamente o CoreAudio:
 ./scripts/install-release-vm.sh --audio-driver coreaudio
 ```
 
+**Execução direta via URL (sem clonar o repositório):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.sh | bash
+```
+
+Com parâmetros customizados:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.sh | bash -s -- --tag v1.0.0 --ram 4096
+```
+
+#### Windows (PowerShell)
+
+Exemplo com a última release:
+
+```powershell
+.\scripts\install-release-vm.ps1
+```
+
+Exemplo com uma tag específica:
+
+```powershell
+.\scripts\install-release-vm.ps1 -Tag v1.0.0
+```
+
+Para ver todas as opções disponíveis:
+
+```powershell
+.\scripts\install-release-vm.ps1 -Help
+```
+
+**Execução direta via URL (sem clonar o repositório):**
+
+```powershell
+iex (iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.ps1' -UseBasicParsing).Content
+```
+
+Com parâmetros customizados:
+
+```powershell
+& ([scriptblock]::Create((iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.ps1' -UseBasicParsing).Content)) -Tag v1.0.0 -RAM 4096
+```
+
+#### Acesso via SSH
+
 Após criar a VM, o acesso padrão por SSH é:
 
 ```bash
 ssh -p 2222 a11ydevs@localhost
 ```
 
-Observação: este fluxo ainda não possui um arquivo `.md` dedicado. No momento, a referência principal é o próprio script [scripts/install-release-vm.sh](scripts/install-release-vm.sh) e esta seção do README.
+Observação: este fluxo ainda não possui um arquivo `.md` dedicado. No momento, a referência principal são os próprios scripts [scripts/install-release-vm.sh](scripts/install-release-vm.sh) e [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1), além desta seção do README.
 
 ## Qual opção usar?
 
 - Use [docs/debian-a11y-minimal-vm.md](docs/debian-a11y-minimal-vm.md) se quiser aprender e executar a instalação manualmente.
 - Use [docs/generate-vm.md](docs/generate-vm.md) e [scripts/setup-vm.sh](scripts/setup-vm.sh) se quiser gerar a VM automaticamente a partir de uma ISO do Debian.
-- Use [scripts/install-release-vm.sh](scripts/install-release-vm.sh) se quiser instalar rapidamente uma VM pronta publicada como release no GitHub.
+- Use [scripts/install-release-vm.sh](scripts/install-release-vm.sh) (Linux/macOS) ou [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1) (Windows) se quiser instalar rapidamente uma VM pronta publicada como release no GitHub.
 
 ## Arquivos principais do repositório
 
@@ -96,7 +147,8 @@ Observação: este fluxo ainda não possui um arquivo `.md` dedicado. No momento
 - [docs/generate-vm.md](docs/generate-vm.md): documentação do fluxo automatizado com [scripts/setup-vm.sh](scripts/setup-vm.sh).
 - [docs/github-releases.md](docs/github-releases.md): documentação complementar sobre distribuição e publicação de releases no GitHub, incluindo o papel de [.github](.github) e [packer](packer).
 - [scripts/setup-vm.sh](scripts/setup-vm.sh): script para criação automática da VM a partir de uma ISO Debian.
-- [scripts/install-release-vm.sh](scripts/install-release-vm.sh): script para baixar e instalar uma VM pronta via release do GitHub.
+- [scripts/install-release-vm.sh](scripts/install-release-vm.sh): script Bash para baixar e instalar uma VM pronta via release do GitHub (Linux/macOS).
+- [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1): script PowerShell para baixar e instalar uma VM pronta via release do GitHub (Windows).
 - [.env.example](.env.example): arquivo de exemplo para configurar a geração automática da VM.
 - [packer](packer): arquivos relacionados à geração da imagem da VM.
 - [releases](releases): diretório usado para armazenar discos e artefatos baixados ou gerados.
