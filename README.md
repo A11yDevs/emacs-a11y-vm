@@ -95,45 +95,117 @@ curl -fsSL https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts
 
 #### Windows (PowerShell)
 
-**⚠️ Importante**: Execute o script a partir do PowerShell (não clique duas vezes no arquivo). Abra o PowerShell e navegue até a pasta do projeto antes de executar.
+**⚠️ Importante**: O Windows pode bloquear a execução de scripts não assinados. Use o comando com `-ExecutionPolicy Bypass` ou veja as soluções na seção de problemas abaixo.
+
+**Método 1: Usando o arquivo .cmd (mais fácil)**
+
+Execute o arquivo `.cmd` que faz o bypass automaticamente:
+
+```cmd
+.\scripts\install-release-vm.cmd
+```
+
+Ou clique duas vezes no arquivo [scripts/install-release-vm.cmd](scripts/install-release-vm.cmd) no Windows Explorer.
+
+**Método 2: Usando PowerShell diretamente**
 
 Exemplo com a última release:
 
 ```powershell
-.\scripts\install-release-vm.ps1
+PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1
 ```
 
 Exemplo com uma tag específica:
 
 ```powershell
-.\scripts\install-release-vm.ps1 -Tag v1.0.0
+PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -Tag v1.0.0
+```
+
+Exemplo com parâmetros customizados:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -RAM 4096 -CPUs 4 -SSHPort 3333
 ```
 
 Para ver todas as opções disponíveis:
 
 ```powershell
-.\scripts\install-release-vm.ps1 -Help
+PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -Help
 ```
 
 **Execução direta via URL (sem clonar o repositório):**
 
 ```powershell
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
 iex (iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.ps1' -UseBasicParsing).Content
 ```
 
 Com parâmetros customizados:
 
 ```powershell
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
 & ([scriptblock]::Create((iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.ps1' -UseBasicParsing).Content)) -Tag v1.0.0 -RAM 4096
 ```
 
 **Solução de problemas no Windows:**
 
-Se você encontrar erros de política de execução, execute:
+**Erro: "O script não está assinado digitalmente"**
+
+Esse é o erro mais comum no Windows. Há várias soluções:
+
+**Solução 1: Executar com bypass (mais simples)**
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1
+```
+
+**Solução 2: Desbloquear o arquivo**
+
+```powershell
+Unblock-File .\scripts\install-release-vm.ps1
+.\scripts\install-release-vm.ps1
+```
+
+**Solução 3: Alterar política de execução (permanente para o usuário)**
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.\scripts\install-release-vm.ps1
 ```
+
+**Solução 4: Alterar política de execução (temporária para a sessão)**
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+.\scripts\install-release-vm.ps1
+```
+
+**Com parâmetros customizados:**
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -Tag v1.0.0 -RAM 4096
+```
+
+**Outros problemas:**
+
+Se você encontrar erros de `UnauthorizedAccess`:
+
+1. **Execute o PowerShell como Administrador** (clique com botão direito > "Executar como Administrador")
+
+2. **Navegue para uma pasta onde você tem permissão de escrita**:
+   ```powershell
+   cd $env:USERPROFILE\Downloads
+   ```
+
+3. **Execute o script especificando um diretório de saída**:
+   ```powershell
+   PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -OutputDir "$env:USERPROFILE\Downloads\emacs-a11y-vm"
+   ```
+
+4. **Verifique se o VirtualBox está instalado corretamente**:
+   ```powershell
+   VBoxManage --version
+   ```
 
 
 #### Acesso via SSH
@@ -160,6 +232,7 @@ Observação: este fluxo ainda não possui um arquivo `.md` dedicado. No momento
 - [scripts/setup-vm.sh](scripts/setup-vm.sh): script para criação automática da VM a partir de uma ISO Debian.
 - [scripts/install-release-vm.sh](scripts/install-release-vm.sh): script Bash para baixar e instalar uma VM pronta via release do GitHub (Linux/macOS).
 - [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1): script PowerShell para baixar e instalar uma VM pronta via release do GitHub (Windows).
+- [scripts/install-release-vm.cmd](scripts/install-release-vm.cmd): wrapper batch para executar o script PowerShell sem problemas de política de execução (Windows).
 - [.env.example](.env.example): arquivo de exemplo para configurar a geração automática da VM.
 - [packer](packer): arquivos relacionados à geração da imagem da VM.
 - [releases](releases): diretório usado para armazenar discos e artefatos baixados ou gerados.

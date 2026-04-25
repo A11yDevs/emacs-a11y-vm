@@ -9,6 +9,22 @@
 #
 # Exemplo (outro repositório):
 #   .\scripts\install-release-vm.ps1 -Owner A11yDevs -Repo emacs-a11y-vm
+#
+# ==============================================================================
+# SOLUÇÃO DE PROBLEMAS - "Script não está assinado digitalmente"
+# ==============================================================================
+# Se você receber erro sobre assinatura digital, use uma dessas opções:
+#
+# Opção 1 (mais simples):
+#   PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1
+#
+# Opção 2 (desbloquear arquivo):
+#   Unblock-File .\scripts\install-release-vm.ps1
+#   .\scripts\install-release-vm.ps1
+#
+# Opção 3 (alterar política permanentemente):
+#   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+#   .\scripts\install-release-vm.ps1
 # ==============================================================================
 
 [CmdletBinding()]
@@ -106,24 +122,67 @@ Write-Host "====================================================" -ForegroundCol
 Write-Host "  Instalador de VM Debian A11y via GitHub Release" -ForegroundColor Cyan
 Write-Host "====================================================" -ForegroundColor Cyan
 Write-Host ""
+Write-Host "Informações do ambiente:"
+Write-Host "  Usuário: $env:USERNAME"
+Write-Host "  Diretório atual: $(Get-Location)"
+Write-Host "  PowerShell: $($PSVersionTable.PSVersion)"
+Write-Host ""
 
 # Verificar dependências
+Write-Host "==> Verificando dependências..."
 if (-not (Test-Command "VBoxManage")) {
-    Write-Error-Exit "Comando obrigatório não encontrado: VBoxManage. Instale o VirtualBox."
+    Write-Host ""
+    Write-Host "VirtualBox não encontrado!" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "O VBoxManage não está disponível no PATH." -ForegroundColor Yellow
+    Write-Host "Certifique-se de que o VirtualBox está instalado." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Locais comuns de instalação:" -ForegroundColor Cyan
+    Write-Host "  C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"
+    Write-Host "  C:\Program Files (x86)\Oracle\VirtualBox\VBoxManage.exe"
+    Write-Host ""
+    Pause-BeforeExit 1
 }
 
+$vboxVersion = VBoxManage --version 2>&1
+Write-Host "    VirtualBox encontrado: $vboxVersion" -ForegroundColor Green
+
+
 # Criar diretório de saída se não existir
+# Tenta usar o caminho relativo ao script, senão usa o diretório atual
 if ($OutputDir.StartsWith(".\") -or $OutputDir.StartsWith("./") -or -not [System.IO.Path]::IsPathRooted($OutputDir)) {
-    $OutputDirPath = Join-Path $PSScriptRoot ".." $OutputDir
+    if ($PSScriptRoot) {
+        # Executando de um arquivo .ps1
+        $OutputDirPath = Join-Path $PSScriptRoot ".." $OutputDir
+    } else {
+        # Executando via iex/download direto
+        $OutputDirPath = Join-Path (Get-Location) $OutputDir
+    }
 } else {
     $OutputDirPath = $OutputDir
 }
 
+Write-Host "==> Verificando diretório de saída: $OutputDirPath"
+
 if (-not (Test-Path $OutputDirPath)) {
     try {
-        New-Item -ItemType Directory -Path $OutputDirPath -Force | Out-Null
+        New-Item -ItemType Directory -Path $OutputDirPath -Force -ErrorAction Stop | Out-Null
+        Write-Host "    Diretório criado com sucesso" -ForegroundColor Green
     } catch {
-        Write-Error-Exit "Falha ao criar diretório de saída: $OutputDirPath"
+        Write-Host "    Falha ao criar em: $OutputDirPath" -ForegroundColor Yellow
+        Write-Host "    Tentando usar diretório temporário..." -ForegroundColor Yellow
+        
+        # Fallback: usar pasta temporária do usuário
+        $OutputDirPath = Join-Path $env:USERPROFILE "Downloads\emacs-a11y-vm-releases"
+        
+        try {
+            if (-not (Test-Path $OutputDirPath)) {
+                New-Item -ItemType Directory -Path $OutputDirPath -Force -ErrorAction Stop | Out-Null
+            }
+            Write-Host "    Usando: $OutputDirPath" -ForegroundColor Green
+        } catch {
+            Write-Error-Exit "Sem permissão para criar diretórios. Erro: $($_.Exception.Message)"
+        }
     }
 }
 
@@ -162,9 +221,21 @@ $ResolvedTag = $ReleaseJson.tag_name
 $VmdkPath = Join-Path $OutputDirPath $AssetName
 
 Write-Host "==> Baixando asset: $AssetName"
+Write-Host "    URL: $AssetUrl"
+Write-Host "    Destino: $VmdkPath"
 
 try {
+    # Verificar se temos permissão de escrita no diretório
+    $testFile = Join-Path $OutputDirPath ".test_write_permission"
+    try {
+        [System.IO.File]::WriteAllText($testFile, "test")
+        Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+    } catch {
+        throw "Sem permissão de escrita no diretório: $OutputDirPath"
+    }
+    
     # Baixar o arquivo com barra de progresso
+    Write-Host "    Baixando... (isso pode levar alguns minutos)"
     $ProgressPreference = 'SilentlyContinue'
     Invoke-WebRequest -Uri $AssetUrl -OutFile $VmdkPath -UseBasicParsing
     $ProgressPreference = 'Continue'
@@ -172,6 +243,10 @@ try {
     if (-not (Test-Path $VmdkPath)) {
         Write-Error-Exit "Download falhou: arquivo não foi criado em $VmdkPath"
     }
+    
+    $fileSize = (Get-Item $VmdkPath).Length
+    $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
+    Write-Host "    Download completo: $fileSizeMB MB" -ForegroundColor Green
 } catch {
     Write-Error-Exit "Download falhou: $($_.Exception.Message)"
 }
@@ -181,7 +256,7 @@ Write-Host "==> Verificando VM existente: $VMName"
 # Verificar se VM existe
 $VMExists = $false
 try {
-    VBoxManage showvminfo $VMName 2>&1 | Out-Null
+    $null = VBoxManage showvminfo $VMName 2>&1
     $VMExists = ($LASTEXITCODE -eq 0)
 } catch {
     $VMExists = $false
@@ -191,8 +266,15 @@ if ($VMExists) {
     if ($KeepOldVM) {
         Write-Error-Exit "VM '$VMName' já existe e -KeepOldVM foi usado. Escolha outro -VMName."
     }
-    Write-Host "==> Removendo VM antiga: $VMName"
-    VBoxManage unregistervm $VMName --delete 2>&1 | Out-Null
+    Write-Host "    VM existente encontrada, removendo..." -ForegroundColor Yellow
+    try {
+        $null = VBoxManage unregistervm $VMName --delete 2>&1
+        Write-Host "    VM antiga removida com sucesso" -ForegroundColor Green
+    } catch {
+        Write-Host "    Aviso: Falha ao remover VM antiga (pode não existir)" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "    Nenhuma VM existente com esse nome" -ForegroundColor Green
 }
 
 Write-Host "==> Criando VM '$VMName'"
