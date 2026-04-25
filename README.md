@@ -207,6 +207,16 @@ Se você encontrar erros de `UnauthorizedAccess`:
    VBoxManage --version
    ```
 
+   **Nota**: O script busca automaticamente o VBoxManage nos locais comuns de instalação do Windows (`C:\Program Files\Oracle\VirtualBox`). Se você quiser adicionar permanentemente o VirtualBox ao PATH do sistema:
+
+   a. Abra "Configurações do Sistema" (Win + Pause)
+   b. Clique em "Configurações avançadas do sistema" > "Variáveis de Ambiente"
+   c. Na seção "Variáveis do sistema", selecione "Path" e clique em "Editar"
+   d. Adicione o caminho: `C:\Program Files\Oracle\VirtualBox`
+   e. Clique em "OK" para salvar
+
+   Após isso, reinicie o PowerShell para que as mudanças tenham efeito.
+
 
 #### Acesso via SSH
 

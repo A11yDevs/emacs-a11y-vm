@@ -131,21 +131,42 @@ Write-Host ""
 # Verificar dependencias
 Write-Host "==> Verificando dependencias..."
 if (-not (Test-Command "VBoxManage")) {
-    Write-Host ""
-    Write-Host "VirtualBox nao encontrado!" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "O VBoxManage nao esta disponivel no PATH." -ForegroundColor Yellow
-    Write-Host "Certifique-se de que o VirtualBox esta instalado." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Locais comuns de instalacao:" -ForegroundColor Cyan
-    Write-Host "  C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"
-    Write-Host "  C:\Program Files (x86)\Oracle\VirtualBox\VBoxManage.exe"
-    Write-Host ""
-    Pause-BeforeExit 1
+    Write-Host "    VBoxManage nao encontrado no PATH, buscando nos locais comuns..." -ForegroundColor Yellow
+    
+    # Locais comuns de instalacao do VirtualBox no Windows
+    $vboxPaths = @(
+        "$env:ProgramFiles\Oracle\VirtualBox",
+        "${env:ProgramFiles(x86)}\Oracle\VirtualBox",
+        "$env:ProgramW6432\Oracle\VirtualBox"
+    )
+    
+    $vboxFound = $false
+    foreach ($path in $vboxPaths) {
+        $vboxManagePath = Join-Path $path "VBoxManage.exe"
+        if (Test-Path $vboxManagePath) {
+            Write-Host "    VirtualBox encontrado em: $path" -ForegroundColor Green
+            # Adicionar ao PATH da sessao atual
+            $env:PATH = "$path;$env:PATH"
+            $vboxFound = $true
+            break
+        }
+    }
+    
+    if (-not $vboxFound) {
+        Write-Host ""
+        Write-Host "VirtualBox nao encontrado!" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "O VBoxManage nao esta disponivel no PATH." -ForegroundColor Yellow
+        Write-Host "Certifique-se de que o VirtualBox esta instalado." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Baixe em: https://www.virtualbox.org/wiki/Downloads" -ForegroundColor Cyan
+        Write-Host ""
+        Pause-BeforeExit 1
+    }
 }
 
 $vboxVersion = VBoxManage --version 2>&1
-Write-Host "    VirtualBox encontrado: $vboxVersion" -ForegroundColor Green
+Write-Host "    VirtualBox versao: $vboxVersion" -ForegroundColor Green
 
 
 # Criar diretorio de saida se nao existir
