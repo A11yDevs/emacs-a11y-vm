@@ -255,11 +255,40 @@ try {
         throw "Sem permissao de escrita no diretorio: $OutputDirPath"
     }
     
-    # Baixar o arquivo com barra de progresso
-    Write-Host "    Baixando... (isso pode levar alguns minutos)"
-    $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -Uri $AssetUrl -OutFile $VmdkPath -UseBasicParsing
-    $ProgressPreference = 'Continue'
+    # Obter tamanho do arquivo antes de baixar
+    $assetSizeMB = [math]::Round($VmdkAsset.size / 1MB, 2)
+    Write-Host "    Tamanho do arquivo: $assetSizeMB MB" -ForegroundColor Cyan
+    Write-Host "    Baixando... (isso pode levar varios minutos)" -ForegroundColor Yellow
+    Write-Host ""
+    
+    # Baixar o arquivo com monitoramento de progresso
+    $job = Start-Job -ScriptBlock {
+        param($url, $output)
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
+    } -ArgumentList $AssetUrl, $VmdkPath
+    
+    # Monitorar progresso enquanto baixa
+    $lastSize = 0
+    while ($job.State -eq 'Running') {
+        Start-Sleep -Seconds 3
+        if (Test-Path $VmdkPath) {
+            $currentSize = (Get-Item $VmdkPath).Length
+            $currentSizeMB = [math]::Round($currentSize / 1MB, 2)
+            $percent = [math]::Round(($currentSize / $VmdkAsset.size) * 100, 1)
+            
+            if ($currentSize -ne $lastSize) {
+                Write-Host "    Progresso: $currentSizeMB MB / $assetSizeMB MB ($percent%)" -ForegroundColor Green
+                $lastSize = $currentSize
+            }
+        }
+    }
+    
+    # Aguardar conclusao do job
+    $result = Receive-Job -Job $job -Wait
+    Remove-Job -Job $job
+    
+    Write-Host ""
     
     if (-not (Test-Path $VmdkPath)) {
         Write-Error-Exit "Download falhou: arquivo nao foi criado em $VmdkPath"
