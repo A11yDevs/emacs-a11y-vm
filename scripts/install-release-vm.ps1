@@ -26,6 +26,17 @@ param(
     [switch]$Help
 )
 
+# Impede que o script feche a janela imediatamente em caso de erro
+$ErrorActionPreference = "Stop"
+
+function Pause-BeforeExit {
+    param([int]$ExitCode = 0)
+    Write-Host ""
+    Write-Host "Pressione qualquer tecla para sair..." -ForegroundColor Cyan
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit $ExitCode
+}
+
 function Show-Usage {
     @"
 Uso:
@@ -54,8 +65,9 @@ Fluxo:
 
 function Write-Error-Exit {
     param([string]$Message)
-    Write-Error "Erro: $Message"
-    exit 1
+    Write-Host ""
+    Write-Host "Erro: $Message" -ForegroundColor Red
+    Pause-BeforeExit 1
 }
 
 function Test-Command {
@@ -79,8 +91,21 @@ function Get-AudioDriver {
 
 if ($Help) {
     Show-Usage
-    exit 0
+    Pause-BeforeExit 0
 }
+
+# Capturar erros não tratados
+trap {
+    Write-Host ""
+    Write-Host "Erro não tratado: $_" -ForegroundColor Red
+    Write-Host $_.ScriptStackTrace -ForegroundColor Gray
+    Pause-BeforeExit 1
+}
+
+Write-Host "====================================================" -ForegroundColor Cyan
+Write-Host "  Instalador de VM Debian A11y via GitHub Release" -ForegroundColor Cyan
+Write-Host "====================================================" -ForegroundColor Cyan
+Write-Host ""
 
 # Verificar dependências
 if (-not (Test-Command "VBoxManage")) {
@@ -88,9 +113,18 @@ if (-not (Test-Command "VBoxManage")) {
 }
 
 # Criar diretório de saída se não existir
-$OutputDirPath = Join-Path $PSScriptRoot ".." $OutputDir
+if ($OutputDir.StartsWith(".\") -or $OutputDir.StartsWith("./") -or -not [System.IO.Path]::IsPathRooted($OutputDir)) {
+    $OutputDirPath = Join-Path $PSScriptRoot ".." $OutputDir
+} else {
+    $OutputDirPath = $OutputDir
+}
+
 if (-not (Test-Path $OutputDirPath)) {
-    New-Item -ItemType Directory -Path $OutputDirPath -Force | Out-Null
+    try {
+        New-Item -ItemType Directory -Path $OutputDirPath -Force | Out-Null
+    } catch {
+        Write-Error-Exit "Falha ao criar diretório de saída: $OutputDirPath"
+    }
 }
 
 # Determinar driver de áudio
@@ -134,12 +168,12 @@ try {
     $ProgressPreference = 'SilentlyContinue'
     Invoke-WebRequest -Uri $AssetUrl -OutFile $VmdkPath -UseBasicParsing
     $ProgressPreference = 'Continue'
+    
+    if (-not (Test-Path $VmdkPath)) {
+        Write-Error-Exit "Download falhou: arquivo não foi criado em $VmdkPath"
+    }
 } catch {
-    Write-Error-Exit "Download falhou: $_"
-}
-
-if (-not (Test-Path $VmdkPath)) {
-    Write-Error-Exit "Download falhou: $VmdkPath"
+    Write-Error-Exit "Download falhou: $($_.Exception.Message)"
 }
 
 Write-Host "==> Verificando VM existente: $VMName"
@@ -162,16 +196,16 @@ if ($VMExists) {
 }
 
 Write-Host "==> Criando VM '$VMName'"
-VBoxManage createvm --name $VMName --ostype Debian_64 --register | Out-Null
+$output = VBoxManage createvm --name $VMName --ostype Debian_64 --register 2>&1
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao criar VM."
+    Write-Error-Exit "Falha ao criar VM. VBoxManage disse: $output"
 }
 
 Write-Host "==> Driver de áudio selecionado: $AudioDriverUsed"
 
 # Configuração base: VM textual, áudio AC97 para acessibilidade, NAT com SSH forwarding
-VBoxManage modifyvm $VMName `
+$output = VBoxManage modifyvm $VMName `
     --memory $RAM `
     --cpus $CPUs `
     --ioapic on `
@@ -183,34 +217,34 @@ VBoxManage modifyvm $VMName `
     --nic1 nat `
     --natpf1 "ssh,tcp,127.0.0.1,$SSHPort,,22" `
     --graphicscontroller vmsvga `
-    --vram 16 | Out-Null
+    --vram 16 2>&1
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao configurar VM."
+    Write-Error-Exit "Falha ao configurar VM. VBoxManage disse: $output"
 }
 
-VBoxManage storagectl $VMName --name "SATA" --add sata --controller IntelAhci | Out-Null
+$output = VBoxManage storagectl $VMName --name "SATA" --add sata --controller IntelAhci 2>&1
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao adicionar controlador SATA."
+    Write-Error-Exit "Falha ao adicionar controlador SATA. VBoxManage disse: $output"
 }
 
 # Converter caminho para formato absoluto
 $VmdkAbsolutePath = (Resolve-Path $VmdkPath).Path
 
-VBoxManage storageattach $VMName `
+$output = VBoxManage storageattach $VMName `
     --storagectl "SATA" --port 0 --device 0 `
-    --type hdd --medium $VmdkAbsolutePath | Out-Null
+    --type hdd --medium $VmdkAbsolutePath 2>&1
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao anexar disco VMDK."
+    Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output"
 }
 
 Write-Host "==> Iniciando VM em modo headless"
-VBoxManage startvm $VMName --type headless | Out-Null
+$output = VBoxManage startvm $VMName --type headless 2>&1
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao iniciar VM."
+    Write-Error-Exit "Falha ao iniciar VM. VBoxManage disse: $output"
 }
 
 # Mensagem de sucesso
@@ -226,3 +260,5 @@ Write-Host "Credenciais padrão esperadas (release atual):"
 Write-Host "  usuário: a11ydevs"
 Write-Host "  senha:   a11ydevs"
 Write-Host ""
+
+Pause-BeforeExit 0

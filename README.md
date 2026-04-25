@@ -95,6 +95,8 @@ curl -fsSL https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts
 
 #### Windows (PowerShell)
 
+**⚠️ Importante**: Execute o script a partir do PowerShell (não clique duas vezes no arquivo). Abra o PowerShell e navegue até a pasta do projeto antes de executar.
+
 Exemplo com a última release:
 
 ```powershell
@@ -124,6 +126,15 @@ Com parâmetros customizados:
 ```powershell
 & ([scriptblock]::Create((iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.ps1' -UseBasicParsing).Content)) -Tag v1.0.0 -RAM 4096
 ```
+
+**Solução de problemas no Windows:**
+
+Se você encontrar erros de política de execução, execute:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
 
 #### Acesso via SSH
 
