@@ -39,6 +39,9 @@ param(
     [string]$OutputDir = "releases",
     [string]$AudioDriver = "",
     [int]$UserDataSize = 10240,
+    [ValidateSet("nat", "bridge")]
+    [string]$NetworkMode = "nat",
+    [string]$BridgeAdapter = "",
     [switch]$PreserveUserData,
     [switch]$KeepOldVM,
     [switch]$ForceDownload,
@@ -73,6 +76,8 @@ Opcoes:
   -OutputDir <dir>        Pasta para baixar o VMDK (padrao: .\releases)
   -AudioDriver <driver>   Driver de audio do VirtualBox (auto por padrao)
   -UserDataSize <mb>      Tamanho do disco de dados em MB (padrao: 10240 = 10GB)
+  -NetworkMode <nat|bridge> Modo de rede (padrao: nat)
+  -BridgeAdapter <nome>   Adaptador para bridge (auto-detecta se vazio)
   -PreserveUserData       Preserva disco de dados de VM existente (padrao: auto)
   -KeepOldVM              Nao remove VM existente com o mesmo nome
   -ForceDownload          Forca re-download mesmo se arquivo ja existe
@@ -116,6 +121,20 @@ function Get-AudioDriver {
     
     # Usar 'default' permite ao VirtualBox escolher o melhor driver automaticamente
     return "default"
+}
+
+function Get-BridgeAdapter {
+    if ($BridgeAdapter) {
+        return $BridgeAdapter
+    }
+    
+    # Auto-detectar primeiro adaptador bridge disponivel
+    $adapters = VBoxManage list bridgedifs | Select-String -Pattern "^Name:\s+(.+)$" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() }
+    if ($adapters -and $adapters.Count -gt 0) {
+        return $adapters[0]
+    }
+    
+    return $null
 }
 
 if ($Help) {
@@ -230,6 +249,17 @@ if (-not (Test-Path $OutputDirPath)) {
 
 # Determinar driver de audio
 $AudioDriverUsed = Get-AudioDriver
+
+# Determinar configuracao de rede
+if ($NetworkMode -eq "bridge") {
+    $BridgeAdapterUsed = Get-BridgeAdapter
+    if (-not $BridgeAdapterUsed) {
+        Write-Error-Exit "Modo bridge selecionado mas nenhum adaptador bridge disponivel. Use -BridgeAdapter para especificar."
+    }
+    Write-Host "==> Modo de rede: Bridge (adaptador: $BridgeAdapterUsed)" -ForegroundColor Cyan
+} else {
+    Write-Host "==> Modo de rede: NAT (SSH port forwarding: localhost:$SSHPort -> VM:22)" -ForegroundColor Cyan
+}
 
 # Construir URL da API
 if ($Tag -eq "latest") {
@@ -423,21 +453,34 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "==> Driver de audio selecionado: $AudioDriverUsed"
 
-# Configuracao base: VM textual, audio AC97 para acessibilidade, NAT com SSH forwarding
-$output = & $VBoxManagePath modifyvm "$VMName" `
-    --memory $RAM `
-    --cpus $CPUs `
-    --ioapic on `
-    --boot1 disk --boot2 none --boot3 none --boot4 none `
-    --audio-driver $AudioDriverUsed `
-    --audio-controller ac97 `
-    --audio-enabled on `
-    --audio-out on `
-    --audio-in on `
-    --nic1 nat `
-    --natpf1 "ssh,tcp,127.0.0.1,$SSHPort,,22" `
-    --graphicscontroller vmsvga `
-    --vram 16 2>&1
+# Configuracao base: VM textual, audio AC97 para acessibilidade
+$modifyvmArgs = @(
+    "modifyvm", "$VMName",
+    "--memory", "$RAM",
+    "--cpus", "$CPUs",
+    "--ioapic", "on",
+    "--boot1", "disk", "--boot2", "none", "--boot3", "none", "--boot4", "none",
+    "--audio-driver", "$AudioDriverUsed",
+    "--audio-controller", "ac97",
+    "--audio-enabled", "on",
+    "--audio-out", "on",
+    "--audio-in", "on",
+    "--graphicscontroller", "vmsvga",
+    "--vram", "16"
+)
+
+# Configurar rede baseado no modo
+if ($NetworkMode -eq "bridge") {
+    $modifyvmArgs += "--nic1", "bridged"
+    $modifyvmArgs += "--bridgeadapter1", "$BridgeAdapterUsed"
+    Write-Host "    Rede configurada como bridge" -ForegroundColor Green
+} else {
+    $modifyvmArgs += "--nic1", "nat"
+    $modifyvmArgs += "--natpf1", "ssh,tcp,127.0.0.1,$SSHPort,,22"
+    Write-Host "    Rede configurada como NAT com port forwarding" -ForegroundColor Green
+}
+
+$output = & $VBoxManagePath @modifyvmArgs 2>&1
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao configurar VM. VBoxManage disse: $output"

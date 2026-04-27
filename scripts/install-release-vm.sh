@@ -26,6 +26,8 @@ PRESERVE_USER_DATA="auto"
 KEEP_OLD_VM="false"
 FORCE_DOWNLOAD="false"
 HEADLESS="false"
+NETWORK_MODE="nat"
+BRIDGE_ADAPTER=""
 AUDIO_DRIVER=""
 
 usage() {
@@ -44,6 +46,8 @@ Opções:
   --output-dir <dir>      Pasta para baixar o VMDK (padrão: ./releases)
   --audio-driver <driver> Driver de áudio do VirtualBox (auto por padrão)
   --user-data-size <mb>   Tamanho do disco de dados em MB (padrão: 10240 = 10GB)
+  --network-mode <nat|bridge> Modo de rede (padrão: nat)
+  --bridge-adapter <nome> Adaptador para bridge (auto-detecta se vazio)
   --preserve-user-data    Preserva disco de dados de VM existente (padrão: auto)
   --no-preserve-user-data Não preserva disco de dados (instalação limpa)
   --keep-old-vm           Não remove VM existente com o mesmo nome
@@ -88,6 +92,10 @@ detect_audio_driver() {
     esac
 }
 
+detect_bridge_adapter() {
+    VBoxManage list bridgedifs 2>/dev/null | awk -F: '/^Name:/{gsub(/^ +| +$/, "", $2); print $2; exit}'
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --owner)
@@ -130,6 +138,17 @@ while [[ $# -gt 0 ]]; do
             USER_DATA_SIZE="$2"
             shift 2
             ;;
+        --network-mode)
+            NETWORK_MODE="$2"
+            if [[ "$NETWORK_MODE" != "nat" ]] && [[ "$NETWORK_MODE" != "bridge" ]]; then
+                die "--network-mode deve ser 'nat' ou 'bridge'"
+            fi
+            shift 2
+            ;;
+        --bridge-adapter)
+            BRIDGE_ADAPTER="$2"
+            shift 2
+            ;;
         --preserve-user-data)
             PRESERVE_USER_DATA="true"
             shift
@@ -165,6 +184,19 @@ need_cmd VBoxManage
 
 if [[ -z "$AUDIO_DRIVER" ]]; then
     AUDIO_DRIVER="$(detect_audio_driver)"
+fi
+
+# Configurar rede
+if [[ "$NETWORK_MODE" == "bridge" ]]; then
+    if [[ -z "$BRIDGE_ADAPTER" ]]; then
+        BRIDGE_ADAPTER="$(detect_bridge_adapter)"
+    fi
+    if [[ -z "$BRIDGE_ADAPTER" ]]; then
+        die "Modo bridge selecionado mas nenhum adaptador bridge disponível. Use --bridge-adapter para especificar."
+    fi
+    echo "==> Modo de rede: Bridge (adaptador: $BRIDGE_ADAPTER)"
+else
+    echo "==> Modo de rede: NAT (SSH port forwarding: localhost:$SSH_HOST_PORT -> VM:22)"
 fi
 
 if command -v jq >/dev/null 2>&1; then
@@ -301,21 +333,40 @@ VBoxManage createvm --name "$VM_NAME" --ostype Debian_64 --register
 
 echo "==> Driver de áudio selecionado: ${AUDIO_DRIVER}"
 
-# Configuração base: VM textual, áudio AC97 para acessibilidade, NAT com SSH forwarding
-VBoxManage modifyvm "$VM_NAME" \
-    --memory "$VM_RAM" \
-    --cpus "$VM_CPUS" \
-    --ioapic on \
-    --boot1 disk --boot2 none --boot3 none --boot4 none \
-    --audio-driver "$AUDIO_DRIVER" \
-    --audio-controller ac97 \
-    --audio-enabled on \
-    --audio-out on \
-    --audio-in on \
-    --nic1 nat \
-    --natpf1 "ssh,tcp,127.0.0.1,${SSH_HOST_PORT},,22" \
-    --graphicscontroller vmsvga \
-    --vram 16
+# Configuração base: VM textual, áudio AC97 para acessibilidade
+if [[ "$NETWORK_MODE" == "bridge" ]]; then
+    echo "    Configurando rede como bridge"
+    VBoxManage modifyvm "$VM_NAME" \
+        --memory "$VM_RAM" \
+        --cpus "$VM_CPUS" \
+        --ioapic on \
+        --boot1 disk --boot2 none --boot3 none --boot4 none \
+        --audio-driver "$AUDIO_DRIVER" \
+        --audio-controller ac97 \
+        --audio-enabled on \
+        --audio-out on \
+        --audio-in on \
+        --nic1 bridged \
+        --bridgeadapter1 "$BRIDGE_ADAPTER" \
+        --graphicscontroller vmsvga \
+        --vram 16
+else
+    echo "    Configurando rede como NAT com port forwarding"
+    VBoxManage modifyvm "$VM_NAME" \
+        --memory "$VM_RAM" \
+        --cpus "$VM_CPUS" \
+        --ioapic on \
+        --boot1 disk --boot2 none --boot3 none --boot4 none \
+        --audio-driver "$AUDIO_DRIVER" \
+        --audio-controller ac97 \
+        --audio-enabled on \
+        --audio-out on \
+        --audio-in on \
+        --nic1 nat \
+        --natpf1 "ssh,tcp,127.0.0.1,${SSH_HOST_PORT},,22" \
+        --graphicscontroller vmsvga \
+        --vram 16
+fi
 
 VBoxManage storagectl "$VM_NAME" --name "SATA" --add sata --controller IntelAhci
 
