@@ -223,10 +223,10 @@ d-i preseed/late_command string \
     in-target update-grub; \
     in-target systemctl enable espeakup; \
     in-target usermod -aG sudo @@VBOX_INSERT_USER_LOGIN@@; \
-    echo 'VOICE="@@VBOX_INSERT_VOICE@@"' > /target/etc/default/espeakup; \
-    echo 'RATE="120"' >> /target/etc/default/espeakup; \
-    echo 'VOLUME="100"' >> /target/etc/default/espeakup; \
-    echo 'PITCH="50"' >> /target/etc/default/espeakup; \
+    echo 'default_voice="@@VBOX_INSERT_VOICE@@"' > /target/etc/default/espeakup; \
+    echo 'default_rate="120"' >> /target/etc/default/espeakup; \
+    echo 'default_volume="100"' >> /target/etc/default/espeakup; \
+    echo 'default_pitch="50"' >> /target/etc/default/espeakup; \
     chmod 644 /target/etc/default/espeakup
 
 # --- Finalizar ----------------------------------------------------------------

@@ -348,10 +348,10 @@ A VM vem configurada com voz **pt-br** (português brasileiro) por padrão. Conf
 cat /etc/default/espeakup
 
 # Exemplo de conteúdo:
-# VOICE="pt-br"
-# RATE="120"
-# VOLUME="100"
-# PITCH="50"
+# default_voice="pt-br"
+# default_rate="120"
+# default_volume="100"
+# default_pitch="50"
 ```
 
 **Modificar configurações:**
@@ -371,7 +371,7 @@ sudo systemctl restart espeakup
 # Copiar configuração para /home (preservado)
 cp /etc/default/espeakup ~/.espeakup.conf
 
-# Editar sua cópia
+# Editar sua cópia (use default_voice, default_rate, default_volume, default_pitch)
 nano ~/.espeakup.conf
 
 # Criar link (após cada upgrade)
