@@ -174,6 +174,12 @@ build {
     destination = "/tmp/emacs-a11y-userdata.service"
   }
 
+  # Instalar configuração do espeakup (voz pt-br)
+  provisioner "file" {
+    source      = "${path.root}/files/espeakup.conf"
+    destination = "/tmp/espeakup.conf"
+  }
+
   # Configurar script e service
   provisioner "shell" {
     inline = [
@@ -183,7 +189,11 @@ build {
       "sudo mv /tmp/emacs-a11y-userdata.service /etc/systemd/system/",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable emacs-a11y-userdata.service",
-      "echo 'Setup de disco de dados configurado'"
+      "echo 'Setup de disco de dados configurado'",
+      "echo '=== Configurando voz pt-br no espeakup ==='",
+      "sudo mv /tmp/espeakup.conf /etc/default/espeakup",
+      "sudo chmod 644 /etc/default/espeakup",
+      "echo 'Voz pt-br configurada'"
     ]
   }
 

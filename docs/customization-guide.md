@@ -339,44 +339,75 @@ go install golang.org/x/tools/gopls@latest
 
 ## Ajustando Acessibilidade
 
-### Velocidade da Síntese de Voz (espeakup)
+### Configuração da Voz (espeakup)
+
+A VM vem configurada com voz **pt-br** (português brasileiro) por padrão. Configurações em `/etc/default/espeakup`:
 
 ```bash
-# Ver velocidade atual (0-9, padrão 5)
-cat /sys/accessibility/speakup/rate
+# Ver configuração atual
+cat /etc/default/espeakup
 
-# Ajustar temporariamente
-echo "7" | sudo tee /sys/accessibility/speakup/rate
-
-# Ajustar permanentemente (adicione ao ~/.profile)
-# Descomente no ~/.profile:
-# if [ -w /sys/accessibility/speakup/rate ]; then
-#     echo "7" | sudo tee /sys/accessibility/speakup/rate >/dev/null 2>&1
-# fi
+# Exemplo de conteúdo:
+# VOICE="pt-br"
+# RATE="120"
+# VOLUME="100"
+# PITCH="50"
 ```
 
-### Volume e Pitch
+**Modificar configurações:**
 
 ```bash
+# Editar configuração (requer sudo, será perdido em upgrades)
+sudo nano /etc/default/espeakup
+
+# Reiniciar serviço para aplicar
+sudo systemctl restart espeakup
+```
+
+⚠️ **IMPORTANTE**: Modificações em `/etc/default/espeakup` são **perdidas em upgrades**.  
+✅ **Solução**: Copie o arquivo para `/home` e crie link simbólico:
+
+```bash
+# Copiar configuração para /home (preservado)
+cp /etc/default/espeakup ~/.espeakup.conf
+
+# Editar sua cópia
+nano ~/.espeakup.conf
+
+# Criar link (após cada upgrade)
+sudo ln -sf ~/.espeakup.conf /etc/default/espeakup
+sudo systemctl restart espeakup
+```
+
+### Vozes Disponíveis
+
+```bash
+# Listar todas as vozes
+espeak --voices
+
+# Testar voz em português brasileiro
+espeak -v pt-br "Testando síntese de voz"
+
+# Outras vozes em português:
+espeak -v pt "Testando português de Portugal"
+```
+
+### Ajustes em Tempo Real (Temporários)
+
+```bash
+# Velocidade (rate: 80-450, padrão: 120)
+# Menor = mais lento, maior = mais rápido
+echo "5" | sudo tee /sys/accessibility/speakup/rate
+
 # Volume (0-9, padrão 5)
 echo "8" | sudo tee /sys/accessibility/speakup/volume
 
-# Pitch (0-9, padrão 5)
+# Pitch/Tom (0-9, padrão 5)
+# Menor = grave, maior = agudo
 echo "6" | sudo tee /sys/accessibility/speakup/pitch
 ```
 
-### Escolher Voz do eSpeak
-
-```bash
-# Listar vozes disponíveis
-espeak-ng --voices
-
-# Testar voz
-espeak-ng -v pt-BR "Testando síntese de voz"
-
-# Configurar permanentemente em ~/.profile
-export ESPEAKNG_VOICE="pt-BR"
-```
+⚠️ **Nota**: Ajustes via `/sys/accessibility/speakup/` são temporários e resetam ao reiniciar.
 
 ---
 

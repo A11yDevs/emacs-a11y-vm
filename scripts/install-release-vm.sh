@@ -25,6 +25,7 @@ USER_DATA_SIZE="10240"
 PRESERVE_USER_DATA="auto"
 KEEP_OLD_VM="false"
 FORCE_DOWNLOAD="false"
+HEADLESS="false"
 AUDIO_DRIVER=""
 
 usage() {
@@ -47,6 +48,7 @@ Opções:
   --no-preserve-user-data Não preserva disco de dados (instalação limpa)
   --keep-old-vm           Não remove VM existente com o mesmo nome
   --force-download        Força re-download mesmo se arquivo já existe
+  --headless              Inicia VM sem janela (background, acesso via SSH)
   -h, --help              Mostra esta ajuda
 
 Arquitetura de Discos:
@@ -142,6 +144,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --force-download)
             FORCE_DOWNLOAD="true"
+            shift
+            ;;
+        --headless)
+            HEADLESS="true"
             shift
             ;;
         -h|--help)
@@ -358,8 +364,17 @@ if [[ "$USER_DATA_VDI_EXISTS" == "true" ]]; then
     fi
 fi
 
-echo "==> Iniciando VM em modo headless"
-VBoxManage startvm "$VM_NAME" --type headless
+# Determinar modo de inicialização
+if [[ "$HEADLESS" == "true" ]]; then
+    VM_TYPE="headless"
+    VM_TYPE_DESC="headless (sem janela, acesso via SSH)"
+else
+    VM_TYPE="gui"
+    VM_TYPE_DESC="GUI (console visível)"
+fi
+
+echo "==> Iniciando VM em modo $VM_TYPE_DESC"
+VBoxManage startvm "$VM_NAME" --type "$VM_TYPE"
 
 cat << EOF
 
@@ -367,8 +382,33 @@ cat << EOF
 
 Release: ${OWNER}/${REPO} (${RESOLVED_TAG})
 VM:      ${VM_NAME}
-SSH:     ssh -p ${SSH_HOST_PORT} a11ydevs@localhost
+Modo:    ${VM_TYPE_DESC}
 
+EOF
+
+if [[ "$HEADLESS" == "true" ]]; then
+    cat << EOF
+VM rodando em background (modo headless)
+Para acessar, conecte via SSH:
+  ssh -p ${SSH_HOST_PORT} a11ydevs@localhost
+
+EOF
+else
+    cat << EOF
+VM iniciada com console visível!
+A janela do VirtualBox deve estar aberta.
+
+Use o console TUI para login direto:
+  usuário: a11ydevs
+  senha:   a11ydevs
+
+Acesso SSH também disponível:
+  ssh -p ${SSH_HOST_PORT} a11ydevs@localhost
+
+EOF
+fi
+
+cat << EOF
 Arquitetura de Discos:
   Sistema (SATA 0): ${VMDK_PATH}
 EOF
@@ -386,14 +426,6 @@ else
   Dados: Não configurado (tudo em disco único)
 EOF
 fi
-
-cat << EOF
-
-Credenciais padrão esperadas (release atual):
-  usuário: a11ydevs
-  senha:   a11ydevs
-
-EOF
 
 if [[ "$USER_DATA_VDI_EXISTS" == "true" ]]; then
     cat << EOF

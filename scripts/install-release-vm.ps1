@@ -42,6 +42,7 @@ param(
     [switch]$PreserveUserData,
     [switch]$KeepOldVM,
     [switch]$ForceDownload,
+    [switch]$Headless,
     [switch]$Help
 )
 
@@ -75,6 +76,7 @@ Opcoes:
   -PreserveUserData       Preserva disco de dados de VM existente (padrao: auto)
   -KeepOldVM              Nao remove VM existente com o mesmo nome
   -ForceDownload          Forca re-download mesmo se arquivo ja existe
+  -Headless               Inicia VM sem janela (background, acesso via SSH)
   -Help                   Mostra esta ajuda
 
 Arquitetura de Discos:
@@ -536,8 +538,12 @@ if ($UserDataVdiExists) {
     }
 }
 
-Write-Host "==> Iniciando VM em modo headless"
-$output = & $VBoxManagePath startvm "$VMName" --type headless 2>&1
+# Determinar modo de inicializacao
+$vmType = if ($Headless) { "headless" } else { "gui" }
+$vmTypeDesc = if ($Headless) { "headless (sem janela, acesso via SSH)" } else { "GUI (console visivel)" }
+
+Write-Host "==> Iniciando VM em modo $vmTypeDesc"
+$output = & $VBoxManagePath startvm "$VMName" --type $vmType 2>&1
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao iniciar VM. VBoxManage disse: $output"
@@ -551,7 +557,24 @@ Write-Host "===============================================" -ForegroundColor Gr
 Write-Host ""
 Write-Host "Release: $Owner/$Repo ($ResolvedTag)"
 Write-Host "VM:      $VMName"
-Write-Host "SSH:     ssh -p $SSHPort a11ydevs@localhost"
+Write-Host "Modo:    $vmTypeDesc"
+Write-Host ""
+
+if ($Headless) {
+    Write-Host "VM rodando em background (modo headless)" -ForegroundColor Yellow
+    Write-Host "Para acessar, conecte via SSH:" -ForegroundColor Cyan
+    Write-Host "  ssh -p $SSHPort a11ydevs@localhost" -ForegroundColor Green
+} else {
+    Write-Host "VM iniciada com console visivel!" -ForegroundColor Green
+    Write-Host "A janela do VirtualBox deve estar aberta." -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Use o console TUI para login direto:" -ForegroundColor Cyan
+    Write-Host "  usuario: a11ydevs" -ForegroundColor Green
+    Write-Host "  senha:   a11ydevs" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Acesso SSH tambem disponivel:" -ForegroundColor Cyan
+    Write-Host "  ssh -p $SSHPort a11ydevs@localhost" -ForegroundColor Gray
+}
 Write-Host ""
 Write-Host "Arquitetura de Discos:"
 Write-Host "  Sistema (SATA 0): $VmdkPath" -ForegroundColor Cyan
@@ -564,11 +587,7 @@ if ($UserDataVdiExists) {
 } else {
     Write-Host "  Dados: Nao configurado (tudo em disco unico)" -ForegroundColor Yellow
 }
-Write-Host ""
-Write-Host "Credenciais padrao esperadas (release atual):"
-Write-Host "  usuario: a11ydevs"
-Write-Host "  senha:   a11ydevs"
-Write-Host ""
+
 if ($UserDataVdiExists) {
     Write-Host "Para mais informacoes sobre customizacao e upgrades, veja:" -ForegroundColor Cyan
     Write-Host "  https://github.com/$Owner/$Repo/blob/main/docs/architecture.md"
