@@ -222,7 +222,12 @@ d-i preseed/late_command string \
     in-target sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=1/' /etc/default/grub; \
     in-target update-grub; \
     in-target systemctl enable espeakup; \
-    in-target usermod -aG sudo @@VBOX_INSERT_USER_LOGIN@@
+    in-target usermod -aG sudo @@VBOX_INSERT_USER_LOGIN@@; \
+    echo 'VOICE="@@VBOX_INSERT_VOICE@@"' > /target/etc/default/espeakup; \
+    echo 'RATE="120"' >> /target/etc/default/espeakup; \
+    echo 'VOLUME="100"' >> /target/etc/default/espeakup; \
+    echo 'PITCH="50"' >> /target/etc/default/espeakup; \
+    chmod 644 /target/etc/default/espeakup
 
 # --- Finalizar ----------------------------------------------------------------
 d-i finish-install/reboot_in_progress note
@@ -230,6 +235,21 @@ PRESEED_EOF
 
 # Substituir token de teclado que o VBoxManage não suporta nativamente
 sed -i.bak "s/@@VBOX_INSERT_KEYBOARD_LAYOUT@@/${VM_KEYBOARD}/g" "$PRESEED"
+rm -f "$PRESEED.bak"
+
+# Mapear idioma para voz do espeak
+case "$VM_LANGUAGE" in
+    pt) ESPEAK_VOICE="pt-br" ;;
+    en) ESPEAK_VOICE="en" ;;
+    es) ESPEAK_VOICE="es" ;;
+    fr) ESPEAK_VOICE="fr" ;;
+    de) ESPEAK_VOICE="de" ;;
+    it) ESPEAK_VOICE="it" ;;
+    *)  ESPEAK_VOICE="$VM_LANGUAGE" ;;
+esac
+
+# Substituir token de voz
+sed -i.bak "s/@@VBOX_INSERT_VOICE@@/${ESPEAK_VOICE}/g" "$PRESEED"
 rm -f "$PRESEED.bak"
 
 # ==============================================================================
