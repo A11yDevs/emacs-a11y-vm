@@ -272,6 +272,28 @@ Esse comando mostra:
 - Status dos serviços de acessibilidade
 - Vozes disponíveis
 
+**Detecção inteligente de versão:**
+
+Os scripts de instalação (`install-release-vm.sh` e `install-release-vm.ps1`) usam **comparação por versão** (não por tamanho de arquivo) para evitar downloads desnecessários:
+
+1. **Primeira instalação**: Baixa o VMDK e cria arquivo `.version` ao lado (ex: `releases/debian-a11ydevs.vmdk.version`)
+2. **Reinstalação mesma versão**: Detecta versão igual no `.version`, **pula download** ✅
+3. **Upgrade (nova versão)**: Detecta versão diferente, baixa nova release 🔄
+4. **Forçar download**: Use `-ForceDownload` (PS1) ou `--force-download` (bash) para ignorar `.version` e baixar sempre
+
+**Por que comparação por versão?**
+
+Comparar tamanhos de arquivo não funciona com VMDKs porque:
+- VMDK é um formato dinâmico que cresce com uso
+- Ao inicializar a VM, logs e estado alteram o tamanho do arquivo
+- Mesmo sem mudanças do usuário, o tamanho muda
+
+Com comparação por versão:
+- ✅ Não baixa VMDK desnecessariamente
+- ✅ Funciona mesmo após VM ser inicializada (VMDK alterado)
+- ✅ Lógica mais confiável e previsível
+- ✅ Suporta upgrade e downgrade de versões
+
 **Configuração de rede:**
 
 Por padrão, as VMs são criadas em **modo bridge** (acesso direto na rede local):
