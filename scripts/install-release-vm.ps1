@@ -211,17 +211,12 @@ Write-Host "    VirtualBox versao: $vboxVersion" -ForegroundColor Green
 
 
 # Criar diretorio de saida se nao existir
-# Tenta usar o caminho relativo ao script, senao usa o diretorio atual
+# Para caminhos relativos, usar o diretorio atual do usuario
 if ($OutputDir.StartsWith(".\") -or $OutputDir.StartsWith("./") -or -not [System.IO.Path]::IsPathRooted($OutputDir)) {
-    if ($PSScriptRoot) {
-        # Executando de um arquivo .ps1 - usar pasta pai do script
-        $ScriptParentDir = Split-Path $PSScriptRoot -Parent
-        $OutputDirPath = Join-Path $ScriptParentDir $OutputDir
-    } else {
-        # Executando via iex/download direto
-        $OutputDirPath = Join-Path (Get-Location) $OutputDir
-    }
+    # Caminho relativo - usar diretório atual onde o usuário executou o script
+    $OutputDirPath = Join-Path (Get-Location) $OutputDir
 } else {
+    # Caminho absoluto - usar como está
     $OutputDirPath = $OutputDir
 }
 
@@ -300,6 +295,20 @@ $AssetName = $VmdkAsset.name
 $ResolvedTag = $ReleaseJson.tag_name
 
 $VmdkPath = Join-Path $OutputDirPath $AssetName
+
+# Verificar se o arquivo está em subpasta duplicada (bug de versões antigas)
+$possibleWrongPath = Join-Path $OutputDirPath "releases\$AssetName"
+if (-not (Test-Path $VmdkPath) -and (Test-Path $possibleWrongPath)) {
+    Write-Host "==> Arquivo encontrado em local incorreto (bug de versão antiga)" -ForegroundColor Yellow
+    Write-Host "    Movendo de: $possibleWrongPath" -ForegroundColor Yellow
+    Write-Host "    Para:       $VmdkPath" -ForegroundColor Yellow
+    try {
+        Move-Item -Path $possibleWrongPath -Destination $VmdkPath -Force
+        Write-Host "    Arquivo movido com sucesso" -ForegroundColor Green
+    } catch {
+        Write-Host "    Aviso: Não foi possível mover. Continuando com download..." -ForegroundColor Yellow
+    }
+}
 
 # Verificar se arquivo ja existe
 $skipDownload = $false
@@ -501,8 +510,16 @@ if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao adicionar controlador SATA. VBoxManage disse: $output"
 }
 
-# Converter caminho para formato absoluto
-$VmdkAbsolutePath = (Resolve-Path $VmdkPath).Path
+# Converter caminho para formato absoluto (verificar novamente antes de converter)
+if (-not (Test-Path $VmdkPath)) {
+    Write-Error-Exit "Arquivo VMDK desapareceu antes de ser anexado: $VmdkPath`nO arquivo pode ter sido movido, deletado ou bloqueado por antivirus."
+}
+
+try {
+    $VmdkAbsolutePath = (Resolve-Path $VmdkPath -ErrorAction Stop).Path
+} catch {
+    Write-Error-Exit "Falha ao resolver caminho do VMDK: $VmdkPath`nErro: $_"
+}
 
 Write-Host "==> Anexando disco de sistema (VMDK)"
 $output = & $VBoxManagePath storageattach "$VMName" `
