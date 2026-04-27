@@ -226,7 +226,49 @@ Após criar a VM, o acesso padrão por SSH é:
 ssh -p 2222 a11ydevs@localhost
 ```
 
-Observação: este fluxo ainda não possui um arquivo `.md` dedicado. No momento, a referência principal são os próprios scripts [scripts/install-release-vm.sh](scripts/install-release-vm.sh) e [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1), além desta seção do README.
+### Arquitetura de Dois Discos
+
+A VM usa uma **arquitetura de dois discos** para separar sistema e dados do usuário:
+
+```
+┌─────────────────────────────────────┐
+│  Disco 1 (Sistema)  │  Disco 2 (Dados) │
+│      VMDK           │      VDI         │
+│   (Imutável)        │  (Persistente)   │
+└─────────────────────────────────────┘
+      Substituído           Preservado
+      em upgrades          em upgrades
+```
+
+**Benefícios:**
+
+✅ **Liberdade de customização** - Customize Emacs, dotfiles e instale pacotes sem restrições  
+✅ **Upgrades seguros** - Atualize o sistema base sem perder suas configurações  
+✅ **Backup simples** - Copie apenas o disco de dados (VDI)  
+✅ **Rollback fácil** - Troque versões do sistema sem afetar seus dados  
+
+**Discos:**
+
+- **Disco 1 (Sistema VMDK)**: Debian + Emacs + espeakup (da release GitHub)
+- **Disco 2 (Dados VDI)**: `/home` completo com suas configurações e projetos
+
+Suas configurações do Emacs (`.emacs.d`), dotfiles (`.bashrc`, `.profile`), projetos e arquivos pessoais ficam no **disco de dados** e são **automaticamente preservados** em upgrades.
+
+**Customização:**
+
+```bash
+# Aumentar tamanho do disco de dados (padrão: 10GB)
+./scripts/install-release-vm.sh --user-data-size 20480  # 20GB
+
+# PowerShell (Windows)
+.\scripts\install-release-vm.ps1 -UserDataSize 20480
+```
+
+**Documentação detalhada:**
+
+- [docs/architecture.md](docs/architecture.md) - Arquitetura completa do sistema de dois discos
+- [docs/customization-guide.md](docs/customization-guide.md) - Como personalizar Emacs e sistema com segurança
+- [docs/upgrade-guide.md](docs/upgrade-guide.md) - Como atualizar para novas versões preservando dados
 
 ## Qual opção usar?
 
@@ -239,6 +281,9 @@ Observação: este fluxo ainda não possui um arquivo `.md` dedicado. No momento
 - [docs/debian-a11y-minimal-vm.md](docs/debian-a11y-minimal-vm.md): tutorial manual de criação da VM acessível.
 - [docs/generate-vm.md](docs/generate-vm.md): documentação do fluxo automatizado com [scripts/setup-vm.sh](scripts/setup-vm.sh).
 - [docs/github-releases.md](docs/github-releases.md): documentação complementar sobre distribuição e publicação de releases no GitHub, incluindo o papel de [.github](.github) e [packer](packer).
+- [docs/architecture.md](docs/architecture.md): arquitetura de dois discos (sistema imutável + dados persistentes).
+- [docs/customization-guide.md](docs/customization-guide.md): guia para personalizar Emacs, dotfiles e sistema com segurança.
+- [docs/upgrade-guide.md](docs/upgrade-guide.md): como atualizar a VM preservando configurações e dados.
 - [scripts/setup-vm.sh](scripts/setup-vm.sh): script para criação automática da VM a partir de uma ISO Debian.
 - [scripts/install-release-vm.sh](scripts/install-release-vm.sh): script Bash para baixar e instalar uma VM pronta via release do GitHub (Linux/macOS).
 - [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1): script PowerShell para baixar e instalar uma VM pronta via release do GitHub (Windows).

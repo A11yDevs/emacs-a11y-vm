@@ -1,0 +1,155 @@
+# ~/.bashrc - Configuração do Bash para emacs-a11y-vm
+
+# Se não está executando interativamente, não fazer nada
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# ==============================================================================
+# Histórico
+# ==============================================================================
+
+# Aumentar tamanho do histórico
+HISTSIZE=5000
+HISTFILESIZE=10000
+
+# Não adicionar comandos duplicados ou que começam com espaço
+HISTCONTROL=ignoreboth
+
+# Adicionar timestamp ao histórico
+HISTTIMEFORMAT="%F %T "
+
+# Append ao histórico (não sobrescrever)
+shopt -s histappend
+
+# ==============================================================================
+# Comportamento do Shell
+# ==============================================================================
+
+# Checar tamanho da janela após cada comando
+shopt -s checkwinsize
+
+# Pattern matching com ** (recursive glob)
+shopt -s globstar 2>/dev/null
+
+# Correção automática de erros de digitação em cd
+shopt -s cdspell
+
+# ==============================================================================
+# Prompt - Simples e informativo para leitores de tela
+# ==============================================================================
+
+# Cores básicas (apenas se terminal suportar)
+if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+    # Prompt colorido, mas simples
+    PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+else
+    # Prompt sem cores para máxima compatibilidade
+    PS1='\u@\h:\w\$ '
+fi
+
+# ==============================================================================
+# Aliases Úteis
+# ==============================================================================
+
+# Segurança: confirmar antes de sobrescrever/deletar
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+
+# Listagem de arquivos
+alias ls='ls --color=auto'
+alias ll='ls -lh'
+alias la='ls -lah'
+alias l='ls -CF'
+
+# Navegação
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+
+# Grep com cores
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+
+# Atalhos úteis
+alias h='history'
+alias j='jobs -l'
+alias df='df -h'
+alias du='du -h'
+alias free='free -h'
+
+# Emacs
+alias e='emacs -nw'  # Emacs no terminal
+alias em='emacs'     # Emacs (modo padrão)
+
+# Git (se instalado)
+if command -v git >/dev/null 2>&1; then
+    alias gs='git status'
+    alias ga='git add'
+    alias gc='git commit'
+    alias gp='git push'
+    alias gl='git log --oneline --graph --decorate'
+fi
+
+# ==============================================================================
+# Funções Úteis
+# ==============================================================================
+
+# Criar diretório e entrar nele
+mkcd() {
+    mkdir -p "$1" && cd "$1"
+}
+
+# Extrair arquivos compactados
+extract() {
+    if [ -f "$1" ]; then
+        case "$1" in
+            *.tar.bz2)   tar xjf "$1"    ;;
+            *.tar.gz)    tar xzf "$1"    ;;
+            *.tar.xz)    tar xJf "$1"    ;;
+            *.bz2)       bunzip2 "$1"    ;;
+            *.gz)        gunzip "$1"     ;;
+            *.tar)       tar xf "$1"     ;;
+            *.tbz2)      tar xjf "$1"    ;;
+            *.tgz)       tar xzf "$1"    ;;
+            *.zip)       unzip "$1"      ;;
+            *.Z)         uncompress "$1" ;;
+            *.7z)        7z x "$1"       ;;
+            *)           echo "'$1' não pode ser extraído via extract()" ;;
+        esac
+    else
+        echo "'$1' não é um arquivo válido"
+    fi
+}
+
+# ==============================================================================
+# Completion
+# ==============================================================================
+
+# Habilitar bash completion se disponível
+if [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+elif [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+fi
+
+# ==============================================================================
+# Mensagem de boas-vindas
+# ==============================================================================
+
+# Comentar se preferir sem mensagem
+if [ -f /etc/motd ]; then
+    cat /etc/motd
+fi
+
+# ==============================================================================
+# Configurações adicionais do usuário
+# ==============================================================================
+
+# Carrega configurações locais se existirem
+if [ -f ~/.bashrc.local ]; then
+    . ~/.bashrc.local
+fi

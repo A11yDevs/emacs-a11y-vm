@@ -1,0 +1,16 @@
+[Unit]
+Description=Setup user data disk for emacs-a11y VM
+Documentation=https://github.com/A11yDevs/emacs-a11y-vm/blob/main/docs/architecture.md
+After=local-fs.target
+Before=multi-user.target
+ConditionPathExists=!/home/.emacs-a11y-userdata-initialized
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/setup-userdata-disk.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

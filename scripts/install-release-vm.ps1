@@ -38,6 +38,8 @@ param(
     [int]$SSHPort = 2222,
     [string]$OutputDir = "releases",
     [string]$AudioDriver = "",
+    [int]$UserDataSize = 10240,
+    [switch]$PreserveUserData,
     [switch]$KeepOldVM,
     [switch]$ForceDownload,
     [switch]$Help
@@ -69,15 +71,22 @@ Opcoes:
   -SSHPort <porta>        Porta SSH no host (NAT PF host:guest 2222:22)
   -OutputDir <dir>        Pasta para baixar o VMDK (padrao: .\releases)
   -AudioDriver <driver>   Driver de audio do VirtualBox (auto por padrao)
+  -UserDataSize <mb>      Tamanho do disco de dados em MB (padrao: 10240 = 10GB)
+  -PreserveUserData       Preserva disco de dados de VM existente (padrao: auto)
   -KeepOldVM              Nao remove VM existente com o mesmo nome
   -ForceDownload          Forca re-download mesmo se arquivo ja existe
   -Help                   Mostra esta ajuda
 
+Arquitetura de Discos:
+  Disco 1 (Sistema): VMDK imutavel da release (substituido em upgrades)
+  Disco 2 (Dados):   VDI persistente local em /home (preservado em upgrades)
+
 Fluxo:
   1) Busca release via API GitHub
-  2) Baixa asset .vmdk
+  2) Baixa asset .vmdk (disco de sistema)
   3) Cria VM VirtualBox (Debian_64)
-  4) Anexa disco VMDK e habilita NAT + SSH forwarding
+  4) Anexa disco VMDK (sistema) e VDI (dados do usuario)
+  5) Habilita NAT + SSH forwarding
 "@
 }
 
@@ -355,6 +364,16 @@ $finalFileSizeMB = [math]::Round($finalFileSize / 1MB, 2)
 Write-Host "    Arquivo encontrado: $finalFileSizeMB MB" -ForegroundColor Green
 Write-Host "    Caminho completo: $VmdkPath" -ForegroundColor Cyan
 
+# Determinar caminho do disco de dados (VDI persistente)
+$UserDataVdiPath = Join-Path $OutputDirPath "$VMName-userdata.vdi"
+$UserDataVdiExists = Test-Path $UserDataVdiPath
+
+# Auto-habilitar PreserveUserData se disco ja existir
+if ($UserDataVdiExists -and -not $PSBoundParameters.ContainsKey('PreserveUserData')) {
+    $PreserveUserData = $true
+    Write-Host "==> Disco de dados detectado, preservacao automatica habilitada" -ForegroundColor Cyan
+}
+
 Write-Host "==> Verificando VM existente: $VMName"
 
 # Verificar se VM existe
@@ -370,6 +389,18 @@ if ($VMExists) {
     if ($KeepOldVM) {
         Write-Error-Exit "VM '$VMName' ja existe e -KeepOldVM foi usado. Escolha outro -VMName."
     }
+    
+    # Se PreserveUserData ativo, desanexar disco de dados antes de remover VM
+    if ($PreserveUserData -and $UserDataVdiExists) {
+        Write-Host "    Desanexando disco de dados antes de remover VM..." -ForegroundColor Yellow
+        try {
+            # Tentar desanexar o disco da porta 1 (onde esperamos que esteja)
+            $null = VBoxManage storageattach $VMName --storagectl "SATA" --port 1 --device 0 --medium none 2>&1
+        } catch {
+            Write-Host "    Aviso: Nao foi possivel desanexar disco de dados" -ForegroundColor Yellow
+        }
+    }
+    
     Write-Host "    VM existente encontrada, removendo..." -ForegroundColor Yellow
     try {
         $null = VBoxManage unregistervm $VMName --delete 2>&1
@@ -419,12 +450,65 @@ if ($LASTEXITCODE -ne 0) {
 # Converter caminho para formato absoluto
 $VmdkAbsolutePath = (Resolve-Path $VmdkPath).Path
 
+Write-Host "==> Anexando disco de sistema (VMDK)"
 $output = VBoxManage storageattach $VMName `
     --storagectl "SATA" --port 0 --device 0 `
     --type hdd --medium $VmdkAbsolutePath 2>&1
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output"
+}
+
+Write-Host "    Disco de sistema anexado na porta SATA 0" -ForegroundColor Green
+
+# Criar ou reutilizar disco de dados do usuario (VDI persistente)
+Write-Host "==> Configurando disco de dados do usuario"
+
+if ($UserDataVdiExists) {
+    $existingVdi = Get-Item $UserDataVdiPath
+    $existingSizeMB = [math]::Round($existingVdi.Length / 1MB, 2)
+    Write-Host "    Disco de dados existente encontrado: $existingSizeMB MB" -ForegroundColor Green
+    Write-Host "    Reutilizando: $UserDataVdiPath" -ForegroundColor Cyan
+} else {
+    Write-Host "    Criando novo disco de dados VDI: $UserDataSize MB" -ForegroundColor Yellow
+    
+    try {
+        $output = VBoxManage createmedium disk `
+            --filename $UserDataVdiPath `
+            --size $UserDataSize `
+            --format VDI `
+            --variant Standard 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "    Aviso: Falha ao criar disco de dados: $output" -ForegroundColor Yellow
+            Write-Host "    Continuando sem disco de dados separado" -ForegroundColor Yellow
+            $UserDataVdiExists = $false
+        } else {
+            Write-Host "    Disco de dados criado com sucesso" -ForegroundColor Green
+            $UserDataVdiExists = $true
+        }
+    } catch {
+        Write-Host "    Aviso: Erro ao criar disco de dados: $_" -ForegroundColor Yellow
+        Write-Host "    Continuando sem disco de dados separado" -ForegroundColor Yellow
+        $UserDataVdiExists = $false
+    }
+}
+
+# Anexar disco de dados na porta SATA 1
+if ($UserDataVdiExists) {
+    $UserDataVdiAbsolutePath = (Resolve-Path $UserDataVdiPath).Path
+    
+    $output = VBoxManage storageattach $VMName `
+        --storagectl "SATA" --port 1 --device 0 `
+        --type hdd --medium $UserDataVdiAbsolutePath 2>&1
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "    Aviso: Falha ao anexar disco de dados: $output" -ForegroundColor Yellow
+        Write-Host "    VM continuara funcionando, mas sem disco de dados separado" -ForegroundColor Yellow
+        $UserDataVdiExists = $false
+    } else {
+        Write-Host "    Disco de dados anexado na porta SATA 1" -ForegroundColor Green
+    }
 }
 
 Write-Host "==> Iniciando VM em modo headless"
@@ -441,13 +525,29 @@ Write-Host "  VM criada e iniciada com sucesso!" -ForegroundColor Green
 Write-Host "===============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Release: $Owner/$Repo ($ResolvedTag)"
-Write-Host "Disco:   $VmdkPath"
 Write-Host "VM:      $VMName"
 Write-Host "SSH:     ssh -p $SSHPort a11ydevs@localhost"
+Write-Host ""
+Write-Host "Arquitetura de Discos:"
+Write-Host "  Sistema (SATA 0): $VmdkPath" -ForegroundColor Cyan
+if ($UserDataVdiExists) {
+    Write-Host "  Dados (SATA 1):   $UserDataVdiPath" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "O disco de dados sera montado automaticamente em /home" -ForegroundColor Yellow
+    Write-Host "no primeiro boot. Suas configuracoes do Emacs e arquivos" -ForegroundColor Yellow
+    Write-Host "pessoais serao preservados em upgrades futuros." -ForegroundColor Yellow
+} else {
+    Write-Host "  Dados: Nao configurado (tudo em disco unico)" -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host "Credenciais padrao esperadas (release atual):"
 Write-Host "  usuario: a11ydevs"
 Write-Host "  senha:   a11ydevs"
+Write-Host ""
+if ($UserDataVdiExists) {
+    Write-Host "Para mais informacoes sobre customizacao e upgrades, veja:" -ForegroundColor Cyan
+    Write-Host "  https://github.com/$Owner/$Repo/blob/main/docs/architecture.md"
+}
 Write-Host ""
 
 Pause-BeforeExit 0

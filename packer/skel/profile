@@ -1,0 +1,100 @@
+# ~/.profile - Variáveis de ambiente para emacs-a11y-vm
+
+# Este arquivo é lido por shells de login (bash, sh, dash, etc)
+# Para configurações específicas do bash, use ~/.bashrc
+
+# ==============================================================================
+# PATH
+# ==============================================================================
+
+# Adicionar diretórios locais ao PATH se existirem
+if [ -d "$HOME/.local/bin" ]; then
+    PATH="$HOME/.local/bin:$PATH"
+fi
+
+if [ -d "$HOME/bin" ]; then
+    PATH="$HOME/bin:$PATH"
+fi
+
+# ==============================================================================
+# Editor Padrão
+# ==============================================================================
+
+# Usar Emacs como editor padrão (modo terminal)
+export EDITOR="emacs -nw"
+export VISUAL="emacs -nw"
+
+# Alternativa: usar nano se preferir editor mais simples
+# export EDITOR="nano"
+# export VISUAL="nano"
+
+# ==============================================================================
+# Pager
+# ==============================================================================
+
+# Usar less como pager padrão
+export PAGER="less"
+
+# Opções do less
+# -R: exibir cores
+# -F: sair automaticamente se conteúdo cabe em uma tela
+# -X: não limpar tela ao sair
+export LESS="-R -F -X"
+
+# ==============================================================================
+# Locale e Idioma
+# ==============================================================================
+
+# Configuração de idioma (pt_BR.UTF-8)
+# Já configurado no sistema, mas pode ser customizado aqui
+# export LANG=pt_BR.UTF-8
+# export LC_ALL=pt_BR.UTF-8
+
+# ==============================================================================
+# Python
+# ==============================================================================
+
+# Habilitar cache de bytecode Python
+export PYTHONDONTWRITEBYTECODE=0
+
+# Configurar virtualenv para criar em diretório local
+export WORKON_HOME="$HOME/.virtualenvs"
+
+# ==============================================================================
+# Cores para ls e grep
+# ==============================================================================
+
+# Cores automáticas para ls (GNU coreutils)
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+fi
+
+# ==============================================================================
+# Acessibilidade
+# ==============================================================================
+
+# Ajustar velocidade do espeakup (síntese de voz)
+# Valores: 0 (mais lento) a 9 (mais rápido). Padrão: 5
+# Descomente e ajuste conforme preferência:
+# if [ -w /sys/accessibility/speakup/rate ]; then
+#     echo "5" | sudo tee /sys/accessibility/speakup/rate >/dev/null 2>&1
+# fi
+
+# ==============================================================================
+# Carregar .bashrc se estiver usando bash
+# ==============================================================================
+
+if [ -n "$BASH_VERSION" ]; then
+    if [ -f "$HOME/.bashrc" ]; then
+        . "$HOME/.bashrc"
+    fi
+fi
+
+# ==============================================================================
+# Configurações adicionais do usuário
+# ==============================================================================
+
+# Carrega configurações locais se existirem
+if [ -f ~/.profile.local ]; then
+    . ~/.profile.local
+fi

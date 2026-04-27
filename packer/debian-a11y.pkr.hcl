@@ -140,15 +140,59 @@ build {
   name    = "debian-a11y"
   sources = ["source.qemu.debian-a11y"]
 
+  # Copiar dotfiles recomendados
+  provisioner "file" {
+    source      = "${path.root}/skel/"
+    destination = "/tmp/emacs-a11y-skel"
+  }
+
+  # Instalar dotfiles em /etc/skel/emacs-a11y/
+  provisioner "shell" {
+    inline = [
+      "echo '=== Instalando dotfiles recomendados ==='",
+      "sudo mkdir -p /etc/skel/emacs-a11y",
+      "sudo cp -r /tmp/emacs-a11y-skel/. /etc/skel/emacs-a11y/",
+      "sudo chmod -R 755 /etc/skel/emacs-a11y",
+      "echo 'Dotfiles instalados em /etc/skel/emacs-a11y/'"
+    ]
+  }
+
+  # Instalar script de setup de disco de dados
+  provisioner "file" {
+    source      = "${path.root}/scripts/setup-userdata-disk.sh"
+    destination = "/tmp/setup-userdata-disk.sh"
+  }
+
+  # Instalar systemd service para disco de dados
+  provisioner "file" {
+    source      = "${path.root}/files/emacs-a11y-userdata.service"
+    destination = "/tmp/emacs-a11y-userdata.service"
+  }
+
+  # Configurar script e service
+  provisioner "shell" {
+    inline = [
+      "echo '=== Configurando disco de dados persistente ==='",
+      "sudo mv /tmp/setup-userdata-disk.sh /usr/local/sbin/",
+      "sudo chmod +x /usr/local/sbin/setup-userdata-disk.sh",
+      "sudo mv /tmp/emacs-a11y-userdata.service /etc/systemd/system/",
+      "sudo systemctl daemon-reload",
+      "sudo systemctl enable emacs-a11y-userdata.service",
+      "echo 'Setup de disco de dados configurado'"
+    ]
+  }
+
   # Verificação mínima pós-instalação
   provisioner "shell" {
     inline = [
       "echo '=== Verificando instalação ==='",
       "uname -a",
       "systemctl is-enabled espeakup && echo 'espeakup: OK' || echo 'espeakup: AVISO — serviço não encontrado'",
+      "systemctl is-enabled emacs-a11y-userdata && echo 'userdata setup: OK' || echo 'userdata setup: AVISO'",
       "command -v emacs  && emacs --version | head -1 || echo 'emacs: AVISO — não encontrado'",
       "command -v ssh    && ssh -V || echo 'ssh: AVISO — não encontrado'",
       "grep -q 'speakup.synth=soft' /etc/default/grub && echo 'GRUB speakup: OK' || echo 'GRUB speakup: AVISO'",
+      "test -x /usr/local/sbin/setup-userdata-disk.sh && echo 'setup-userdata-disk.sh: OK' || echo 'setup-userdata-disk.sh: AVISO'",
     ]
   }
 }
