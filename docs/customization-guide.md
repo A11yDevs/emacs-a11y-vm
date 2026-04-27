@@ -348,10 +348,10 @@ A VM vem configurada com voz **pt-br** (português brasileiro) por padrão. Conf
 cat /etc/default/espeakup
 
 # Exemplo de conteúdo:
-# default_voice="pt-br"
-# default_rate="120"
-# default_volume="100"
-# default_pitch="50"
+# default_voice=pt-br
+# default_rate=120
+# default_volume=100
+# default_pitch=50
 ```
 
 **Modificar configurações:**
