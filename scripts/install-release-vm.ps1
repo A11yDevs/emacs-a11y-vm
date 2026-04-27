@@ -440,18 +440,27 @@ if ($VMExists) {
         Write-Error-Exit "VM '$VMName' ja existe e -KeepOldVM foi usado. Escolha outro -VMName."
     }
     
-    # Se PreserveUserData ativo, desanexar disco de dados antes de remover VM
+    Write-Host "    VM existente encontrada, desanexando discos antes de remover..." -ForegroundColor Yellow
+    
+    # Desanexar disco de dados (porta 1) se existir e PreserveUserData ativo
     if ($PreserveUserData -and $UserDataVdiExists) {
-        Write-Host "    Desanexando disco de dados antes de remover VM..." -ForegroundColor Yellow
         try {
-            # Tentar desanexar o disco da porta 1 (onde esperamos que esteja)
             $null = & $VBoxManagePath storageattach "$VMName" --storagectl "SATA" --port 1 --device 0 --medium none 2>&1
+            Write-Host "    Disco de dados desanexado" -ForegroundColor Green
         } catch {
-            Write-Host "    Aviso: Nao foi possivel desanexar disco de dados" -ForegroundColor Yellow
+            Write-Host "    Aviso: Nao foi possivel desanexar disco de dados (pode nao estar anexado)" -ForegroundColor Yellow
         }
     }
     
-    Write-Host "    VM existente encontrada, removendo..." -ForegroundColor Yellow
+    # Desanexar disco de sistema (porta 0) para evitar que seja deletado junto com a VM
+    try {
+        $null = & $VBoxManagePath storageattach "$VMName" --storagectl "SATA" --port 0 --device 0 --medium none 2>&1
+        Write-Host "    Disco de sistema desanexado" -ForegroundColor Green
+    } catch {
+        Write-Host "    Aviso: Nao foi possivel desanexar disco de sistema (pode nao estar anexado)" -ForegroundColor Yellow
+    }
+    
+    Write-Host "    Removendo VM antiga..." -ForegroundColor Yellow
     try {
         $null = & $VBoxManagePath unregistervm "$VMName" --delete 2>&1
         Write-Host "    VM antiga removida com sucesso" -ForegroundColor Green

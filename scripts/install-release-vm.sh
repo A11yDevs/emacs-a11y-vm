@@ -318,13 +318,21 @@ if VBoxManage showvminfo "$VM_NAME" >/dev/null 2>&1; then
         die "VM '${VM_NAME}' já existe e --keep-old-vm foi usado. Escolha outro --vm-name."
     fi
     
-    # Se PreserveUserData ativo, desanexar disco de dados antes de remover VM
+    echo "    VM existente encontrada, desanexando discos antes de remover..."
+    
+    # Desanexar disco de dados (porta 1) se existir e PreserveUserData ativo
     if [[ "$PRESERVE_USER_DATA" == "true" ]] && [[ "$USER_DATA_VDI_EXISTS" == "true" ]]; then
-        echo "    Desanexando disco de dados antes de remover VM..."
-        VBoxManage storageattach "$VM_NAME" --storagectl "SATA" --port 1 --device 0 --medium none 2>/dev/null || true
+        VBoxManage storageattach "$VM_NAME" --storagectl "SATA" --port 1 --device 0 --medium none 2>/dev/null && \
+            echo "    Disco de dados desanexado" || \
+            echo "    Aviso: Não foi possível desanexar disco de dados (pode não estar anexado)"
     fi
     
-    echo "==> Removendo VM antiga: ${VM_NAME}"
+    # Desanexar disco de sistema (porta 0) para evitar que seja deletado junto com a VM
+    VBoxManage storageattach "$VM_NAME" --storagectl "SATA" --port 0 --device 0 --medium none 2>/dev/null && \
+        echo "    Disco de sistema desanexado" || \
+        echo "    Aviso: Não foi possível desanexar disco de sistema (pode não estar anexado)"
+    
+    echo "    Removendo VM antiga..."
     VBoxManage unregistervm "$VM_NAME" --delete || true
 fi
 
