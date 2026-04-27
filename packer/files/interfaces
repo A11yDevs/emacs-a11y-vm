@@ -1,0 +1,10 @@
+# /etc/network/interfaces — Configuração de rede para Debian A11y VM
+#
+# Interface de loopback
+auto lo
+iface lo inet loopback
+
+# Interface de rede primária (DHCP)
+# enp0s3 é o nome padrão da primeira interface em VirtualBox
+auto enp0s3
+iface enp0s3 inet dhcp

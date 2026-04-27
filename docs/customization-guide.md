@@ -213,8 +213,13 @@ alias ec='emacsclient -t'  # Conecta ao daemon
 
 ### Ajustando o Prompt
 
+O sistema vem com prompt **minimalista** por padrão (`PS1='$ '`) para máxima acessibilidade. Se preferir mais informações:
+
 ```bash
-# Prompt simples e acessível
+# Prompt padrão (minimalista)
+PS1='$ '
+
+# Prompt com usuário e diretório
 PS1='\u@\h:\w\$ '
 
 # Prompt com cores (se terminal suportar)
@@ -223,6 +228,18 @@ PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
 # Prompt com status do Git (requer git-prompt)
 source /usr/lib/git-core/git-sh-prompt 2>/dev/null
 PS1='\u@\h:\w$(__git_ps1 " (%s)")\$ '
+```
+
+### Ajustando Tamanho do Terminal
+
+O sistema configura automaticamente 40 linhas (`stty rows 40`) para melhor experiência com leitores de tela. Para ajustar:
+
+```bash
+# Temporário (apenas sessão atual)
+stty rows 50
+
+# Permanente (adicionar ao ~/.bashrc.local)
+echo 'stty rows 50' >> ~/.bashrc.local
 ```
 
 ### Variáveis de Ambiente
@@ -334,6 +351,93 @@ export PATH="$HOME/go/bin:$PATH"
 # Instalar ferramentas
 go install golang.org/x/tools/gopls@latest
 ```
+
+---
+
+## Configuração de Rede
+
+### DHCP Automático (Padrão)
+
+A VM está configurada para obter IP automaticamente via DHCP na interface `enp0s3` (primeira interface de rede). Configuração em `/etc/network/interfaces`:
+
+```bash
+# Ver configuração atual
+cat /etc/network/interfaces
+
+# Saída esperada:
+# auto lo
+# iface lo inet loopback
+#
+# auto enp0s3
+# iface enp0s3 inet dhcp
+```
+
+### Verificar Status da Rede
+
+```bash
+# Ver interfaces disponíveis
+ip addr
+
+# Verificar se interface está ativa
+ip link show enp0s3
+
+# Ver configuração DHCP obtida
+ip addr show enp0s3
+
+# Testar conectividade
+ping -c 3 8.8.8.8
+```
+
+### Reiniciar Interface Manualmente
+
+Se a rede não subir automaticamente:
+
+```bash
+# Método 1: ifup/ifdown (recomendado)
+sudo ifdown enp0s3
+sudo ifup enp0s3
+
+# Método 2: systemd-networkd (se disponível)
+sudo systemctl restart networking
+
+# Método 3: forçar DHCP
+sudo dhclient -r enp0s3  # release
+sudo dhclient enp0s3     # request
+```
+
+### IP Estático (Opcional)
+
+Para configurar IP fixo, edite `/etc/network/interfaces`:
+
+```bash
+# IMPORTANTE: Fazer backup primeiro
+sudo cp /etc/network/interfaces /home/a11ydevs/interfaces.backup
+
+# Editar configuração
+sudo nano /etc/network/interfaces
+
+# Substituir "iface enp0s3 inet dhcp" por:
+auto enp0s3
+iface enp0s3 inet static
+    address 192.168.1.100
+    netmask 255.255.255.0
+    gateway 192.168.1.1
+    dns-nameservers 8.8.8.8 8.8.4.4
+
+# Aplicar
+sudo ifdown enp0s3 && sudo ifup enp0s3
+```
+
+⚠️ **IMPORTANTE**: Modificações em `/etc/network/interfaces` são **preservadas em upgrades** (arquivo está fora do sistema base).
+
+### Modo de Rede no VirtualBox
+
+A VM pode usar dois modos:
+
+- **Bridge** (padrão): VM recebe IP da rede local (acesso direto)
+- **NAT**: VM usa rede privada com port forwarding (SSH: localhost:2222)
+
+Para alternar, reconfigure a VM pelo VirtualBox Manager ou pelos scripts de instalação.
 
 ---
 

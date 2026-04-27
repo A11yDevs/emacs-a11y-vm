@@ -209,6 +209,18 @@ build {
     destination = "/tmp/configure-speakup.service"
   }
 
+  # Instalar configuração de rede
+  provisioner "file" {
+    source      = "${path.root}/files/interfaces"
+    destination = "/tmp/interfaces"
+  }
+
+  # Instalar mensagem de boas-vindas (motd)
+  provisioner "file" {
+    source      = "${path.root}/files/motd"
+    destination = "/tmp/motd"
+  }
+
   # Criar arquivo de versão da release
   provisioner "shell" {
     inline = [
@@ -249,7 +261,15 @@ build {
       "sudo mv /tmp/configure-speakup.service /etc/systemd/system/",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable configure-speakup.service",
-      "echo 'Script de configuração do speakup instalado'"
+      "echo 'Script de configuração do speakup instalado'",
+      "echo '=== Configurando rede (DHCP em enp0s3) ==='",
+      "sudo mv /tmp/interfaces /etc/network/interfaces",
+      "sudo chmod 644 /etc/network/interfaces",
+      "echo 'Configuração de rede instalada'",
+      "echo '=== Configurando mensagem de boas-vindas ==='",
+      "sed 's/@@VERSION@@/${var.version}/' /tmp/motd | sudo tee /etc/motd",
+      "sudo chmod 644 /etc/motd",
+      "echo 'Mensagem de boas-vindas configurada'"
     ]
   }
 
@@ -264,6 +284,8 @@ build {
       "command -v ssh    && ssh -V || echo 'ssh: AVISO — não encontrado'",
       "grep -q 'speakup.synth=soft' /etc/default/grub && echo 'GRUB speakup: OK' || echo 'GRUB speakup: AVISO'",
       "test -x /usr/local/sbin/setup-userdata-disk.sh && echo 'setup-userdata-disk.sh: OK' || echo 'setup-userdata-disk.sh: AVISO'",
+      "grep -q 'auto enp0s3' /etc/network/interfaces && echo 'Network config: OK' || echo 'Network config: AVISO'",
+      "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO'",
     ]
   }
 }

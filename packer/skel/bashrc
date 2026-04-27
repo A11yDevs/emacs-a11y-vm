@@ -37,17 +37,14 @@ shopt -s globstar 2>/dev/null
 shopt -s cdspell
 
 # ==============================================================================
-# Prompt - Simples e informativo para leitores de tela
+# Configuração do Terminal e Prompt
 # ==============================================================================
 
-# Cores básicas (apenas se terminal suportar)
-if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
-    # Prompt colorido, mas simples
-    PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-else
-    # Prompt sem cores para máxima compatibilidade
-    PS1='\u@\h:\w\$ '
-fi
+# Ajustar número de linhas para melhor acessibilidade
+stty rows 40 2>/dev/null
+
+# Prompt minimalista para leitores de tela
+PS1='$ '
 
 # ==============================================================================
 # Aliases Úteis
@@ -143,8 +140,8 @@ fi
 # Comentar se preferir sem mensagem
 if [ -f /etc/motd ]; then
     cat /etc/motd
-fi
-
+fiExibir mensagem simples apenas no login
+if [ -f /etc/motd ] && shopt -q login_shell
 # ==============================================================================
 # Configurações adicionais do usuário
 # ==============================================================================
