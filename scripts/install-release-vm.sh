@@ -145,7 +145,19 @@ else
     HAS_JQ="false"
 fi
 
-mkdir -p "$OUTPUT_DIR"
+# Resolver caminho absoluto do diretório de saída
+OUTPUT_DIR="$(cd "$(dirname "$OUTPUT_DIR")" 2>/dev/null && pwd)/$(basename "$OUTPUT_DIR")" || OUTPUT_DIR="$PWD/releases"
+
+echo "==> Configurando diretório de saída"
+echo "    Caminho: $OUTPUT_DIR"
+
+if [[ ! -d "$OUTPUT_DIR" ]]; then
+    echo "    Diretório não existe, criando..."
+    mkdir -p "$OUTPUT_DIR" || die "Falha ao criar diretório: $OUTPUT_DIR"
+    echo "    Diretório criado com sucesso"
+else
+    echo "    Diretório já existe"
+fi
 
 if [[ "$TAG" == "latest" ]]; then
     API_URL="https://api.github.com/repos/${OWNER}/${REPO}/releases/latest"
@@ -199,6 +211,27 @@ if [[ "$SKIP_DOWNLOAD" != "true" ]]; then
     curl -fL "$ASSET_URL" -o "$VMDK_PATH"
     [[ -f "$VMDK_PATH" ]] || die "Download falhou: ${VMDK_PATH}"
 fi
+
+# Verificação final: garantir que o arquivo VMDK existe antes de prosseguir
+echo "==> Verificando arquivo VMDK"
+if [[ ! -f "$VMDK_PATH" ]]; then
+    echo ""
+    echo "Erro: Arquivo VMDK não encontrado!"
+    echo "Caminho esperado: $VMDK_PATH"
+    echo ""
+    echo "Possíveis causas:"
+    echo "  1. Download foi interrompido"
+    echo "  2. Arquivo foi movido ou deletado"
+    echo "  3. Permissões de arquivo impedem acesso"
+    echo ""
+    echo "Solução: Execute o script novamente com --force-download"
+    die "Arquivo VMDK não encontrado"
+fi
+
+FINAL_FILE_SIZE="$(stat -f%z "$VMDK_PATH" 2>/dev/null || stat -c%s "$VMDK_PATH" 2>/dev/null || echo "0")"
+FINAL_FILE_SIZE_MB="$(awk "BEGIN {printf \"%.2f\", $FINAL_FILE_SIZE / 1048576}")"
+echo "    Arquivo encontrado: ${FINAL_FILE_SIZE_MB} MB"
+echo "    Caminho completo: $VMDK_PATH"
 
 echo "==> Verificando VM existente: ${VM_NAME}"
 if VBoxManage showvminfo "$VM_NAME" >/dev/null 2>&1; then

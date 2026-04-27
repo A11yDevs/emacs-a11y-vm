@@ -175,8 +175,9 @@ Write-Host "    VirtualBox versao: $vboxVersion" -ForegroundColor Green
 # Tenta usar o caminho relativo ao script, senao usa o diretorio atual
 if ($OutputDir.StartsWith(".\") -or $OutputDir.StartsWith("./") -or -not [System.IO.Path]::IsPathRooted($OutputDir)) {
     if ($PSScriptRoot) {
-        # Executando de um arquivo .ps1
-        $OutputDirPath = Join-Path $PSScriptRoot ".." $OutputDir
+        # Executando de um arquivo .ps1 - usar pasta pai do script
+        $ScriptParentDir = Split-Path $PSScriptRoot -Parent
+        $OutputDirPath = Join-Path $ScriptParentDir $OutputDir
     } else {
         # Executando via iex/download direto
         $OutputDirPath = Join-Path (Get-Location) $OutputDir
@@ -185,9 +186,14 @@ if ($OutputDir.StartsWith(".\") -or $OutputDir.StartsWith("./") -or -not [System
     $OutputDirPath = $OutputDir
 }
 
-Write-Host "==> Verificando diretorio de saida: $OutputDirPath"
+# Converter para caminho absoluto
+$OutputDirPath = [System.IO.Path]::GetFullPath($OutputDirPath)
+
+Write-Host "==> Configurando diretorio de saida"
+Write-Host "    Caminho: $OutputDirPath" -ForegroundColor Cyan
 
 if (-not (Test-Path $OutputDirPath)) {
+    Write-Host "    Diretorio nao existe, criando..." -ForegroundColor Yellow
     try {
         New-Item -ItemType Directory -Path $OutputDirPath -Force -ErrorAction Stop | Out-Null
         Write-Host "    Diretorio criado com sucesso" -ForegroundColor Green
@@ -207,6 +213,8 @@ if (-not (Test-Path $OutputDirPath)) {
             Write-Error-Exit "Sem permissao para criar diretorios. Erro: $($_.Exception.Message)"
         }
     }
+} else {
+    Write-Host "    Diretorio ja existe" -ForegroundColor Green
 }
 
 # Determinar driver de audio
@@ -325,6 +333,27 @@ if (-not $skipDownload) {
         Write-Error-Exit "Download falhou: $($_.Exception.Message)"
     }
 }
+
+# Verificacao final: garantir que o arquivo VMDK existe antes de prosseguir
+Write-Host "==> Verificando arquivo VMDK"
+if (-not (Test-Path $VmdkPath)) {
+    Write-Host ""
+    Write-Host "Erro: Arquivo VMDK nao encontrado!" -ForegroundColor Red
+    Write-Host "Caminho esperado: $VmdkPath" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Possíveis causas:" -ForegroundColor Yellow
+    Write-Host "  1. Download foi interrompido" -ForegroundColor Gray
+    Write-Host "  2. Arquivo foi movido ou deletado" -ForegroundColor Gray
+    Write-Host "  3. Permissões de arquivo impedem acesso" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Solução: Execute o script novamente com -ForceDownload" -ForegroundColor Cyan
+    Pause-BeforeExit 1
+}
+
+$finalFileSize = (Get-Item $VmdkPath).Length
+$finalFileSizeMB = [math]::Round($finalFileSize / 1MB, 2)
+Write-Host "    Arquivo encontrado: $finalFileSizeMB MB" -ForegroundColor Green
+Write-Host "    Caminho completo: $VmdkPath" -ForegroundColor Cyan
 
 Write-Host "==> Verificando VM existente: $VMName"
 
