@@ -40,7 +40,7 @@ param(
     [string]$AudioDriver = "",
     [int]$UserDataSize = 10240,
     [ValidateSet("nat", "bridge")]
-    [string]$NetworkMode = "nat",
+    [string]$NetworkMode = "bridge",
     [string]$BridgeAdapter = "",
     [switch]$PreserveUserData,
     [switch]$KeepOldVM,

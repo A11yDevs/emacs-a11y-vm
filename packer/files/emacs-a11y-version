@@ -1,0 +1,71 @@
+#!/bin/bash
+# Script para mostrar informações sobre a release instalada
+
+set -euo pipefail
+
+RELEASE_FILE="/etc/emacs-a11y-release"
+
+if [[ ! -f "$RELEASE_FILE" ]]; then
+    echo "Erro: Arquivo de release não encontrado ($RELEASE_FILE)"
+    echo "Esta pode ser uma instalação antiga sem rastreamento de versão."
+    exit 1
+fi
+
+echo "==================================================="
+echo "   Emacs A11y VM - Informações da Release"
+echo "==================================================="
+echo ""
+
+# Ler e mostrar informações da release
+while IFS='=' read -r key value; do
+    case "$key" in
+        EMACS_A11Y_VERSION)
+            echo "Versão: $value"
+            ;;
+        BUILD_DATE)
+            echo "Data do Build: $value"
+            ;;
+    esac
+done < "$RELEASE_FILE"
+
+echo ""
+echo "==================================================="
+echo "   Configuração de Acessibilidade"
+echo "==================================================="
+echo ""
+
+# Verificar configuração do espeakup
+if [[ -f /etc/default/espeakup ]]; then
+    echo "Configuração do espeakup (/etc/default/espeakup):"
+    grep -E "^(VOICE|RATE|VOLUME|PITCH)=" /etc/default/espeakup || echo "  (nenhuma configuração encontrada)"
+else
+    echo "Aviso: /etc/default/espeakup não encontrado"
+fi
+
+echo ""
+
+# Status do serviço espeakup
+if systemctl is-active espeakup >/dev/null 2>&1; then
+    echo "Serviço espeakup: ✓ Ativo"
+else
+    echo "Serviço espeakup: ✗ Inativo"
+fi
+
+echo ""
+
+# Verificar vozes disponíveis
+if command -v espeak >/dev/null 2>&1; then
+    echo "Vozes espeak disponíveis com 'pt':"
+    espeak --voices | grep -i pt || echo "  (nenhuma voz em português encontrada)"
+fi
+
+if command -v espeak-ng >/dev/null 2>&1; then
+    echo ""
+    echo "Vozes espeak-ng disponíveis com 'pt':"
+    espeak-ng --voices | grep -i pt || echo "  (nenhuma voz em português encontrada)"
+fi
+
+echo ""
+echo "==================================================="
+echo ""
+echo "Para mais informações, veja: /etc/emacs-a11y-release"

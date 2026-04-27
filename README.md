@@ -57,7 +57,7 @@ Esse fluxo:
 - baixa automaticamente o asset `.vmdk`
 - cria uma VM Debian no VirtualBox
 - anexa o disco baixado
-- configura rede NAT com redirecionamento de porta para SSH
+- configura rede bridge (padrão) ou NAT (opcional, com port forwarding para SSH)
 
 Use este caminho quando você quiser subir rapidamente uma VM já pronta, sem passar pela instalação do Debian.
 
@@ -253,6 +253,42 @@ A VM usa uma **arquitetura de dois discos** para separar sistema e dados do usu�
 - **Disco 2 (Dados VDI)**: `/home` completo com suas configurações e projetos
 
 Suas configurações do Emacs (`.emacs.d`), dotfiles (`.bashrc`, `.profile`), projetos e arquivos pessoais ficam no **disco de dados** e são **automaticamente preservados** em upgrades.
+
+**Verificar versão instalada:**
+
+```bash
+# Conecte à VM via SSH (se modo NAT)
+ssh -p 2222 a11ydevs@localhost
+
+# Ou acesse diretamente no console (modo bridge ou GUI)
+# Execute o comando:
+emacs-a11y-version
+```
+
+Esse comando mostra:
+- Versão da release (ex: 2.0.1)
+- Data do build
+- Configuração de voz (espeakup)
+- Status dos serviços de acessibilidade
+- Vozes disponíveis
+
+**Configuração de rede:**
+
+Por padrão, as VMs são criadas em **modo bridge** (acesso direto na rede local):
+
+```bash
+# Linux/macOS - Bridge (padrão)
+./scripts/install-release-vm.sh
+
+# Usar NAT com port forwarding (SSH localhost:2222 -> VM:22)
+./scripts/install-release-vm.sh --network-mode nat
+
+# Windows - Bridge (padrão)
+.\scripts\install-release-vm.ps1
+
+# Usar NAT com port forwarding
+.\scripts\install-release-vm.ps1 -NetworkMode nat
+```
 
 **Customização:**
 

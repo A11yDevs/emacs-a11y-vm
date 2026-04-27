@@ -73,6 +73,11 @@ variable "ssh_password" {
   sensitive = true
 }
 
+variable "version" {
+  type    = string
+  default = "2.0.1"
+}
+
 # ------------------------------------------------------------------------------
 # Source: QEMU builder
 # ------------------------------------------------------------------------------
@@ -180,19 +185,41 @@ build {
     destination = "/tmp/espeakup.conf"
   }
 
+  # Instalar script de informações da release
+  provisioner "file" {
+    source      = "${path.root}/files/emacs-a11y-version"
+    destination = "/tmp/emacs-a11y-version"
+  }
+
+  # Criar arquivo de versão da release
+  provisioner "shell" {
+    inline = [
+      "echo '=== Criando arquivo de versão da release ==='",
+      "echo 'EMACS_A11Y_VERSION=${var.version}' | sudo tee /etc/emacs-a11y-release",
+      "echo 'BUILD_DATE='$(date -u +%Y-%m-%dT%H:%M:%SZ) | sudo tee -a /etc/emacs-a11y-release",
+      "sudo chmod 644 /etc/emacs-a11y-release",
+      "cat /etc/emacs-a11y-release",
+      "echo '=== Instalando script de informações da release ==='",
+      "sudo mv /tmp/emacs-a11y-version /usr/local/bin/emacs-a11y-version",
+      "sudo chmod +x /usr/local/bin/emacs-a11y-version",
+      "echo 'Script instalado em /usr/local/bin/emacs-a11y-version'"
+    ]
+  }
+
   # Configurar script e service
   provisioner "shell" {
     inline = [
-      "echo '=== Configurando disco de dados persistente ==='",
+      "echo '=== Configurando disco de dados persistente ===",
       "sudo mv /tmp/setup-userdata-disk.sh /usr/local/sbin/",
       "sudo chmod +x /usr/local/sbin/setup-userdata-disk.sh",
       "sudo mv /tmp/emacs-a11y-userdata.service /etc/systemd/system/",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable emacs-a11y-userdata.service",
       "echo 'Setup de disco de dados configurado'",
-      "echo '=== Configurando voz pt-br no espeakup ==='",
+      "echo '=== Configurando voz pt-br no espeakup ===",
       "sudo mv /tmp/espeakup.conf /etc/default/espeakup",
       "sudo chmod 644 /etc/default/espeakup",
+      "sudo systemctl restart espeakup || echo 'Aviso: espeakup não está rodando (normal durante build)'",
       "echo 'Voz pt-br configurada'"
     ]
   }
