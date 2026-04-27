@@ -167,6 +167,18 @@ build {
     ]
   }
 
+  # Aplicar dotfiles ao usuário a11ydevs (diretamente durante build)
+  provisioner "shell" {
+    inline = [
+      "echo '=== Aplicando dotfiles ao usuário a11ydevs ==='",
+      "sudo cp -f /etc/skel/emacs-a11y/bashrc /home/a11ydevs/.bashrc",
+      "sudo cp -f /etc/skel/emacs-a11y/profile /home/a11ydevs/.profile",
+      "sudo cp -rf /etc/skel/emacs-a11y/emacs.d /home/a11ydevs/.emacs.d",
+      "sudo chown -R a11ydevs:a11ydevs /home/a11ydevs/.bashrc /home/a11ydevs/.profile /home/a11ydevs/.emacs.d",
+      "echo 'Dotfiles aplicados ao usuário a11ydevs'"
+    ]
+  }
+
   # Instalar script de setup de disco de dados
   provisioner "file" {
     source      = "${path.root}/scripts/setup-userdata-disk.sh"
@@ -269,7 +281,14 @@ build {
       "echo '=== Configurando mensagem de boas-vindas ==='",
       "sed 's/@@VERSION@@/${var.version}/' /tmp/motd | sudo tee /etc/motd",
       "sudo chmod 644 /etc/motd",
-      "echo 'Mensagem de boas-vindas configurada'"
+      "# Desabilitar update-motd.d dinâmico (scripts que adicionam uname -a, etc)",
+      "if [[ -d /etc/update-motd.d ]]; then",
+      "  sudo chmod -x /etc/update-motd.d/* 2>/dev/null || true",
+      "  echo 'Scripts dinâmicos de MOTD desabilitados'",
+      "fi",
+      "# Remover /run/motd.dynamic se existir",
+      "sudo rm -f /run/motd.dynamic",
+      "echo 'Mensagem de boas-vindas configurada (apenas /etc/motd estático)'"
     ]
   }
 
