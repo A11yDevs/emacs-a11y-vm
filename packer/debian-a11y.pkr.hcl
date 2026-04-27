@@ -185,6 +185,12 @@ build {
     destination = "/tmp/espeakup.conf"
   }
 
+  # Instalar override de timeout do espeakup
+  provisioner "file" {
+    source      = "${path.root}/files/espeakup-timeout.conf"
+    destination = "/tmp/espeakup-timeout.conf"
+  }
+
   # Instalar script de informações da release
   provisioner "file" {
     source      = "${path.root}/files/emacs-a11y-version"
@@ -231,8 +237,12 @@ build {
       "echo '=== Configurando voz pt-br no espeakup ===",
       "sudo mv /tmp/espeakup.conf /etc/default/espeakup",
       "sudo chmod 644 /etc/default/espeakup",
+      "sudo mkdir -p /etc/systemd/system/espeakup.service.d",
+      "sudo mv /tmp/espeakup-timeout.conf /etc/systemd/system/espeakup.service.d/timeout.conf",
+      "sudo chmod 644 /etc/systemd/system/espeakup.service.d/timeout.conf",
+      "sudo systemctl daemon-reload",
       "sudo systemctl restart espeakup || echo 'Aviso: espeakup não está rodando (normal durante build)'",
-      "echo 'Voz pt-br configurada'",
+      "echo 'Voz pt-br e timeout configurados'",
       "echo '=== Configurando script de ajuste do speakup ==='",
       "sudo mv /tmp/configure-speakup.sh /usr/local/sbin/",
       "sudo chmod +x /usr/local/sbin/configure-speakup.sh",

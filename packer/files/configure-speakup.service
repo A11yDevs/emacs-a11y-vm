@@ -1,12 +1,13 @@
 [Unit]
 Description=Configure Speakup Parameters
 After=espeakup.service
-Requires=espeakup.service
+BindsTo=espeakup.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/configure-speakup.sh
 RemainAfterExit=yes
+TimeoutStopSec=5s
 StandardOutput=journal
 StandardError=journal
 

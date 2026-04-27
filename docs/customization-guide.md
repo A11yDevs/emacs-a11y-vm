@@ -396,6 +396,38 @@ sudo ln -sf ~/.espeakup.conf /etc/default/espeakup
 sudo systemctl restart espeakup
 ```
 
+### Problema: Demora ao Parar o Serviço espeakup
+
+Se `systemctl stop espeakup` demorar muito (>90 segundos), aplique este fix:
+
+```bash
+# Criar override de timeout
+sudo mkdir -p /etc/systemd/system/espeakup.service.d
+sudo tee /etc/systemd/system/espeakup.service.d/timeout.conf <<EOF
+[Service]
+TimeoutStopSec=5s
+EOF
+
+# Recarregar configuração
+sudo systemctl daemon-reload
+
+# Testar (agora deve parar em até 5 segundos)
+sudo systemctl restart espeakup
+```
+
+**Explicação**: O timeout padrão do systemd é 90 segundos. Este override reduz para 5 segundos, tornando comandos `stop`/`restart` mais rápidos.
+
+✅ Este arquivo em `/etc/systemd/system/espeakup.service.d/` **é preservado em upgrades** (diferente de `/etc/default/espeakup`).
+
+**Verificar aplicação:**
+
+```bash
+# Ver configuração ativa do serviço
+systemctl show espeakup -p TimeoutStopUSec
+
+# Deve mostrar: TimeoutStopUSec=5s
+```
+
 ### Vozes Disponíveis
 
 ```bash
