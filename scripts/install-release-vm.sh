@@ -244,25 +244,35 @@ fi
 
 VMDK_PATH="${OUTPUT_DIR}/${ASSET_NAME}"
 
-# Verificar se arquivo já existe
+# Verificar se arquivo já existe (comparação por versão)
 SKIP_DOWNLOAD="false"
+VERSION_FILE="${VMDK_PATH}.version"
 if [[ -f "$VMDK_PATH" ]] && [[ "$FORCE_DOWNLOAD" != "true" ]]; then
-    EXISTING_SIZE="$(stat -f%z "$VMDK_PATH" 2>/dev/null || stat -c%s "$VMDK_PATH" 2>/dev/null || echo "0")"
+    # Verificar se versão salva corresponde à tag solicitada
+    EXISTING_VERSION=""
+    if [[ -f "$VERSION_FILE" ]]; then
+        EXISTING_VERSION="$(cat "$VERSION_FILE" 2>/dev/null | tr -d '\n\r')"
+    fi
     
-    if [[ -n "$ASSET_SIZE" ]] && [[ "$EXISTING_SIZE" == "$ASSET_SIZE" ]]; then
+    REQUESTED_VERSION="${TAG}"
+    if [[ "$TAG" == "latest" ]]; then
+        REQUESTED_VERSION="${RESOLVED_TAG}"
+    fi
+    
+    if [[ "$EXISTING_VERSION" == "$REQUESTED_VERSION" ]]; then
+        EXISTING_SIZE="$(stat -f%z "$VMDK_PATH" 2>/dev/null || stat -c%s "$VMDK_PATH" 2>/dev/null || echo "0")"
         EXISTING_SIZE_MB="$(awk "BEGIN {printf \"%.2f\", $EXISTING_SIZE / 1048576}")"
-        echo "==> Arquivo VMDK já existe e está completo"
+        echo "==> Arquivo VMDK já existe (versão: $EXISTING_VERSION)"
         echo "    Arquivo: $VMDK_PATH"
         echo "    Tamanho: ${EXISTING_SIZE_MB} MB"
         echo "    Pulando download..."
         SKIP_DOWNLOAD="true"
     else
-        EXPECTED_SIZE_MB="$(awk "BEGIN {printf \"%.2f\", ${ASSET_SIZE:-0} / 1048576}")"
-        EXISTING_SIZE_MB="$(awk "BEGIN {printf \"%.2f\", $EXISTING_SIZE / 1048576}")"
-        echo "==> Arquivo VMDK existe mas tamanho difere"
-        echo "    Esperado: ${EXPECTED_SIZE_MB} MB, Encontrado: ${EXISTING_SIZE_MB} MB"
+        echo "==> Arquivo VMDK existe mas versão difere"
+        echo "    Esperado: ${REQUESTED_VERSION}, Encontrado: ${EXISTING_VERSION}"
         echo "    Removendo arquivo antigo e baixando novamente..."
         rm -f "$VMDK_PATH"
+        rm -f "$VERSION_FILE"
     fi
 fi
 
@@ -270,6 +280,14 @@ if [[ "$SKIP_DOWNLOAD" != "true" ]]; then
     echo "==> Baixando asset: ${ASSET_NAME}"
     curl -fL "$ASSET_URL" -o "$VMDK_PATH"
     [[ -f "$VMDK_PATH" ]] || die "Download falhou: ${VMDK_PATH}"
+    
+    # Salvar versão do VMDK baixado
+    DOWNLOADED_VERSION="${TAG}"
+    if [[ "$TAG" == "latest" ]]; then
+        DOWNLOADED_VERSION="${RESOLVED_TAG}"
+    fi
+    echo -n "$DOWNLOADED_VERSION" > "$VERSION_FILE"
+    echo "    Versão salva: $DOWNLOADED_VERSION"
 fi
 
 # Verificação final: garantir que o arquivo VMDK existe antes de prosseguir

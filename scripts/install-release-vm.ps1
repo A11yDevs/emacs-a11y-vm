@@ -310,24 +310,32 @@ if (-not (Test-Path $VmdkPath) -and (Test-Path $possibleWrongPath)) {
     }
 }
 
-# Verificar se arquivo ja existe
+# Verificar se arquivo ja existe (comparação por versão)
 $skipDownload = $false
+$versionFile = "$VmdkPath.version"
 if ((Test-Path $VmdkPath) -and -not $ForceDownload) {
-    $existingFile = Get-Item $VmdkPath
-    $existingSizeMB = [math]::Round($existingFile.Length / 1MB, 2)
-    $expectedSizeMB = [math]::Round($VmdkAsset.size / 1MB, 2)
+    # Verificar se versão salva corresponde à tag solicitada
+    $existingVersion = $null
+    if (Test-Path $versionFile) {
+        $existingVersion = Get-Content $versionFile -Raw -ErrorAction SilentlyContinue | ForEach-Object { $_.Trim() }
+    }
     
-    if ($existingFile.Length -eq $VmdkAsset.size) {
-        Write-Host "==> Arquivo VMDK ja existe e esta completo" -ForegroundColor Green
+    $requestedVersion = if ($Tag -eq "latest") { $ResolvedTag } else { $Tag }
+    
+    if ($existingVersion -eq $requestedVersion) {
+        $existingFile = Get-Item $VmdkPath
+        $existingSizeMB = [math]::Round($existingFile.Length / 1MB, 2)
+        Write-Host "==> Arquivo VMDK ja existe (versao: $existingVersion)" -ForegroundColor Green
         Write-Host "    Arquivo: $VmdkPath" -ForegroundColor Cyan
         Write-Host "    Tamanho: $existingSizeMB MB" -ForegroundColor Cyan
         Write-Host "    Pulando download..." -ForegroundColor Yellow
         $skipDownload = $true
     } else {
-        Write-Host "==> Arquivo VMDK existe mas tamanho difere" -ForegroundColor Yellow
-        Write-Host "    Esperado: $expectedSizeMB MB, Encontrado: $existingSizeMB MB" -ForegroundColor Yellow
+        Write-Host "==> Arquivo VMDK existe mas versao difere" -ForegroundColor Yellow
+        Write-Host "    Esperado: $requestedVersion, Encontrado: $existingVersion" -ForegroundColor Yellow
         Write-Host "    Removendo arquivo antigo e baixando novamente..." -ForegroundColor Yellow
         Remove-Item $VmdkPath -Force -ErrorAction SilentlyContinue
+        Remove-Item $versionFile -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -388,6 +396,11 @@ if (-not $skipDownload) {
     $fileSize = (Get-Item $VmdkPath).Length
     $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
     Write-Host "    Download completo: $fileSizeMB MB" -ForegroundColor Green
+    
+    # Salvar versão do VMDK baixado
+    $downloadedVersion = if ($Tag -eq "latest") { $ResolvedTag } else { $Tag }
+    Set-Content -Path $versionFile -Value $downloadedVersion -NoNewline
+    Write-Host "    Versão salva: $downloadedVersion" -ForegroundColor Cyan
     } catch {
         Write-Error-Exit "Download falhou: $($_.Exception.Message)"
     }
