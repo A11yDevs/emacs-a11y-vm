@@ -379,7 +379,7 @@ Write-Host "==> Verificando VM existente: $VMName"
 # Verificar se VM existe
 $VMExists = $false
 try {
-    $null = VBoxManage showvminfo $VMName 2>&1
+    $null = & $VBoxManagePath showvminfo "$VMName" 2>&1
     $VMExists = ($LASTEXITCODE -eq 0)
 } catch {
     $VMExists = $false
@@ -395,7 +395,7 @@ if ($VMExists) {
         Write-Host "    Desanexando disco de dados antes de remover VM..." -ForegroundColor Yellow
         try {
             # Tentar desanexar o disco da porta 1 (onde esperamos que esteja)
-            $null = VBoxManage storageattach $VMName --storagectl "SATA" --port 1 --device 0 --medium none 2>&1
+            $null = & $VBoxManagePath storageattach "$VMName" --storagectl "SATA" --port 1 --device 0 --medium none 2>&1
         } catch {
             Write-Host "    Aviso: Nao foi possivel desanexar disco de dados" -ForegroundColor Yellow
         }
@@ -403,7 +403,7 @@ if ($VMExists) {
     
     Write-Host "    VM existente encontrada, removendo..." -ForegroundColor Yellow
     try {
-        $null = VBoxManage unregistervm $VMName --delete 2>&1
+        $null = & $VBoxManagePath unregistervm "$VMName" --delete 2>&1
         Write-Host "    VM antiga removida com sucesso" -ForegroundColor Green
     } catch {
         Write-Host "    Aviso: Falha ao remover VM antiga (pode nao existir)" -ForegroundColor Yellow
@@ -413,7 +413,7 @@ if ($VMExists) {
 }
 
 Write-Host "==> Criando VM '$VMName'"
-$output = VBoxManage createvm --name $VMName --ostype Debian_64 --register 2>&1
+$output = & $VBoxManagePath createvm --name "$VMName" --ostype Debian_64 --register 2>&1
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao criar VM. VBoxManage disse: $output"
@@ -422,7 +422,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "==> Driver de audio selecionado: $AudioDriverUsed"
 
 # Configuracao base: VM textual, audio AC97 para acessibilidade, NAT com SSH forwarding
-$output = VBoxManage modifyvm $VMName `
+$output = & $VBoxManagePath modifyvm "$VMName" `
     --memory $RAM `
     --cpus $CPUs `
     --ioapic on `
@@ -441,7 +441,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao configurar VM. VBoxManage disse: $output"
 }
 
-$output = VBoxManage storagectl $VMName --name "SATA" --add sata --controller IntelAhci 2>&1
+$output = & $VBoxManagePath storagectl "$VMName" --name "SATA" --add sata --controller IntelAhci 2>&1
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao adicionar controlador SATA. VBoxManage disse: $output"
@@ -451,9 +451,9 @@ if ($LASTEXITCODE -ne 0) {
 $VmdkAbsolutePath = (Resolve-Path $VmdkPath).Path
 
 Write-Host "==> Anexando disco de sistema (VMDK)"
-$output = VBoxManage storageattach $VMName `
+$output = & $VBoxManagePath storageattach "$VMName" `
     --storagectl "SATA" --port 0 --device 0 `
-    --type hdd --medium $VmdkAbsolutePath 2>&1
+    --type hdd --medium "$VmdkAbsolutePath" 2>&1
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output"
@@ -473,23 +473,48 @@ if ($UserDataVdiExists) {
     Write-Host "    Criando novo disco de dados VDI: $UserDataSize MB" -ForegroundColor Yellow
     
     try {
-        $output = VBoxManage createmedium disk `
-            --filename $UserDataVdiPath `
+        # Garantir que o diretorio existe
+        $userDataDir = Split-Path -Parent $UserDataVdiPath
+        if (-not (Test-Path $userDataDir)) {
+            New-Item -ItemType Directory -Path $userDataDir -Force | Out-Null
+        }
+        
+        # Criar disco com caminho entre aspas
+        $output = & $VBoxManagePath createmedium disk `
+            --filename "$UserDataVdiPath" `
             --size $UserDataSize `
             --format VDI `
             --variant Standard 2>&1
         
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "    Aviso: Falha ao criar disco de dados: $output" -ForegroundColor Yellow
-            Write-Host "    Continuando sem disco de dados separado" -ForegroundColor Yellow
-            $UserDataVdiExists = $false
-        } else {
+        # VBoxManage pode retornar progresso (0%...10%...) mesmo em sucesso
+        # Verificar se arquivo foi criado com sucesso
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $UserDataVdiPath)) {
             Write-Host "    Disco de dados criado com sucesso" -ForegroundColor Green
             $UserDataVdiExists = $true
+        } else {
+            $errorMsg = $output -join "`n"
+            Write-Host "" -ForegroundColor Yellow
+            Write-Host "    Aviso: Falha ao criar disco de dados" -ForegroundColor Yellow
+            Write-Host "    Exit code: $LASTEXITCODE" -ForegroundColor Gray
+            if ($output) {
+                Write-Host "    Output: $errorMsg" -ForegroundColor Gray
+            }
+            Write-Host "    Continuando sem disco de dados separado" -ForegroundColor Yellow
+            Write-Host "" -ForegroundColor Yellow
+            Write-Host "    NOTA: Suas configuracoes serao perdidas em upgrades" -ForegroundColor Yellow
+            Write-Host "    Para resolver:" -ForegroundColor Yellow
+            Write-Host "      - Verifique permissoes de escrita em: $OutputDirPath" -ForegroundColor Gray
+            Write-Host "      - Certifique-se de que o VirtualBox esta instalado corretamente" -ForegroundColor Gray
+            Write-Host "      - Teste: VBoxManage createmedium disk --filename test.vdi --size 10240" -ForegroundColor Gray
+            Write-Host "" -ForegroundColor Yellow
+            $UserDataVdiExists = $false
         }
     } catch {
-        Write-Host "    Aviso: Erro ao criar disco de dados: $_" -ForegroundColor Yellow
+        Write-Host "" -ForegroundColor Yellow
+        Write-Host "    Aviso: Erro ao criar disco de dados" -ForegroundColor Yellow
+        Write-Host "    Detalhes: $_" -ForegroundColor Gray
         Write-Host "    Continuando sem disco de dados separado" -ForegroundColor Yellow
+        Write-Host "" -ForegroundColor Yellow
         $UserDataVdiExists = $false
     }
 }
@@ -498,9 +523,9 @@ if ($UserDataVdiExists) {
 if ($UserDataVdiExists) {
     $UserDataVdiAbsolutePath = (Resolve-Path $UserDataVdiPath).Path
     
-    $output = VBoxManage storageattach $VMName `
+    $output = & $VBoxManagePath storageattach "$VMName" `
         --storagectl "SATA" --port 1 --device 0 `
-        --type hdd --medium $UserDataVdiAbsolutePath 2>&1
+        --type hdd --medium "$UserDataVdiAbsolutePath" 2>&1
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host "    Aviso: Falha ao anexar disco de dados: $output" -ForegroundColor Yellow
@@ -512,7 +537,7 @@ if ($UserDataVdiExists) {
 }
 
 Write-Host "==> Iniciando VM em modo headless"
-$output = VBoxManage startvm $VMName --type headless 2>&1
+$output = & $VBoxManagePath startvm "$VMName" --type headless 2>&1
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao iniciar VM. VBoxManage disse: $output"
