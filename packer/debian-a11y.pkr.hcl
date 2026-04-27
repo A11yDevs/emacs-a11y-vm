@@ -140,6 +140,11 @@ build {
   name    = "debian-a11y"
   sources = ["source.qemu.debian-a11y"]
 
+  # Criar diretório para dotfiles
+  provisioner "shell" {
+    inline = ["mkdir -p /tmp/emacs-a11y-skel"]
+  }
+
   # Copiar dotfiles recomendados
   provisioner "file" {
     source      = "${path.root}/skel/"
