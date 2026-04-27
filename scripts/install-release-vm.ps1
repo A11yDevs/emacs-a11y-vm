@@ -128,10 +128,19 @@ function Get-BridgeAdapter {
         return $BridgeAdapter
     }
     
-    # Auto-detectar primeiro adaptador bridge disponivel
-    $adapters = VBoxManage list bridgedifs | Select-String -Pattern "^Name:\s+(.+)$" | ForEach-Object { $_.Matches.Groups[1].Value.Trim() }
-    if ($adapters -and $adapters.Count -gt 0) {
-        return $adapters[0]
+    # Auto-detectar primeiro adaptador bridge disponível
+    # Usar método mais robusto: parsear linha por linha
+    $output = & VBoxManage list bridgedifs 2>&1
+    $currentName = $null
+    
+    foreach ($line in $output) {
+        if ($line -match '^Name:\s+(.+)$') {
+            $currentName = $matches[1].Trim()
+            # Retornar o primeiro adaptador encontrado
+            if ($currentName) {
+                return $currentName
+            }
+        }
     }
     
     return $null

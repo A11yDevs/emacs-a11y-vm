@@ -191,6 +191,18 @@ build {
     destination = "/tmp/emacs-a11y-version"
   }
 
+  # Instalar script de configuração do speakup
+  provisioner "file" {
+    source      = "${path.root}/files/configure-speakup.sh"
+    destination = "/tmp/configure-speakup.sh"
+  }
+
+  # Instalar service de configuração do speakup
+  provisioner "file" {
+    source      = "${path.root}/files/configure-speakup.service"
+    destination = "/tmp/configure-speakup.service"
+  }
+
   # Criar arquivo de versão da release
   provisioner "shell" {
     inline = [
@@ -220,7 +232,14 @@ build {
       "sudo mv /tmp/espeakup.conf /etc/default/espeakup",
       "sudo chmod 644 /etc/default/espeakup",
       "sudo systemctl restart espeakup || echo 'Aviso: espeakup não está rodando (normal durante build)'",
-      "echo 'Voz pt-br configurada'"
+      "echo 'Voz pt-br configurada'",
+      "echo '=== Configurando script de ajuste do speakup ==='",
+      "sudo mv /tmp/configure-speakup.sh /usr/local/sbin/",
+      "sudo chmod +x /usr/local/sbin/configure-speakup.sh",
+      "sudo mv /tmp/configure-speakup.service /etc/systemd/system/",
+      "sudo systemctl daemon-reload",
+      "sudo systemctl enable configure-speakup.service",
+      "echo 'Script de configuração do speakup instalado'"
     ]
   }
 

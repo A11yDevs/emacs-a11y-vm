@@ -1,0 +1,14 @@
+[Unit]
+Description=Configure Speakup Parameters
+After=espeakup.service
+Requires=espeakup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/configure-speakup.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

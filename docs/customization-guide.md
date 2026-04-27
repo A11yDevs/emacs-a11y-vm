@@ -360,9 +360,26 @@ cat /etc/default/espeakup
 # Editar configuração (requer sudo, será perdido em upgrades)
 sudo nano /etc/default/espeakup
 
-# Reiniciar serviço para aplicar
+# Reiniciar serviços para aplicar
 sudo systemctl restart espeakup
+sudo systemctl restart configure-speakup
 ```
+
+**Como funcionam os parâmetros:**
+
+O `espeakup` reconhece apenas `default_voice`. Os parâmetros `default_rate`, `default_pitch` e `default_volume` são convertidos automaticamente pelo script `configure-speakup.service` que os aplica via `/sys/accessibility/speakup/soft/`:
+
+- **default_rate** (80-450, padrão: 120): Convertido para speakup rate (0-9)
+  - Fórmula: `(rate - 80) / 40`
+  - Exemplo: 160 → 7, 200 → 9
+  
+- **default_pitch** (0-99, padrão: 50): Convertido para speakup pitch (0-9)
+  - Fórmula: `pitch / 10`
+  - Exemplo: 50 → 5, 70 → 7
+
+- **default_volume** (0-200, padrão: 100): Convertido para speakup vol (0-9)
+  - Fórmula: `volume / 20`
+  - Exemplo: 100 → 5, 160 → 8
 
 ⚠️ **IMPORTANTE**: Modificações em `/etc/default/espeakup` são **perdidas em upgrades**.  
 ✅ **Solução**: Copie o arquivo para `/home` e crie link simbólico:
