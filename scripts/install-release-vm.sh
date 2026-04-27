@@ -22,6 +22,7 @@ VM_CPUS="2"
 SSH_HOST_PORT="2222"
 OUTPUT_DIR="$PWD/releases"
 KEEP_OLD_VM="false"
+FORCE_DOWNLOAD="false"
 AUDIO_DRIVER=""
 
 usage() {
@@ -40,6 +41,7 @@ Opções:
   --output-dir <dir>      Pasta para baixar o VMDK (padrão: ./releases)
     --audio-driver <driver> Driver de áudio do VirtualBox (auto por padrão)
   --keep-old-vm           Não remove VM existente com o mesmo nome
+  --force-download        Força re-download mesmo se arquivo já existe
   -h, --help              Mostra esta ajuda
 
 Fluxo:
@@ -69,7 +71,7 @@ detect_audio_driver() {
                 echo "alsa"
             fi
             ;;
-        MINGW*|MSYS*|CYGWIN*) echo "dsound" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "default" ;;
         *)                     echo "default" ;;
     esac
 }
@@ -116,6 +118,10 @@ while [[ $# -gt 0 ]]; do
             KEEP_OLD_VM="true"
             shift
             ;;
+        --force-download)
+            FORCE_DOWNLOAD="true"
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -153,10 +159,12 @@ RELEASE_JSON="$(curl -fsSL "$API_URL")" || die "Falha ao consultar release no Gi
 if [[ "$HAS_JQ" == "true" ]]; then
     ASSET_URL="$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".vmdk")) | .browser_download_url' | head -n1)"
     ASSET_NAME="$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".vmdk")) | .name' | head -n1)"
+    ASSET_SIZE="$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".vmdk")) | .size' | head -n1)"
     RESOLVED_TAG="$(echo "$RELEASE_JSON" | jq -r '.tag_name // "unknown"')"
 else
     ASSET_URL="$(echo "$RELEASE_JSON" | grep -Eo '"browser_download_url"\s*:\s*"[^"]+\.vmdk"' | head -n1 | sed -E 's/^.*"([^"]+)"$/\1/')"
     ASSET_NAME="$(basename "$ASSET_URL")"
+    ASSET_SIZE="$(echo "$RELEASE_JSON" | grep -B5 "\"${ASSET_NAME}\"" | grep -Eo '"size"\s*:\s*[0-9]+' | grep -Eo '[0-9]+' | head -n1)"
     RESOLVED_TAG="$(echo "$RELEASE_JSON" | grep -Eo '"tag_name"\s*:\s*"[^"]+"' | head -n1 | sed -E 's/^.*"([^"]+)"$/\1/')"
 fi
 
@@ -164,10 +172,33 @@ fi
 
 VMDK_PATH="${OUTPUT_DIR}/${ASSET_NAME}"
 
-echo "==> Baixando asset: ${ASSET_NAME}"
-curl -fL "$ASSET_URL" -o "$VMDK_PATH"
+# Verificar se arquivo já existe
+SKIP_DOWNLOAD="false"
+if [[ -f "$VMDK_PATH" ]] && [[ "$FORCE_DOWNLOAD" != "true" ]]; then
+    EXISTING_SIZE="$(stat -f%z "$VMDK_PATH" 2>/dev/null || stat -c%s "$VMDK_PATH" 2>/dev/null || echo "0")"
+    
+    if [[ -n "$ASSET_SIZE" ]] && [[ "$EXISTING_SIZE" == "$ASSET_SIZE" ]]; then
+        EXISTING_SIZE_MB="$(awk "BEGIN {printf \"%.2f\", $EXISTING_SIZE / 1048576}")"
+        echo "==> Arquivo VMDK já existe e está completo"
+        echo "    Arquivo: $VMDK_PATH"
+        echo "    Tamanho: ${EXISTING_SIZE_MB} MB"
+        echo "    Pulando download..."
+        SKIP_DOWNLOAD="true"
+    else
+        EXPECTED_SIZE_MB="$(awk "BEGIN {printf \"%.2f\", ${ASSET_SIZE:-0} / 1048576}")"
+        EXISTING_SIZE_MB="$(awk "BEGIN {printf \"%.2f\", $EXISTING_SIZE / 1048576}")"
+        echo "==> Arquivo VMDK existe mas tamanho difere"
+        echo "    Esperado: ${EXPECTED_SIZE_MB} MB, Encontrado: ${EXISTING_SIZE_MB} MB"
+        echo "    Removendo arquivo antigo e baixando novamente..."
+        rm -f "$VMDK_PATH"
+    fi
+fi
 
-[[ -f "$VMDK_PATH" ]] || die "Download falhou: ${VMDK_PATH}"
+if [[ "$SKIP_DOWNLOAD" != "true" ]]; then
+    echo "==> Baixando asset: ${ASSET_NAME}"
+    curl -fL "$ASSET_URL" -o "$VMDK_PATH"
+    [[ -f "$VMDK_PATH" ]] || die "Download falhou: ${VMDK_PATH}"
+fi
 
 echo "==> Verificando VM existente: ${VM_NAME}"
 if VBoxManage showvminfo "$VM_NAME" >/dev/null 2>&1; then
@@ -193,6 +224,7 @@ VBoxManage modifyvm "$VM_NAME" \
     --audio-controller ac97 \
     --audio-enabled on \
     --audio-out on \
+    --audio-in on \
     --nic1 nat \
     --natpf1 "ssh,tcp,127.0.0.1,${SSH_HOST_PORT},,22" \
     --graphicscontroller vmsvga \

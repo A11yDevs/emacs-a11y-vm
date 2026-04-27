@@ -39,6 +39,7 @@ param(
     [string]$OutputDir = "releases",
     [string]$AudioDriver = "",
     [switch]$KeepOldVM,
+    [switch]$ForceDownload,
     [switch]$Help
 )
 
@@ -69,6 +70,7 @@ Opcoes:
   -OutputDir <dir>        Pasta para baixar o VMDK (padrao: .\releases)
   -AudioDriver <driver>   Driver de audio do VirtualBox (auto por padrao)
   -KeepOldVM              Nao remove VM existente com o mesmo nome
+  -ForceDownload          Forca re-download mesmo se arquivo ja existe
   -Help                   Mostra esta ajuda
 
 Fluxo:
@@ -101,8 +103,8 @@ function Get-AudioDriver {
         return $AudioDriver
     }
     
-    # Windows usa dsound por padrao
-    return "dsound"
+    # Usar 'default' permite ao VirtualBox escolher o melhor driver automaticamente
+    return "default"
 }
 
 if ($Help) {
@@ -241,25 +243,47 @@ $ResolvedTag = $ReleaseJson.tag_name
 
 $VmdkPath = Join-Path $OutputDirPath $AssetName
 
-Write-Host "==> Baixando asset: $AssetName"
-Write-Host "    URL: $AssetUrl"
-Write-Host "    Destino: $VmdkPath"
-
-try {
-    # Verificar se temos permissao de escrita no diretorio
-    $testFile = Join-Path $OutputDirPath ".test_write_permission"
-    try {
-        [System.IO.File]::WriteAllText($testFile, "test")
-        Remove-Item $testFile -Force -ErrorAction SilentlyContinue
-    } catch {
-        throw "Sem permissao de escrita no diretorio: $OutputDirPath"
-    }
+# Verificar se arquivo ja existe
+$skipDownload = $false
+if ((Test-Path $VmdkPath) -and -not $ForceDownload) {
+    $existingFile = Get-Item $VmdkPath
+    $existingSizeMB = [math]::Round($existingFile.Length / 1MB, 2)
+    $expectedSizeMB = [math]::Round($VmdkAsset.size / 1MB, 2)
     
-    # Obter tamanho do arquivo antes de baixar
-    $assetSizeMB = [math]::Round($VmdkAsset.size / 1MB, 2)
-    Write-Host "    Tamanho do arquivo: $assetSizeMB MB" -ForegroundColor Cyan
-    Write-Host "    Baixando... (isso pode levar varios minutos)" -ForegroundColor Yellow
-    Write-Host ""
+    if ($existingFile.Length -eq $VmdkAsset.size) {
+        Write-Host "==> Arquivo VMDK ja existe e esta completo" -ForegroundColor Green
+        Write-Host "    Arquivo: $VmdkPath" -ForegroundColor Cyan
+        Write-Host "    Tamanho: $existingSizeMB MB" -ForegroundColor Cyan
+        Write-Host "    Pulando download..." -ForegroundColor Yellow
+        $skipDownload = $true
+    } else {
+        Write-Host "==> Arquivo VMDK existe mas tamanho difere" -ForegroundColor Yellow
+        Write-Host "    Esperado: $expectedSizeMB MB, Encontrado: $existingSizeMB MB" -ForegroundColor Yellow
+        Write-Host "    Removendo arquivo antigo e baixando novamente..." -ForegroundColor Yellow
+        Remove-Item $VmdkPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if (-not $skipDownload) {
+    Write-Host "==> Baixando asset: $AssetName"
+    Write-Host "    URL: $AssetUrl"
+    Write-Host "    Destino: $VmdkPath"
+
+    try {
+        # Verificar se temos permissao de escrita no diretorio
+        $testFile = Join-Path $OutputDirPath ".test_write_permission"
+        try {
+            [System.IO.File]::WriteAllText($testFile, "test")
+            Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+        } catch {
+            throw "Sem permissao de escrita no diretorio: $OutputDirPath"
+        }
+        
+        # Obter tamanho do arquivo antes de baixar
+        $assetSizeMB = [math]::Round($VmdkAsset.size / 1MB, 2)
+        Write-Host "    Tamanho do arquivo: $assetSizeMB MB" -ForegroundColor Cyan
+        Write-Host "    Baixando... (isso pode levar varios minutos)" -ForegroundColor Yellow
+        Write-Host ""
     
     # Baixar o arquivo com monitoramento de progresso
     $job = Start-Job -ScriptBlock {
@@ -297,8 +321,9 @@ try {
     $fileSize = (Get-Item $VmdkPath).Length
     $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
     Write-Host "    Download completo: $fileSizeMB MB" -ForegroundColor Green
-} catch {
-    Write-Error-Exit "Download falhou: $($_.Exception.Message)"
+    } catch {
+        Write-Error-Exit "Download falhou: $($_.Exception.Message)"
+    }
 }
 
 Write-Host "==> Verificando VM existente: $VMName"
@@ -346,6 +371,7 @@ $output = VBoxManage modifyvm $VMName `
     --audio-controller ac97 `
     --audio-enabled on `
     --audio-out on `
+    --audio-in on `
     --nic1 nat `
     --natpf1 "ssh,tcp,127.0.0.1,$SSHPort,,22" `
     --graphicscontroller vmsvga `
