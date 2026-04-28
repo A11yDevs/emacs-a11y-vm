@@ -334,6 +334,59 @@ Por padrão, as VMs são criadas em **modo bridge** (acesso direto na rede local
 - Use [docs/generate-vm.md](docs/generate-vm.md) e [scripts/setup-vm.sh](scripts/setup-vm.sh) se quiser gerar a VM automaticamente a partir de uma ISO do Debian.
 - Use [scripts/install-release-vm.sh](scripts/install-release-vm.sh) (Linux/macOS) ou [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1) (Windows) se quiser instalar rapidamente uma VM pronta publicada como release no GitHub.
 
+## Problemas Conhecidos
+
+### Erro 404 ao instalar pacotes emacs-a11y via APT
+
+**Sintoma:**
+
+Ao tentar instalar `emacs-a11y-config` ou `emacs-a11y-launchers` dentro da VM:
+
+```bash
+sudo apt install -y emacs-a11y-config emacs-a11y-launchers
+```
+
+Você recebe erros 404:
+
+```
+Erro: Falhou ao obter https://a11ydevs.github.io/emacs-a11y/debian/pages/debian/pool/main/emacs-a11y-config_0.1.0_all.deb  404  Not Found
+```
+
+**Causa:**
+
+A URL do repositório APT está incorreta, com `/pages/debian` duplicado no caminho.
+
+**Solução:**
+
+Dentro da VM, corrija a URL do repositório:
+
+**Opção 1: Via sed (mais rápida):**
+
+```bash
+sudo sed -i 's|/debian/pages/debian|/debian|g' /etc/apt/sources.list.d/emacs-a11y.list
+sudo apt update
+sudo apt install -y emacs-a11y-config emacs-a11y-launchers
+```
+
+**Opção 2: Via editor de texto:**
+
+```bash
+# 1. Editar o arquivo do repositório
+sudo nano /etc/apt/sources.list.d/emacs-a11y.list
+
+# 2. Procure a linha com a URL incorreta e corrija:
+# ANTES: deb https://a11ydevs.github.io/emacs-a11y/debian/pages/debian stable main
+# DEPOIS: deb https://a11ydevs.github.io/emacs-a11y/debian stable main
+
+# 3. Salvar (Ctrl+O, Enter, Ctrl+X)
+
+# 4. Atualizar e instalar
+sudo apt update
+sudo apt install -y emacs-a11y-config emacs-a11y-launchers
+```
+
+**Nota:** Este é um problema temporário do repositório APT `emacs-a11y`. O problema será corrigido na fonte em versões futuras da VM.
+
 ## Arquivos principais do repositório
 
 - [docs/debian-a11y-minimal-vm.md](docs/debian-a11y-minimal-vm.md): tutorial manual de criação da VM acessível.
