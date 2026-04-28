@@ -36,7 +36,7 @@ param(
     [int]$RAM = 2048,
     [int]$CPUs = 2,
     [int]$SSHPort = 2222,
-    [string]$OutputDir = "releases",
+    [string]$OutputDir = ".emacs-a11y-vm",
     [string]$AudioDriver = "",
     [int]$UserDataSize = 10240,
     [ValidateSet("nat", "bridge")]
@@ -74,7 +74,7 @@ Opcoes:
   -RAM <mb>               RAM da VM em MB (padrao: 2048)
   -CPUs <n>               Numero de CPUs (padrao: 2)
   -SSHPort <porta>        Porta SSH no host (NAT PF host:guest 2222:22)
-  -OutputDir <dir>        Pasta para baixar o VMDK (padrao: .\releases)
+    -OutputDir <dir>        Pasta para guardar VMDK/VDI (padrao: %USERPROFILE%\.emacs-a11y-vm)
   -AudioDriver <driver>   Driver de audio do VirtualBox (auto por padrao)
   -UserDataSize <mb>      Tamanho do disco de dados em MB (padrao: 10240 = 10GB)
   -NetworkMode <nat|bridge> Modo de rede (padrao: nat)
@@ -121,6 +121,28 @@ function Test-Command {
         return $true
     } catch {
         return $false
+    }
+}
+
+function Ensure-Directory {
+    param(
+        [string]$Path,
+        [switch]$Hidden
+    )
+
+    if (-not (Test-Path $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop | Out-Null
+    }
+
+    if ($Hidden) {
+        try {
+            $item = Get-Item -Path $Path -ErrorAction Stop
+            if (($item.Attributes -band [System.IO.FileAttributes]::Hidden) -eq 0) {
+                $item.Attributes = $item.Attributes -bor [System.IO.FileAttributes]::Hidden
+            }
+        } catch {
+            Write-Host "    Aviso: Nao foi possivel marcar diretorio como oculto: $Path" -ForegroundColor Yellow
+        }
     }
 }
 
@@ -221,9 +243,14 @@ Write-Host "    VirtualBox versao: $vboxVersion" -ForegroundColor Green
 
 
 # Criar diretorio de saida se nao existir
-# Para caminhos relativos, usar o diretorio atual do usuario
-if ($OutputDir.StartsWith(".\") -or $OutputDir.StartsWith("./") -or -not [System.IO.Path]::IsPathRooted($OutputDir)) {
-    # Caminho relativo - usar diretório atual onde o usuário executou o script
+# Quando o usuario nao informa -OutputDir, usar um caminho estavel e oculto no perfil dele.
+$DefaultOutputDir = Join-Path $env:USERPROFILE ".emacs-a11y-vm"
+$UseHiddenOutputDir = $false
+if (-not $PSBoundParameters.ContainsKey('OutputDir')) {
+    $OutputDirPath = $DefaultOutputDir
+    $UseHiddenOutputDir = $true
+} elseif ($OutputDir.StartsWith(".\") -or $OutputDir.StartsWith("./") -or -not [System.IO.Path]::IsPathRooted($OutputDir)) {
+    # Caminho relativo explicitamente informado pelo usuario: resolver a partir do diretorio atual.
     $OutputDirPath = Join-Path (Get-Location) $OutputDir
 } else {
     # Caminho absoluto - usar como está
@@ -239,19 +266,17 @@ Write-Host "    Caminho: $OutputDirPath" -ForegroundColor Cyan
 if (-not (Test-Path $OutputDirPath)) {
     Write-Host "    Diretorio nao existe, criando..." -ForegroundColor Yellow
     try {
-        New-Item -ItemType Directory -Path $OutputDirPath -Force -ErrorAction Stop | Out-Null
+        Ensure-Directory -Path $OutputDirPath -Hidden:$UseHiddenOutputDir
         Write-Host "    Diretorio criado com sucesso" -ForegroundColor Green
     } catch {
         Write-Host "    Falha ao criar em: $OutputDirPath" -ForegroundColor Yellow
         Write-Host "    Tentando usar diretorio temporario..." -ForegroundColor Yellow
         
-        # Fallback: usar pasta temporaria do usuario
-        $OutputDirPath = Join-Path $env:USERPROFILE "Downloads\emacs-a11y-vm-releases"
+        # Fallback: usar LocalAppData do usuario
+        $OutputDirPath = Join-Path $env:LOCALAPPDATA "emacs-a11y-vm"
         
         try {
-            if (-not (Test-Path $OutputDirPath)) {
-                New-Item -ItemType Directory -Path $OutputDirPath -Force -ErrorAction Stop | Out-Null
-            }
+            Ensure-Directory -Path $OutputDirPath
             Write-Host "    Usando: $OutputDirPath" -ForegroundColor Green
         } catch {
             Write-Error-Exit "Sem permissao para criar diretorios. Erro: $($_.Exception.Message)"
@@ -259,6 +284,9 @@ if (-not (Test-Path $OutputDirPath)) {
     }
 } else {
     Write-Host "    Diretorio ja existe" -ForegroundColor Green
+    if ($UseHiddenOutputDir) {
+        Ensure-Directory -Path $OutputDirPath -Hidden
+    }
 }
 
 # Determinar driver de audio
@@ -545,18 +573,25 @@ if ($VMExists) {
 } else {
     Write-Host "    Nenhuma VM existente com esse nome" -ForegroundColor Green
 
-    if ($ReuseExistingVmdk -and (Test-Path $DefaultVboxFile)) {
-        Write-Host "    Arquivo .vbox existente encontrado; tentando registrar VM antiga..." -ForegroundColor Yellow
-        $registerOutput = & $VBoxManagePath registervm "$DefaultVboxFile" 2>&1
+    if (Test-Path $DefaultVboxFile) {
+        if ($ReuseExistingVmdk) {
+            Write-Host "    Arquivo .vbox existente encontrado; tentando registrar VM antiga..." -ForegroundColor Yellow
+            $registerOutput = & $VBoxManagePath registervm "$DefaultVboxFile" 2>&1
 
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "    VM registrada novamente com sucesso" -ForegroundColor Green
-            Write-Host "    Reutilizando configuracao existente; pulando recriacao da VM" -ForegroundColor Green
-            $VMExists = $true
-            $SkipVmCreation = $true
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "    VM registrada novamente com sucesso" -ForegroundColor Green
+                Write-Host "    Reutilizando configuracao existente; pulando recriacao da VM" -ForegroundColor Green
+                $VMExists = $true
+                $SkipVmCreation = $true
+            } else {
+                Write-Host "    Arquivo .vbox invalido ou obsoleto; removendo pasta antiga da VM" -ForegroundColor Yellow
+                Write-Host "    Detalhes: $registerOutput" -ForegroundColor Gray
+            }
         } else {
-            Write-Host "    Arquivo .vbox invalido ou obsoleto; removendo pasta antiga da VM" -ForegroundColor Yellow
-            Write-Host "    Detalhes: $registerOutput" -ForegroundColor Gray
+            Write-Host "    Pasta de VM antiga encontrada sem registro ativo; removendo antes de recriar" -ForegroundColor Yellow
+        }
+
+        if (-not $SkipVmCreation) {
             try {
                 Remove-Item -Path $DefaultVmDir -Recurse -Force -ErrorAction Stop
                 Write-Host "    Pasta antiga removida: $DefaultVmDir" -ForegroundColor Green
