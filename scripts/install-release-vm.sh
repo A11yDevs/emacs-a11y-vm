@@ -366,12 +366,46 @@ if VBoxManage showvminfo "$VM_NAME" >/dev/null 2>&1; then
     
     echo "    Removendo VM antiga..."
     VBoxManage unregistervm "$VM_NAME" --delete || true
-    
-    # Limpar registros antigos do VMDK (child media, snapshots, etc)
-    echo "    Limpando registros antigos do disco..."
-    VBoxManage closemedium disk "$VMDK_PATH" --delete 2>/dev/null || \
-        echo "    Aviso: Não foi possível limpar registros (disco pode não estar registrado)"
 fi
+
+# Limpar TODOS os registros de discos antigos do VirtualBox
+echo "==> Limpando registros antigos de discos..."
+{
+    # Listar todos os discos registrados e procurar pelo VMDK
+    HDDS_OUTPUT=$(VBoxManage list hdds 2>/dev/null || echo "")
+    
+    # Normalizar path do VMDK para comparação
+    VMDK_PATH_NORMALIZED=$(echo "$VMDK_PATH" | tr '[:upper:]' '[:lower:]')
+    
+    # Procurar UUIDs que correspondem ao VMDK
+    CURRENT_UUID=""
+    FOUND_VMDK=false
+    
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^UUID:[[:space:]]+(\{[^}]+\}) ]]; then
+            CURRENT_UUID="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ ^Location:[[:space:]]+(.+)$ ]]; then
+            LOCATION="${BASH_REMATCH[1]}"
+            LOCATION_NORMALIZED=$(echo "$LOCATION" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            
+            if [[ "$LOCATION_NORMALIZED" == "$VMDK_PATH_NORMALIZED" ]]; then
+                FOUND_VMDK=true
+                if [[ -n "$CURRENT_UUID" ]]; then
+                    echo "    Removendo registro com UUID: $CURRENT_UUID"
+                    VBoxManage closemedium disk "$CURRENT_UUID" 2>/dev/null || true
+                fi
+            fi
+        fi
+    done <<< "$HDDS_OUTPUT"
+    
+    if [[ "$FOUND_VMDK" == "true" ]]; then
+        echo "    Registros do VMDK removidos"
+    else
+        echo "    VMDK não estava registrado"
+    fi
+} || {
+    echo "    Aviso: Falha ao limpar registros (continuando...)"
+}
 
 echo "==> Criando VM '${VM_NAME}'"
 VBoxManage createvm --name "$VM_NAME" --ostype Debian_64 --register

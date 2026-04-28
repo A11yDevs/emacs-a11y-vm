@@ -490,19 +490,52 @@ if ($VMExists) {
     } catch {
         Write-Host "    Aviso: Falha ao remover VM antiga (pode nao existir)" -ForegroundColor Yellow
     }
-    
-    # Limpar registros antigos do VMDK (child media, snapshots, etc)
-    Write-Host "    Limpando registros antigos do disco..." -ForegroundColor Yellow
-    try {
-        # Tentar desregistrar o VMDK e todos os child media
-        $null = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" --delete 2>&1
-        Write-Host "    Registros do disco limpos" -ForegroundColor Green
-    } catch {
-        # Se falhar, não é crítico - tentaremos anexar mesmo assim
-        Write-Host "    Aviso: Não foi possível limpar registros (disco pode não estar registrado)" -ForegroundColor Yellow
-    }
 } else {
     Write-Host "    Nenhuma VM existente com esse nome" -ForegroundColor Green
+}
+
+# Limpar TODOS os registros de discos antigos do VirtualBox
+Write-Host "==> Limpando registros antigos de discos..."
+try {
+    # Listar todos os discos registrados e encontrar o VMDK
+    $hddsOutput = & $VBoxManagePath list hdds 2>&1 | Out-String
+    
+    # Procurar pelo caminho do VMDK nas linhas "Location:"
+    $lines = $hddsOutput -split "`n"
+    $uuidsToRemove = @()
+    $foundVmdk = $false
+    
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        if ($line -match "^Location:\s+(.+)$") {
+            $location = $matches[1].Trim()
+            # Comparar caminhos normalizados (ignorar case e barras)
+            $normalizedLocation = $location.Replace('/', '\').ToLower()
+            $normalizedVmdkPath = $VmdkAbsolutePath.Replace('/', '\').ToLower()
+            
+            if ($normalizedLocation -eq $normalizedVmdkPath) {
+                $foundVmdk = $true
+                # Pegar o UUID da linha anterior (UUID: {xxx})
+                if ($i -gt 0 -and $lines[$i-1] -match "UUID:\s+(\{[^}]+\})") {
+                    $uuidsToRemove += $matches[1]
+                }
+            }
+        }
+    }
+    
+    # Remover todos os UUIDs encontrados
+    foreach ($uuid in $uuidsToRemove) {
+        Write-Host "    Removendo registro com UUID: $uuid" -ForegroundColor Cyan
+        $null = & $VBoxManagePath closemedium disk $uuid 2>&1
+    }
+    
+    if ($foundVmdk) {
+        Write-Host "    Registros do VMDK removidos" -ForegroundColor Green
+    } else {
+        Write-Host "    VMDK nao estava registrado" -ForegroundColor Green
+    }
+} catch {
+    Write-Host "    Aviso: Falha ao limpar registros (continuando...)" -ForegroundColor Yellow
 }
 
 Write-Host "==> Criando VM '$VMName'"
