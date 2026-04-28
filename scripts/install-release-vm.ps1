@@ -499,6 +499,25 @@ if (Test-Path $SystemVdiPath) {
         Write-Host "==> VDI de sistema existe mas versao difere" -ForegroundColor Yellow
         Write-Host "    Esperado: $currentVersion, Encontrado: $vdiVersion" -ForegroundColor Yellow
         Write-Host "    Reconvertendo..." -ForegroundColor Yellow
+        
+        # Remover UUID do registro do VirtualBox antes de deletar o arquivo
+        # Isso evita conflito "UUID already exists" no clonemedium
+        Write-Host "    Removendo registro UUID do VDI antigo..." -ForegroundColor Yellow
+        try {
+            # Tentar obter UUID do VDI para closemedium
+            $vdiInfo = & $VBoxManagePath showmediuminfo disk "$SystemVdiPath" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                # VDI registrado - fazer closemedium
+                $null = & $VBoxManagePath closemedium disk "$SystemVdiPath" 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "    UUID removido do registro" -ForegroundColor Green
+                }
+            }
+        } catch {
+            # Ignorar erro - arquivo pode não estar registrado
+        }
+        
+        # Agora deletar arquivo físico
         Remove-Item $SystemVdiPath -Force -ErrorAction SilentlyContinue
         Remove-Item $SystemVdiVersionFile -Force -ErrorAction SilentlyContinue
     }
