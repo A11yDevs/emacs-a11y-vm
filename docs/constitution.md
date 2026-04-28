@@ -118,6 +118,22 @@ O CI gera QCOW2 compactado (< 2GB, compatível com limite do GitHub Releases). O
 
 ---
 
+## 16. Recuperação de Emergência para Síntese de Voz
+
+Usuários cegos dependem 100% da síntese de voz (espeakup). Se o espeakup falhar, perdem todo acesso ao sistema sem feedback visual para diagnosticar o problema. A VM implementa recuperação multi-camada:
+
+1. **Atalho F12**: Execução imediata via bash readline (`~/.inputrc` mapeia `\e[24~` para `restart-speech\n`)
+2. **Comando `falar`**: Alias curto e memorável em português (`.bashrc`)
+3. **Comando `restart-speech`**: Script completo em `/usr/local/bin/restart-speech` que para espeakup, recarrega módulo `speakup_soft`, reinicia espeakup, verifica status
+4. **Auto-restart systemd**: Drop-in `/etc/systemd/system/espeakup.service.d/resilience.conf` configura `Restart=on-failure` com 5 tentativas em 2 minutos
+5. **Sudoers sem senha**: Arquivo `/etc/sudoers.d/a11y-speech` (modo 440) permite restart de espeakup e modprobe sem digitar senha (único mecanismo viável quando usuário está cego sem áudio)
+
+**Implicação em Modificações**: Qualquer mudança no espeakup, speakup_soft, sudoers ou dotfiles do skel deve preservar estes mecanismos. O motd DEVE destacar instruções de emergência ("pressione F12"). Sudoers DEVE manter NOPASSWD para comandos críticos de acessibilidade. Dotfiles em `/etc/skel/emacs-a11y/` devem incluir `.inputrc` com binding F12.
+
+**Justificativa do F12**: Tecla única (não requer digitação), localização de canto (fácil de encontrar tatilmente), raramente conflita com outros softwares, funciona nativamente em bash readline sem dependências externas.
+
+---
+
 ## Checklist para modificações
 
 Antes de aplicar qualquer mudança significativa ao projeto, verifique:

@@ -1,0 +1,12 @@
+# ~/.inputrc - Configuração bash readline
+# Atalhos de teclado para recuperação de emergência de acessibilidade
+
+# F12 - Reinicia síntese de voz espeakup (emergência)
+# Executa restart-speech imediatamente quando pressionado
+"\e[24~": "restart-speech\n"
+
+# Ctrl+Alt+R - Alternativa ao F12 (mnemônico: R de Restart)
+"\e[27;7;82~": "restart-speech\n"
+
+# Incluir configurações padrão do sistema
+$include /etc/inputrc

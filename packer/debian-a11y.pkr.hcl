@@ -75,7 +75,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.18"
+  default = "2.0.20"
 }
 
 # ------------------------------------------------------------------------------
@@ -173,8 +173,9 @@ build {
       "echo '=== Aplicando dotfiles ao usuário a11ydevs ==='",
       "sudo cp -f /etc/skel/emacs-a11y/bashrc /home/a11ydevs/.bashrc",
       "sudo cp -f /etc/skel/emacs-a11y/profile /home/a11ydevs/.profile",
+      "sudo cp -f /etc/skel/emacs-a11y/inputrc /home/a11ydevs/.inputrc",
       "sudo cp -rf /etc/skel/emacs-a11y/emacs.d /home/a11ydevs/.emacs.d",
-      "sudo chown -R a11ydevs:a11ydevs /home/a11ydevs/.bashrc /home/a11ydevs/.profile /home/a11ydevs/.emacs.d",
+      "sudo chown -R a11ydevs:a11ydevs /home/a11ydevs/.bashrc /home/a11ydevs/.profile /home/a11ydevs/.inputrc /home/a11ydevs/.emacs.d",
       "echo 'Dotfiles aplicados ao usuário a11ydevs'"
     ]
   }
@@ -201,6 +202,24 @@ build {
   provisioner "file" {
     source      = "${path.root}/files/espeakup-timeout.conf"
     destination = "/tmp/espeakup-timeout.conf"
+  }
+
+  # Instalar script de recuperação de emergência da síntese de voz
+  provisioner "file" {
+    source      = "${path.root}/files/restart-speech.sh"
+    destination = "/tmp/restart-speech.sh"
+  }
+
+  # Instalar configuração de resiliência do espeakup
+  provisioner "file" {
+    source      = "${path.root}/files/espeakup-resilience.conf"
+    destination = "/tmp/espeakup-resilience.conf"
+  }
+
+  # Instalar sudoers para comandos de acessibilidade
+  provisioner "file" {
+    source      = "${path.root}/files/a11y-speech-sudoers"
+    destination = "/tmp/a11y-speech-sudoers"
   }
 
   # Instalar script de informações da release
@@ -267,6 +286,15 @@ build {
       "sudo systemctl daemon-reload",
       "sudo systemctl restart espeakup || echo 'Aviso: espeakup não está rodando (normal durante build)'",
       "echo 'Voz pt-br e timeout configurados'",
+      "echo '=== Configurando recuperação de emergência da síntese de voz ==='",
+      "sudo mv /tmp/restart-speech.sh /usr/local/bin/restart-speech",
+      "sudo chmod 755 /usr/local/bin/restart-speech",
+      "sudo mv /tmp/espeakup-resilience.conf /etc/systemd/system/espeakup.service.d/resilience.conf",
+      "sudo chmod 644 /etc/systemd/system/espeakup.service.d/resilience.conf",
+      "sudo mv /tmp/a11y-speech-sudoers /etc/sudoers.d/a11y-speech",
+      "sudo chmod 440 /etc/sudoers.d/a11y-speech",
+      "sudo systemctl daemon-reload",
+      "echo 'Recuperação de emergência configurada (F12 + falar + auto-restart)'",
       "echo '=== Configurando script de ajuste do speakup ==='",
       "sudo mv /tmp/configure-speakup.sh /usr/local/sbin/",
       "sudo chmod +x /usr/local/sbin/configure-speakup.sh",

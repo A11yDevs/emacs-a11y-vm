@@ -1,1 +1,10 @@
-Distribuição Debian A11y Devs versão @@VERSION@@
+╔══════════════════════════════════════════════════════════╗
+║    Distribuição Debian A11y Devs versão @@VERSION@@     ║
+╚══════════════════════════════════════════════════════════╝
+
+📢 SÍNTESE DE VOZ
+   Se o áudio parar: pressione F12 ou digite "falar"
+   
+⌨️  COMANDOS ÚTEIS
+   emacs-a11y-version  - Informações da versão instalada
+   restart-speech      - Reiniciar síntese de voz manualmente

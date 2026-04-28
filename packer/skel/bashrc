@@ -91,6 +91,9 @@ if command -v git >/dev/null 2>&1; then
     alias gl='git log --oneline --graph --decorate'
 fi
 
+# Acessibilidade: atalho de emergência para reiniciar síntese de voz
+alias falar='restart-speech'
+
 # ==============================================================================
 # Funções Úteis
 # ==============================================================================

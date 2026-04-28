@@ -960,47 +960,27 @@ if (-not $NoSharedFolder -and $SharedFolder) {
             # Ignorar: share pode nao existir ainda
         }
 
-        $output = $null
-        $sharedFolderConfigured = $false
-
-        # Tentativa 1: usar automount-point explicito (/home/<usuario>)
+        # Configurar shared folder SEM automount
+        # O systemd service mount-shared-folder.service no guest fara a montagem em /home/<usuario>
         try {
             $output = & $VBoxManagePath sharedfolder add "$VMName" `
                 --name "$sharedFolderName" `
-                --hostpath "$SharedFolder" `
-                --automount `
-                --automount-point "$guestMountPoint" 2>&1
-            $sharedFolderConfigured = ($LASTEXITCODE -eq 0)
-        } catch {
-            $output = @($_.Exception.Message)
-            $sharedFolderConfigured = $false
-        }
-
-        # Tentativa 2 (fallback): algumas combinacoes VBox/PowerShell falham com --automount-point
-        if (-not $sharedFolderConfigured) {
-            Write-Host "    Aviso: Falha com --automount-point, tentando fallback sem esse parametro..." -ForegroundColor Yellow
-            try {
-                $output = & $VBoxManagePath sharedfolder add "$VMName" `
-                    --name "$sharedFolderName" `
-                    --hostpath "$SharedFolder" `
-                    --automount 2>&1
-                $sharedFolderConfigured = ($LASTEXITCODE -eq 0)
-            } catch {
-                $output = @($_.Exception.Message)
-                $sharedFolderConfigured = $false
+                --hostpath "$SharedFolder" 2>&1
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "    Pasta compartilhada configurada com sucesso!" -ForegroundColor Green
+                Write-Host ""
+                Write-Host "    O systemd montara automaticamente em $guestMountPoint no boot" -ForegroundColor Green
+                Write-Host "    Service: mount-shared-folder.service (ja instalado na VM)" -ForegroundColor Cyan
+                Write-Host "    Basta iniciar a VM e acessar: cd $guestMountPoint" -ForegroundColor Cyan
+                Write-Host ""
+            } else {
+                Write-Host "    AVISO: Falha ao configurar pasta compartilhada" -ForegroundColor Yellow
+                Write-Host "    $output" -ForegroundColor Yellow
             }
-        }
-
-        if ($sharedFolderConfigured) {
-            Write-Host "    Pasta compartilhada configurada com sucesso!" -ForegroundColor Green
-            Write-Host ""
-            Write-Host "    A pasta sera montada AUTOMATICAMENTE em $guestMountPoint" -ForegroundColor Green
-            Write-Host "    Guest Additions ja vem pre-instalado na VM" -ForegroundColor Cyan
-            Write-Host "    Basta iniciar a VM e acessar: cd $guestMountPoint" -ForegroundColor Cyan
-            Write-Host ""
-        } else {
+        } catch {
             Write-Host "    AVISO: Falha ao configurar pasta compartilhada" -ForegroundColor Yellow
-            Write-Host "    $output" -ForegroundColor Yellow
+            Write-Host "    $($_.Exception.Message)" -ForegroundColor Yellow
         }
     }
 }

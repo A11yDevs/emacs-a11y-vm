@@ -1,0 +1,17 @@
+# /etc/sudoers.d/a11y-speech
+# Permite restart espeakup sem senha (emergência acessibilidade)
+#
+# CRÍTICO: Usuários cegos não conseguem digitar senha quando a síntese de voz
+# está inativa. Este arquivo permite restart sem autenticação em emergências.
+#
+# Permissões devem ser 440 (r--r-----) - configurado pelo Packer
+
+# Comandos systemctl para gerenciar espeakup
+a11ydevs ALL=(ALL) NOPASSWD: /bin/systemctl stop espeakup.service
+a11ydevs ALL=(ALL) NOPASSWD: /bin/systemctl start espeakup.service
+a11ydevs ALL=(ALL) NOPASSWD: /bin/systemctl restart espeakup.service
+a11ydevs ALL=(ALL) NOPASSWD: /bin/systemctl status espeakup.service
+
+# Comandos modprobe para gerenciar speakup_soft
+a11ydevs ALL=(ALL) NOPASSWD: /sbin/modprobe speakup_soft
+a11ydevs ALL=(ALL) NOPASSWD: /sbin/modprobe -r speakup_soft
