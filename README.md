@@ -46,10 +46,7 @@ cp .env.example .env
 
 ### 3. Instalação a partir de release
 
-Há dois scripts disponíveis para baixar uma release de VM emacs-a11y do GitHub e instalar no VirtualBox a partir de um disco VMDK pronto:
-
-- **Linux/macOS**: [scripts/install-release-vm.sh](scripts/install-release-vm.sh)
-- **Windows**: [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1)
+O script [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1) (Windows) baixa uma release de VM emacs-a11y do GitHub e instala no VirtualBox a partir de um disco VMDK pronto.
 
 Esse fluxo:
 
@@ -60,38 +57,6 @@ Esse fluxo:
 - configura rede bridge (padrão) ou NAT (opcional, com port forwarding para SSH)
 
 Use este caminho quando você quiser subir rapidamente uma VM já pronta, sem passar pela instalação do Debian.
-
-#### Linux/macOS (Bash)
-
-Exemplo com a última release:
-
-```bash
-./scripts/install-release-vm.sh
-```
-
-Exemplo com uma tag específica:
-
-```bash
-./scripts/install-release-vm.sh --tag v1.0.0
-```
-
-No macOS, se necessário, force explicitamente o CoreAudio:
-
-```bash
-./scripts/install-release-vm.sh --audio-driver coreaudio
-```
-
-**Execução direta via URL (sem clonar o repositório):**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.sh | bash
-```
-
-Com parâmetros customizados:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.sh | bash -s -- --tag v1.0.0 --ram 4096
-```
 
 #### Windows (PowerShell)
 
@@ -274,7 +239,7 @@ Esse comando mostra:
 
 **Detecção inteligente de versão:**
 
-Os scripts de instalação (`install-release-vm.sh` e `install-release-vm.ps1`) usam **comparação por versão** (não por tamanho de arquivo) para evitar downloads desnecessários:
+O script `install-release-vm.ps1` usa **comparação por versão** (não por tamanho de arquivo) para evitar downloads desnecessários:
 
 1. **Primeira instalação**: Baixa o VMDK e cria arquivo `.version` ao lado (ex: `releases/debian-a11ydevs.vmdk.version`)
 2. **Reinstalação mesma versão**: Detecta versão igual no `.version`, **pula download** ✅
@@ -298,28 +263,19 @@ Com comparação por versão:
 
 Por padrão, as VMs são criadas em **modo bridge** (acesso direto na rede local):
 
-```bash
-# Linux/macOS - Bridge (padrão)
-./scripts/install-release-vm.sh
-
-# Usar NAT com port forwarding (SSH localhost:2222 -> VM:22)
-./scripts/install-release-vm.sh --network-mode nat
-
-# Windows - Bridge (padrão)
+```powershell
+# Bridge (padrão)
 .\scripts\install-release-vm.ps1
 
-# Usar NAT com port forwarding
+# Usar NAT com port forwarding (SSH localhost:2222 -> VM:22)
 .\scripts\install-release-vm.ps1 -NetworkMode nat
 ```
 
 **Customização:**
 
-```bash
+```powershell
 # Aumentar tamanho do disco de dados (padrão: 10GB)
-./scripts/install-release-vm.sh --user-data-size 20480  # 20GB
-
-# PowerShell (Windows)
-.\scripts\install-release-vm.ps1 -UserDataSize 20480
+.\scripts\install-release-vm.ps1 -UserDataSize 20480  # 20GB
 ```
 
 **Documentação detalhada:**
@@ -332,7 +288,7 @@ Por padrão, as VMs são criadas em **modo bridge** (acesso direto na rede local
 
 - Use [docs/debian-a11y-minimal-vm.md](docs/debian-a11y-minimal-vm.md) se quiser aprender e executar a instalação manualmente.
 - Use [docs/generate-vm.md](docs/generate-vm.md) e [scripts/setup-vm.sh](scripts/setup-vm.sh) se quiser gerar a VM automaticamente a partir de uma ISO do Debian.
-- Use [scripts/install-release-vm.sh](scripts/install-release-vm.sh) (Linux/macOS) ou [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1) (Windows) se quiser instalar rapidamente uma VM pronta publicada como release no GitHub.
+- Use [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1) (Windows) se quiser instalar rapidamente uma VM pronta publicada como release no GitHub.
 
 ## Problemas Conhecidos
 

@@ -10,7 +10,7 @@ A distribuição da VM é baseada em um pipeline de CI/CD no GitHub Actions:
 2. O workflow monta automaticamente a imagem Debian acessível com Packer + QEMU.
 3. A imagem gerada (`.qcow2`) é convertida para `.vmdk`.
 4. Os artefatos são publicados em um GitHub Release.
-5. O usuário final pode baixar os discos manualmente ou usar `scripts/install-release-vm.sh` para instalar no VirtualBox.
+5. O usuário final pode baixar os discos manualmente ou usar `scripts/install-release-vm.ps1` (Windows) para instalar no VirtualBox.
 
 Arquivo principal do pipeline:
 
@@ -81,9 +81,9 @@ O workflow publica os seguintes arquivos:
 
 Esses arquivos são gerados no CI e enviados automaticamente para o GitHub Release.
 
-## Como o script install-release-vm.sh se conecta ao release
+## Como o script install-release-vm.ps1 se conecta ao release
 
-O script `scripts/install-release-vm.sh` consome exatamente os releases gerados por esse pipeline:
+O script `scripts/install-release-vm.ps1` consome exatamente os releases gerados por esse pipeline:
 
 1. consulta a API de releases do GitHub
 2. encontra o asset `.vmdk`
@@ -105,5 +105,5 @@ Se não forem definidas, o workflow usa os valores padrão configurados no próp
 
 1. Validar um pré-release manual após mudanças em `packer` ou no workflow.
 2. Criar tag semântica (`vX.Y.Z`) somente quando o build estiver estável.
-3. Testar o `.vmdk` publicado com `scripts/install-release-vm.sh` antes de anunciar.
+3. Testar o `.vmdk` publicado com `scripts/install-release-vm.ps1` antes de anunciar.
 4. Manter este documento e o README atualizados quando o fluxo de release mudar.
