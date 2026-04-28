@@ -513,18 +513,21 @@ if ($needsConversion) {
     
     try {
         # VBoxManage clonemedium: converte formatos automaticamente
-        $convertOutput = & $VBoxManagePath clonemedium disk "$Qcow2Path" "$SystemVdiPath" --format VDI 2>&1
+        # Nao capturar output para mostrar progresso em tempo real
+        & $VBoxManagePath clonemedium disk "$Qcow2Path" "$SystemVdiPath" --format VDI
         
-        if ($LASTEXITCODE -ne 0) {
-            $errorMsg = $convertOutput -join "`n"
-            throw "Falha na conversao: $errorMsg"
-        }
+        Write-Host ""
         
+        # Verificar se o arquivo foi criado (criterio de sucesso real)
         if (-not (Test-Path $SystemVdiPath)) {
-            throw "VDI nao foi criado em: $SystemVdiPath"
+            throw "VDI nao foi criado em: $SystemVdiPath. Exit code: $LASTEXITCODE"
         }
         
         $vdiSize = (Get-Item $SystemVdiPath).Length
+        if ($vdiSize -eq 0) {
+            throw "VDI foi criado mas esta vazio (0 bytes)"
+        }
+        
         $vdiSizeMB = [math]::Round($vdiSize / 1MB, 2)
         Write-Host "    Conversao completa: $vdiSizeMB MB" -ForegroundColor Green
         
