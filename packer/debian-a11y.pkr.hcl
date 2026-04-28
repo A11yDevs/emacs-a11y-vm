@@ -75,7 +75,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.10"
+  default = "2.0.11"
 }
 
 # ------------------------------------------------------------------------------

@@ -366,6 +366,11 @@ if VBoxManage showvminfo "$VM_NAME" >/dev/null 2>&1; then
     
     echo "    Removendo VM antiga..."
     VBoxManage unregistervm "$VM_NAME" --delete || true
+    
+    # Limpar registros antigos do VMDK (child media, snapshots, etc)
+    echo "    Limpando registros antigos do disco..."
+    VBoxManage closemedium disk "$VMDK_PATH" --delete 2>/dev/null || \
+        echo "    Aviso: Não foi possível limpar registros (disco pode não estar registrado)"
 fi
 
 echo "==> Criando VM '${VM_NAME}'"
@@ -412,10 +417,6 @@ VBoxManage storagectl "$VM_NAME" --name "SATA" --add sata --controller IntelAhci
 
 echo "==> Anexando disco de sistema (VMDK)"
 
-# Desregistrar o disco se estiver registrado com UUID antigo
-echo "    Desregistrando disco anterior (se existir)..."
-VBoxManage closemedium disk "$VMDK_PATH" 2>/dev/null
-
 # Regenerar UUID do VMDK para evitar conflitos com registros anteriores
 echo "    Regenerando UUID do disco..."
 if ! VBoxManage internalcommands sethduuid "$VMDK_PATH" 2>/dev/null; then
@@ -424,23 +425,8 @@ fi
 
 if ! VBoxManage storageattach "$VM_NAME" \
     --storagectl "SATA" --port 0 --device 0 \
-    --type hdd --medium "$VMDK_PATH" 2>/dev/null; then
-    
-    # Se falhar, pode ser conflito de UUID - desregistrar e regenerar novamente
-    echo "    Detectado possível conflito de UUID, desregistrando e regenerando..."
-    
-    # Desregistrar novamente
-    VBoxManage closemedium disk "$VMDK_PATH" 2>/dev/null
-    
-    # Regenerar UUID novamente
-    VBoxManage internalcommands sethduuid "$VMDK_PATH" 2>/dev/null
-    
-    # Tentar anexar novamente
-    if ! VBoxManage storageattach "$VM_NAME" \
-        --storagectl "SATA" --port 0 --device 0 \
-        --type hdd --medium "$VMDK_PATH"; then
-        die "Falha ao anexar disco VMDK"
-    fi
+    --type hdd --medium "$VMDK_PATH"; then
+    die "Falha ao anexar disco VMDK. Dica: Se o erro for sobre UUID ou child media, tente deletar manualmente a VM antiga no VirtualBox e executar o script novamente."
 fi
 
 echo "    Disco de sistema anexado na porta SATA 0"

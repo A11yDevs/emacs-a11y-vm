@@ -490,6 +490,17 @@ if ($VMExists) {
     } catch {
         Write-Host "    Aviso: Falha ao remover VM antiga (pode nao existir)" -ForegroundColor Yellow
     }
+    
+    # Limpar registros antigos do VMDK (child media, snapshots, etc)
+    Write-Host "    Limpando registros antigos do disco..." -ForegroundColor Yellow
+    try {
+        # Tentar desregistrar o VMDK e todos os child media
+        $null = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" --delete 2>&1
+        Write-Host "    Registros do disco limpos" -ForegroundColor Green
+    } catch {
+        # Se falhar, não é crítico - tentaremos anexar mesmo assim
+        Write-Host "    Aviso: Não foi possível limpar registros (disco pode não estar registrado)" -ForegroundColor Yellow
+    }
 } else {
     Write-Host "    Nenhuma VM existente com esse nome" -ForegroundColor Green
 }
@@ -555,10 +566,6 @@ try {
 
 Write-Host "==> Anexando disco de sistema (VMDK)"
 
-# Desregistrar o disco se estiver registrado com UUID antigo
-Write-Host "    Desregistrando disco anterior (se existir)..."
-$null = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
-
 # Regenerar UUID do VMDK para evitar conflitos com registros anteriores
 Write-Host "    Regenerando UUID do disco..."
 $uuidOutput = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
@@ -573,27 +580,7 @@ $output = & $VBoxManagePath storageattach "$VMName" `
     --type hdd --medium "$VmdkAbsolutePath" 2>&1
 
 if ($LASTEXITCODE -ne 0) {
-    # Se falhar, pode ser conflito de UUID - tentar desregistrar e regenerar novamente
-    if ($output -match "UUID.*does not match") {
-        Write-Host "    Detectado conflito de UUID, desregistrando e regenerando..." -ForegroundColor Yellow
-        
-        # Desregistrar novamente
-        $null = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
-        
-        # Regenerar UUID novamente
-        $null = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
-        
-        # Tentar anexar novamente
-        $output = & $VBoxManagePath storageattach "$VMName" `
-            --storagectl "SATA" --port 0 --device 0 `
-            --type hdd --medium "$VmdkAbsolutePath" 2>&1
-        
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output"
-        }
-    } else {
-        Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output"
-    }
+    Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output`n`nDica: Se o erro for sobre UUID ou child media, tente deletar manualmente a VM antiga no VirtualBox e executar o script novamente."
 }
 
 Write-Host "    Disco de sistema anexado na porta SATA 0" -ForegroundColor Green
