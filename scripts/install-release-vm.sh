@@ -60,13 +60,10 @@ Opções:
 
 Pasta Compartilhada (Shared Folder):
   Use --shared-folder para montar uma pasta do host no guest (/home/shared)
-  Requer instalar Guest Additions na VM após primeiro boot:
-    1. Iniciar VM
-    2. Login: a11ydevs / a11ydevs
-    3. Executar: sudo /usr/local/sbin/install-guest-additions.sh
-    4. Reiniciar: sudo reboot
-    5. Executar: /usr/local/sbin/setup-shared-folder.sh
-  Após instalação, /home/shared estará montado automaticamente.
+  A pasta é montada AUTOMATICAMENTE no primeiro boot da VM!
+  
+  Guest Additions já vem pré-instalado na imagem.
+  Basta iniciar a VM e acessar /home/shared - sem passos manuais.
 
 Arquitetura de Discos:
   Disco 1 (Sistema): VMDK imutável da release (substituído em upgrades)
@@ -470,7 +467,7 @@ if [[ -n "$SHARED_FOLDER" ]]; then
         SHARED_FOLDER_NAME="host-home"
         echo "    Nome: $SHARED_FOLDER_NAME"
         echo "    Caminho host: $SHARED_FOLDER"
-        echo "    Caminho guest: /home/shared (após instalar Guest Additions)"
+        echo "    Caminho guest: /home/shared (montado automaticamente)"
         
         if VBoxManage sharedfolder add "$VM_NAME" \
             --name "$SHARED_FOLDER_NAME" \
@@ -478,12 +475,9 @@ if [[ -n "$SHARED_FOLDER" ]]; then
             --automount 2>/dev/null; then
             echo "    Pasta compartilhada configurada com sucesso!"
             echo ""
-            echo "    IMPORTANTE: Para acessar a pasta compartilhada:"
-            echo "      1. Inicie a VM e faça login (a11ydevs/a11ydevs)"
-            echo "      2. Execute: sudo /usr/local/sbin/install-guest-additions.sh"
-            echo "      3. Reinicie: sudo reboot"
-            echo "      4. Execute: /usr/local/sbin/setup-shared-folder.sh"
-            echo "      5. Acesse /home/shared dentro da VM"
+            echo "    A pasta será montada AUTOMATICAMENTE em /home/shared"
+            echo "    Guest Additions já vem pré-instalado na VM"
+            echo "    Basta iniciar a VM e acessar: cd /home/shared"
             echo ""
         else
             echo "    AVISO: Falha ao configurar pasta compartilhada"

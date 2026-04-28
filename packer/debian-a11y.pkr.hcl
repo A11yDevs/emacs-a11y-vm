@@ -75,7 +75,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.7"
+  default = "2.0.8"
 }
 
 # ------------------------------------------------------------------------------
@@ -300,7 +300,7 @@ build {
     ]
   }
 
-  # Instalar dependências para VirtualBox Guest Additions (compilação)
+  # Instalar VirtualBox Guest Additions durante o build
   provisioner "shell" {
     inline = [
       "echo '=== Instalando dependências para Guest Additions ==='",
@@ -310,25 +310,43 @@ build {
     ]
   }
 
-  # Copiar scripts de Guest Additions e Shared Folder
+  # Copiar script de instalação do Guest Additions
   provisioner "file" {
-    source      = "packer/files/install-guest-additions.sh"
-    destination = "/tmp/install-guest-additions.sh"
+    source      = "packer/files/install-guest-additions-build.sh"
+    destination = "/tmp/install-guest-additions-build.sh"
+  }
+
+  # Executar instalação do Guest Additions
+  provisioner "shell" {
+    inline = [
+      "echo '=== Instalando VirtualBox Guest Additions ==='",
+      "sudo bash /tmp/install-guest-additions-build.sh",
+      "sudo rm /tmp/install-guest-additions-build.sh"
+    ]
+  }
+
+  # Configurar montagem automática de shared folders
+  provisioner "file" {
+    source      = "packer/files/mount-shared-folder.sh"
+    destination = "/tmp/mount-shared-folder.sh"
   }
 
   provisioner "file" {
-    source      = "packer/files/setup-shared-folder.sh"
-    destination = "/tmp/setup-shared-folder.sh"
+    source      = "packer/files/mount-shared-folder.service"
+    destination = "/tmp/mount-shared-folder.service"
   }
 
   provisioner "shell" {
     inline = [
-      "echo '=== Instalando scripts de Guest Additions ==='",
-      "sudo mv /tmp/install-guest-additions.sh /usr/local/sbin/",
-      "sudo mv /tmp/setup-shared-folder.sh /usr/local/sbin/",
-      "sudo chmod +x /usr/local/sbin/install-guest-additions.sh",
-      "sudo chmod +x /usr/local/sbin/setup-shared-folder.sh",
-      "echo 'Scripts instalados em /usr/local/sbin/'"
+      "echo '=== Configurando montagem automática de shared folders ==='",
+      "sudo mv /tmp/mount-shared-folder.sh /usr/local/sbin/",
+      "sudo chmod +x /usr/local/sbin/mount-shared-folder.sh",
+      "sudo mv /tmp/mount-shared-folder.service /etc/systemd/system/",
+      "sudo systemctl daemon-reload",
+      "sudo systemctl enable mount-shared-folder.service",
+      "echo 'Adicionar usuário a11ydevs ao grupo vboxsf'",
+      "sudo usermod -aG vboxsf a11ydevs || echo 'Grupo vboxsf não existe ainda (será criado no boot)'",
+      "echo 'Configuração de shared folders concluída'"
     ]
   }
 
@@ -339,12 +357,14 @@ build {
       "uname -a",
       "systemctl is-enabled espeakup && echo 'espeakup: OK' || echo 'espeakup: AVISO — serviço não encontrado'",
       "systemctl is-enabled emacs-a11y-userdata && echo 'userdata setup: OK' || echo 'userdata setup: AVISO'",
+      "systemctl is-enabled mount-shared-folder && echo 'mount-shared-folder: OK' || echo 'mount-shared-folder: AVISO'",
       "command -v emacs  && emacs --version | head -1 || echo 'emacs: AVISO — não encontrado'",
       "command -v ssh    && ssh -V || echo 'ssh: AVISO — não encontrado'",
+      "test -f /sbin/mount.vboxsf && echo 'VBox Guest Additions: OK' || echo 'VBox Guest Additions: AVISO'",
       "grep -q 'speakup.synth=soft' /etc/default/grub && echo 'GRUB speakup: OK' || echo 'GRUB speakup: AVISO'",
       "test -x /usr/local/sbin/setup-userdata-disk.sh && echo 'setup-userdata-disk.sh: OK' || echo 'setup-userdata-disk.sh: AVISO'",
       "grep -q 'auto enp0s3' /etc/network/interfaces && echo 'Network config: OK' || echo 'Network config: AVISO'",
-      "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO'",
+      "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO',
     ]
   }
 }

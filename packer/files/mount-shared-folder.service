@@ -1,0 +1,15 @@
+[Unit]
+Description=Mount VirtualBox Shared Folders
+Documentation=https://github.com/A11yDevs/emacs-a11y-vm
+After=vboxadd.service vboxadd-service.service
+ConditionPathExists=/sbin/mount.vboxsf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mount-shared-folder.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

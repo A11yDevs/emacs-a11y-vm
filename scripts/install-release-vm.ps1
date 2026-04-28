@@ -89,13 +89,10 @@ Opcoes:
 
 Pasta Compartilhada (Shared Folder):
   Use -SharedFolder para montar uma pasta do host no guest (/home/shared)
-  Requer instalar Guest Additions na VM apos primeiro boot:
-    1. Iniciar VM
-    2. Login: a11ydevs / a11ydevs
-    3. Executar: sudo /usr/local/sbin/install-guest-additions.sh
-    4. Reiniciar: sudo reboot
-    5. Executar: /usr/local/sbin/setup-shared-folder.sh
-  Apos instalacao, /home/shared estara montado automaticamente.
+  A pasta e montada AUTOMATICAMENTE no primeiro boot da VM!
+  
+  Guest Additions ja vem pre-instalado na imagem.
+  Basta iniciar a VM e acessar /home/shared - sem passos manuais.
 
 Arquitetura de Discos:
   Disco 1 (Sistema): VMDK imutavel da release (substituido em upgrades)
@@ -664,12 +661,9 @@ if ($SharedFolder) {
         if ($LASTEXITCODE -eq 0) {
             Write-Host "    Pasta compartilhada configurada com sucesso!" -ForegroundColor Green
             Write-Host ""
-            Write-Host "    IMPORTANTE: Para acessar a pasta compartilhada:" -ForegroundColor Yellow
-            Write-Host "      1. Inicie a VM e faca login (a11ydevs/a11ydevs)"
-            Write-Host "      2. Execute: sudo /usr/local/sbin/install-guest-additions.sh"
-            Write-Host "      3. Reinicie: sudo reboot"
-            Write-Host "      4. Execute: /usr/local/sbin/setup-shared-folder.sh"
-            Write-Host "      5. Acesse /home/shared dentro da VM"
+            Write-Host "    A pasta sera montada AUTOMATICAMENTE em /home/shared" -ForegroundColor Green
+            Write-Host "    Guest Additions ja vem pre-instalado na VM" -ForegroundColor Cyan
+            Write-Host "    Basta iniciar a VM e acessar: cd /home/shared" -ForegroundColor Cyan
             Write-Host ""
         } else {
             Write-Host "    AVISO: Falha ao configurar pasta compartilhada" -ForegroundColor Yellow
