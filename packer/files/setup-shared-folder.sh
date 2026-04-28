@@ -1,55 +1,70 @@
 #!/bin/bash
-# Script para configurar montagem automática de pasta compartilhada VirtualBox
-# Executa após instalação do Guest Additions
+# Script para configurar montagem manual de VirtualBox Shared Folders
+# Normalmente não é necessário executar este script — o serviço systemd
+# mount-shared-folder.service faz a montagem automaticamente no boot.
+#
+# Use este script apenas para diagnóstico ou montagem manual.
+#
+# Uso:
+#   sudo /usr/local/sbin/setup-shared-folder.sh <nome-da-share>
+#
+# Exemplo (usuário Windows "joao"):
+#   sudo /usr/local/sbin/setup-shared-folder.sh joao
+#   -> Monta a share "joao" em /home/joao
 
 set -euo pipefail
 
-SHARED_FOLDER_NAME="host-home"
-MOUNT_POINT="/home/shared"
 USERNAME="a11ydevs"
+USER_UID=1000
+USER_GID=1000
 
-# Verificar se Guest Additions está instalado
-if ! lsmod | grep -q vboxguest; then
-    echo "Guest Additions não está carregado. Execute install-guest-additions.sh primeiro."
+# --- Parâmetros --------------------------------------------------------------
+
+if [[ $# -lt 1 ]]; then
+    echo "Uso: $0 <nome-da-share>"
+    echo ""
+    echo "Shares configuradas no VirtualBox:"
+    VBoxControl --nologo sharedfolder list 2>/dev/null || echo "  (VBoxControl nao disponivel)"
     exit 1
 fi
 
-# Adicionar usuário ao grupo vboxsf (necessário para acessar pastas compartilhadas)
+SHARED_FOLDER_NAME="$1"
+MOUNT_POINT="/home/$SHARED_FOLDER_NAME"
+
+# --- Verificações ------------------------------------------------------------
+
+if ! lsmod | grep -q vboxguest; then
+    echo "Guest Additions nao esta carregado. Execute install-guest-additions.sh primeiro."
+    exit 1
+fi
+
+if ! lsmod | grep -q vboxsf; then
+    modprobe vboxsf || { echo "Falha ao carregar modulo vboxsf"; exit 1; }
+fi
+
+# --- Adicionar usuário ao grupo vboxsf ---------------------------------------
+
 if ! groups "$USERNAME" | grep -q vboxsf; then
     echo "Adicionando $USERNAME ao grupo vboxsf..."
     sudo usermod -aG vboxsf "$USERNAME"
-    echo "Usuário adicionado ao grupo vboxsf"
 fi
 
-# Criar ponto de montagem
+# --- Criar ponto de montagem -------------------------------------------------
+
 if [[ ! -d "$MOUNT_POINT" ]]; then
     echo "Criando ponto de montagem: $MOUNT_POINT"
     sudo mkdir -p "$MOUNT_POINT"
-    sudo chown "$USERNAME:$USERNAME" "$MOUNT_POINT"
+    sudo chown "$USER_UID:$USER_GID" "$MOUNT_POINT"
 fi
 
-# Adicionar entrada ao /etc/fstab para montagem automática
-FSTAB_ENTRY="$SHARED_FOLDER_NAME $MOUNT_POINT vboxsf defaults,uid=$(id -u $USERNAME),gid=$(id -g $USERNAME) 0 0"
+# --- Montar ------------------------------------------------------------------
 
-if ! grep -q "$SHARED_FOLDER_NAME" /etc/fstab; then
-    echo "Adicionando entrada ao /etc/fstab..."
-    echo "$FSTAB_ENTRY" | sudo tee -a /etc/fstab
-    echo "Entrada adicionada ao /etc/fstab"
-fi
-
-# Tentar montar agora
-echo "Tentando montar pasta compartilhada..."
-if sudo mount -t vboxsf -o uid=$(id -u $USERNAME),gid=$(id -g $USERNAME) "$SHARED_FOLDER_NAME" "$MOUNT_POINT" 2>/dev/null; then
-    echo "Pasta compartilhada montada com sucesso em $MOUNT_POINT"
+echo "Montando share '$SHARED_FOLDER_NAME' em $MOUNT_POINT..."
+if sudo mount -t vboxsf -o "uid=$USER_UID,gid=$USER_GID" "$SHARED_FOLDER_NAME" "$MOUNT_POINT"; then
+    echo "Share montada com sucesso em $MOUNT_POINT"
 else
-    echo "AVISO: Não foi possível montar agora (pasta compartilhada pode não estar configurada)"
-    echo "Configure a pasta compartilhada no VirtualBox com nome: $SHARED_FOLDER_NAME"
+    echo "AVISO: Nao foi possivel montar (share pode nao estar configurada no host)"
+    echo "Configure no host com:"
+    echo "  VBoxManage sharedfolder add <VM> --name $SHARED_FOLDER_NAME --hostpath <pasta-host> --automount --automount-point $MOUNT_POINT"
+    exit 1
 fi
-
-echo ""
-echo "Configuração completa!"
-echo "- Pasta compartilhada será montada automaticamente em: $MOUNT_POINT"
-echo "- Usuário $USERNAME tem permissões de leitura/escrita"
-echo ""
-echo "Para configurar no VirtualBox:"
-echo "  VBoxManage sharedfolder add $VM_NAME --name $SHARED_FOLDER_NAME --hostpath /Users/\$USER --automount"

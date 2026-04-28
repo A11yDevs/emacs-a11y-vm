@@ -46,7 +46,8 @@ param(
     [switch]$KeepOldVM,
     [switch]$ForceDownload,
     [switch]$Headless,
-    [string]$SharedFolder = "",
+    [string]$SharedFolder = $env:USERPROFILE,
+    [switch]$NoSharedFolder,
     [switch]$Help
 )
 
@@ -83,16 +84,22 @@ Opcoes:
   -KeepOldVM              Nao remove VM existente com o mesmo nome
   -ForceDownload          Forca re-download mesmo se arquivo ja existe
   -Headless               Inicia VM sem janela (background, acesso via SSH)
-  -SharedFolder <path>    Compartilha pasta do host com guest em /home/shared
-                          Exemplo: -SharedFolder "$env:USERPROFILE" (Windows)
-  -Help                   Mostra esta ajuda
+    -SharedFolder <path>    Pasta do host a compartilhar (padrao: %USERPROFILE%)
+                                                    Exemplo: -SharedFolder "D:\projetos"
+    -NoSharedFolder         Desativa o compartilhamento de pasta
+    -Help                   Mostra esta ajuda
 
 Pasta Compartilhada (Shared Folder):
-  Use -SharedFolder para montar uma pasta do host no guest (/home/shared)
-  A pasta e montada AUTOMATICAMENTE no primeiro boot da VM!
-  
-  Guest Additions ja vem pre-instalado na imagem.
-  Basta iniciar a VM e acessar /home/shared - sem passos manuais.
+    Por padrao, a pasta pessoal do usuario Windows (%USERPROFILE%) e compartilhada
+    automaticamente e montada no guest em /home/<usuario-windows>.
+
+    Exemplo: usuario "joao" -> %USERPROFILE% montado em /home/joao dentro da VM.
+
+    Para desativar: -NoSharedFolder
+    Para outra pasta: -SharedFolder "D:\projetos"
+
+    Guest Additions ja vem pre-instalado na imagem.
+    A pasta e montada AUTOMATICAMENTE no primeiro boot - sem passos manuais.
 
 Arquitetura de Discos:
   Disco 1 (Sistema): VMDK imutavel da release (substituido em upgrades)
@@ -850,30 +857,34 @@ if ($UserDataVdiExists -and -not $SkipVmCreation) {
 }
 
 # Configurar pasta compartilhada (Shared Folder)
-if ($SharedFolder) {
+if (-not $NoSharedFolder -and $SharedFolder) {
     Write-Host "==> Configurando pasta compartilhada"
-    
+
     # Verificar se pasta existe
     if (-not (Test-Path $SharedFolder)) {
         Write-Host "    AVISO: Pasta nao encontrada: $SharedFolder" -ForegroundColor Yellow
         Write-Host "    Pulando configuracao de pasta compartilhada" -ForegroundColor Yellow
     } else {
-        $sharedFolderName = "host-home"
-        Write-Host "    Nome: $sharedFolderName"
-        Write-Host "    Caminho host: $SharedFolder"
-        Write-Host "    Caminho guest: /home/shared (apos instalar Guest Additions)"
-        
+        # Nome da share = usuario Windows sanitizado para path Linux
+        $sharedFolderName = ($env:USERNAME -replace '[^a-zA-Z0-9_.-]', '_').ToLower()
+        $guestMountPoint  = "/home/$sharedFolderName"
+
+        Write-Host "    Nome da share:  $sharedFolderName"
+        Write-Host "    Caminho host:   $SharedFolder"
+        Write-Host "    Caminho guest:  $guestMountPoint"
+
         $output = & $VBoxManagePath sharedfolder add "$VMName" `
             --name "$sharedFolderName" `
             --hostpath "$SharedFolder" `
-            --automount 2>&1
-        
+            --automount `
+            --automount-point "$guestMountPoint" 2>&1
+
         if ($LASTEXITCODE -eq 0) {
             Write-Host "    Pasta compartilhada configurada com sucesso!" -ForegroundColor Green
             Write-Host ""
-            Write-Host "    A pasta sera montada AUTOMATICAMENTE em /home/shared" -ForegroundColor Green
+            Write-Host "    A pasta sera montada AUTOMATICAMENTE em $guestMountPoint" -ForegroundColor Green
             Write-Host "    Guest Additions ja vem pre-instalado na VM" -ForegroundColor Cyan
-            Write-Host "    Basta iniciar a VM e acessar: cd /home/shared" -ForegroundColor Cyan
+            Write-Host "    Basta iniciar a VM e acessar: cd $guestMountPoint" -ForegroundColor Cyan
             Write-Host ""
         } else {
             Write-Host "    AVISO: Falha ao configurar pasta compartilhada" -ForegroundColor Yellow
