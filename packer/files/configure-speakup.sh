@@ -23,40 +23,27 @@ fi
 # Ler configurações do arquivo
 source "$CONFIG_FILE" 2>/dev/null || true
 
-# Mapear valores de espeak para speakup
-# espeakup default_rate: 80-450, padrão 120
-# speakup rate: 0-9, padrão 5
-# Fórmula aproximada: speakup_rate = (espeak_rate - 80) / 40
+# Aplicar valores diretamente (já no formato speakup: 0-9)
+# Os valores em /etc/default/espeakup agora são diretos (0-9)
+# sem necessidade de conversão
+
 if [[ -n "${default_rate:-}" ]]; then
-    # Converter rate de espeak (80-450) para speakup (0-9)
-    # 120 -> 5 (padrão)
-    # 160 -> 7
-    # 200 -> 9
-    speakup_rate=$(( (default_rate - 80) / 40 ))
     # Limitar entre 0-9
-    speakup_rate=$(( speakup_rate < 0 ? 0 : (speakup_rate > 9 ? 9 : speakup_rate) ))
+    speakup_rate=$(( default_rate < 0 ? 0 : (default_rate > 9 ? 9 : default_rate) ))
     echo "$speakup_rate" > "$SPEAKUP_DIR/rate" 2>/dev/null || true
-    echo "Configurado speakup rate: $speakup_rate (baseado em default_rate=$default_rate)"
+    echo "Configurado speakup rate: $speakup_rate"
 fi
 
-# espeakup default_pitch: 0-99, padrão 50
-# speakup pitch: 0-9, padrão 5
-# Fórmula: speakup_pitch = espeak_pitch / 10
 if [[ -n "${default_pitch:-}" ]]; then
-    speakup_pitch=$(( default_pitch / 10 ))
-    speakup_pitch=$(( speakup_pitch < 0 ? 0 : (speakup_pitch > 9 ? 9 : speakup_pitch) ))
+    speakup_pitch=$(( default_pitch < 0 ? 0 : (default_pitch > 9 ? 9 : default_pitch) ))
     echo "$speakup_pitch" > "$SPEAKUP_DIR/pitch" 2>/dev/null || true
-    echo "Configurado speakup pitch: $speakup_pitch (baseado em default_pitch=$default_pitch)"
+    echo "Configurado speakup pitch: $speakup_pitch"
 fi
 
-# espeakup default_volume: 0-200, padrão 100
-# speakup vol: 0-9, padrão 5
-# Fórmula: speakup_vol = espeak_volume / 20
 if [[ -n "${default_volume:-}" ]]; then
-    speakup_vol=$(( default_volume / 20 ))
-    speakup_vol=$(( speakup_vol < 0 ? 0 : (speakup_vol > 9 ? 9 : speakup_vol) ))
+    speakup_vol=$(( default_volume < 0 ? 0 : (default_volume > 9 ? 9 : default_volume) ))
     echo "$speakup_vol" > "$SPEAKUP_DIR/vol" 2>/dev/null || true
-    echo "Configurado speakup volume: $speakup_vol (baseado em default_volume=$default_volume)"
+    echo "Configurado speakup vol: $speakup_vol"
 fi
 
 echo "Configuração do speakup aplicada com sucesso"

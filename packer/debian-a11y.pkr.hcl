@@ -75,7 +75,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.5"
+  default = "2.0.6"
 }
 
 # ------------------------------------------------------------------------------
@@ -281,14 +281,17 @@ build {
       "echo '=== Configurando mensagem de boas-vindas ==='",
       "sed 's/@@VERSION@@/${var.version}/' /tmp/motd | sudo tee /etc/motd",
       "sudo chmod 644 /etc/motd",
-      "# Desabilitar update-motd.d dinâmico (scripts que adicionam uname -a, etc)",
+      "# Remover scripts update-motd.d (causam mensagens verbosas)",
       "if [[ -d /etc/update-motd.d ]]; then",
-      "  sudo chmod -x /etc/update-motd.d/* 2>/dev/null || true",
-      "  echo 'Scripts dinâmicos de MOTD desabilitados'",
+      "  sudo rm -f /etc/update-motd.d/* 2>/dev/null || true",
+      "  echo 'Scripts de update-motd.d removidos'",
       "fi",
       "# Remover /run/motd.dynamic se existir",
       "sudo rm -f /run/motd.dynamic",
-      "echo 'Mensagem de boas-vindas configurada (apenas /etc/motd estático)'",
+      "# Desabilitar pam_motd.so para evitar duplicação (bashrc já exibe)",
+      "sudo sed -i 's/^\(.*pam_motd\.so.*\)$/# \1/' /etc/pam.d/login",
+      "echo 'pam_motd.so desabilitado em /etc/pam.d/login'",
+      "echo 'Mensagem de boas-vindas configurada (apenas /etc/motd via bashrc)'",
       "# Limpar /etc/issue (exibido ANTES do login - contém uname -a)",
       "echo 'Debian A11y Devs' | sudo tee /etc/issue > /dev/null",
       "echo 'Debian A11y Devs' | sudo tee /etc/issue.net > /dev/null",

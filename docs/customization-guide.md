@@ -453,9 +453,9 @@ cat /etc/default/espeakup
 
 # Exemplo de conteúdo:
 # default_voice=pt-br
-# default_rate=120
-# default_volume=100
-# default_pitch=50
+# default_rate=2
+# default_volume=5
+# default_pitch=5
 ```
 
 **Modificar configurações:**
@@ -471,19 +471,19 @@ sudo systemctl restart configure-speakup
 
 **Como funcionam os parâmetros:**
 
-O `espeakup` reconhece apenas `default_voice`. Os parâmetros `default_rate`, `default_pitch` e `default_volume` são convertidos automaticamente pelo script `configure-speakup.service` que os aplica via `/sys/accessibility/speakup/soft/`:
+O `espeakup` reconhece apenas `default_voice`. Os parâmetros `default_rate`, `default_pitch` e `default_volume` são aplicados diretamente pelo script `configure-speakup.service` via `/sys/accessibility/speakup/soft/`:
 
-- **default_rate** (80-450, padrão: 120): Convertido para speakup rate (0-9)
-  - Fórmula: `(rate - 80) / 40`
-  - Exemplo: 160 → 7, 200 → 9
+- **default_rate** (0-9, padrão: 2): Taxa de fala
+  - 0 = muito lento, 9 = muito rápido
+  - Recomendado para acessibilidade: 2-3
   
-- **default_pitch** (0-99, padrão: 50): Convertido para speakup pitch (0-9)
-  - Fórmula: `pitch / 10`
-  - Exemplo: 50 → 5, 70 → 7
+- **default_pitch** (0-9, padrão: 5): Tom da voz
+  - 0 = grave, 9 = agudo
+  - Valor equilibrado: 5
 
-- **default_volume** (0-200, padrão: 100): Convertido para speakup vol (0-9)
-  - Fórmula: `volume / 20`
-  - Exemplo: 100 → 5, 160 → 8
+- **default_volume** (0-9, padrão: 5): Volume
+  - 0 = silencioso, 9 = máximo
+  - Valor equilibrado: 5
 
 ⚠️ **IMPORTANTE**: Modificações em `/etc/default/espeakup` são **perdidas em upgrades**.  
 ✅ **Solução**: Copie o arquivo para `/home` e crie link simbólico:
@@ -492,12 +492,18 @@ O `espeakup` reconhece apenas `default_voice`. Os parâmetros `default_rate`, `d
 # Copiar configuração para /home (preservado)
 cp /etc/default/espeakup ~/.espeakup.conf
 
-# Editar sua cópia (use default_voice, default_rate, default_volume, default_pitch)
+# Editar sua cópia (valores entre 0-9)
 nano ~/.espeakup.conf
+
+# Exemplo de valores personalizados:
+# default_voice=pt-br
+# default_rate=3      # Um pouco mais rápido
+# default_volume=7    # Volume alto
+# default_pitch=4     # Levemente grave
 
 # Criar link (após cada upgrade)
 sudo ln -sf ~/.espeakup.conf /etc/default/espeakup
-sudo systemctl restart espeakup
+sudo systemctl restart espeakup configure-speakup
 ```
 
 ### Problema: Demora ao Parar o Serviço espeakup
