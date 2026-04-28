@@ -461,12 +461,16 @@ Write-Host "==> Verificando VM existente: $VMName"
 
 # Verificar se VM existe
 $VMExists = $false
+$SkipVmCreation = $false
 try {
     $null = & $VBoxManagePath showvminfo "$VMName" 2>&1
     $VMExists = ($LASTEXITCODE -eq 0)
 } catch {
     $VMExists = $false
 }
+
+$DefaultVmDir = Join-Path (Join-Path $env:USERPROFILE "VirtualBox VMs") $VMName
+$DefaultVboxFile = Join-Path $DefaultVmDir "$VMName.vbox"
 
 if ($VMExists) {
     if ($KeepOldVM) {
@@ -540,6 +544,28 @@ if ($VMExists) {
     }
 } else {
     Write-Host "    Nenhuma VM existente com esse nome" -ForegroundColor Green
+
+    if ($ReuseExistingVmdk -and (Test-Path $DefaultVboxFile)) {
+        Write-Host "    Arquivo .vbox existente encontrado; tentando registrar VM antiga..." -ForegroundColor Yellow
+        $registerOutput = & $VBoxManagePath registervm "$DefaultVboxFile" 2>&1
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "    VM registrada novamente com sucesso" -ForegroundColor Green
+            Write-Host "    Reutilizando configuracao existente; pulando recriacao da VM" -ForegroundColor Green
+            $VMExists = $true
+            $SkipVmCreation = $true
+        } else {
+            Write-Host "    Arquivo .vbox invalido ou obsoleto; removendo pasta antiga da VM" -ForegroundColor Yellow
+            Write-Host "    Detalhes: $registerOutput" -ForegroundColor Gray
+            try {
+                Remove-Item -Path $DefaultVmDir -Recurse -Force -ErrorAction Stop
+                Write-Host "    Pasta antiga removida: $DefaultVmDir" -ForegroundColor Green
+            } catch {
+                Write-Host "    Aviso: Nao foi possivel remover a pasta antiga da VM: $DefaultVmDir" -ForegroundColor Yellow
+                Write-Host "    Detalhes: $($_.Exception.Message)" -ForegroundColor Gray
+            }
+        }
+    }
 }
 
 # Limpar TODOS os registros de discos antigos do VirtualBox
@@ -598,93 +624,99 @@ if ($ReuseExistingVmdk) {
     }
 }
 
-Write-Host "==> Criando VM '$VMName'"
-$output = & $VBoxManagePath createvm --name "$VMName" --ostype Debian_64 --register 2>&1
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao criar VM. VBoxManage disse: $output"
-}
-
-Write-Host "==> Driver de audio selecionado: $AudioDriverUsed"
-
-# Configuracao base: VM textual, audio AC97 para acessibilidade
-$modifyvmArgs = @(
-    "modifyvm", "$VMName",
-    "--memory", "$RAM",
-    "--cpus", "$CPUs",
-    "--ioapic", "on",
-    "--boot1", "disk", "--boot2", "none", "--boot3", "none", "--boot4", "none",
-    "--audio-driver", "$AudioDriverUsed",
-    "--audio-controller", "ac97",
-    "--audio-enabled", "on",
-    "--audio-out", "on",
-    "--audio-in", "on",
-    "--graphicscontroller", "vmsvga",
-    "--vram", "16"
-)
-
-# Configurar rede baseado no modo
-if ($NetworkMode -eq "bridge") {
-    $modifyvmArgs += "--nic1", "bridged"
-    $modifyvmArgs += "--bridgeadapter1", "$BridgeAdapterUsed"
-    Write-Host "    Rede configurada como bridge" -ForegroundColor Green
+if ($SkipVmCreation) {
+    Write-Host "==> Reutilizando VM existente; pulando criacao e reconfiguracao" -ForegroundColor Green
 } else {
-    $modifyvmArgs += "--nic1", "nat"
-    $modifyvmArgs += "--natpf1", "ssh,tcp,127.0.0.1,$SSHPort,,22"
-    Write-Host "    Rede configurada como NAT com port forwarding" -ForegroundColor Green
-}
-
-$output = & $VBoxManagePath @modifyvmArgs 2>&1
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao configurar VM. VBoxManage disse: $output"
-}
-
-$output = & $VBoxManagePath storagectl "$VMName" --name "SATA" --add sata --controller IntelAhci 2>&1
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao adicionar controlador SATA. VBoxManage disse: $output"
-}
-
-# Verificacao final antes de anexar
-if (-not (Test-Path $VmdkPath)) {
-    Write-Error-Exit "Arquivo VMDK desapareceu antes de ser anexado: $VmdkPath`nO arquivo pode ter sido movido, deletado ou bloqueado por antivirus."
-}
-
-Write-Host "==> Anexando disco de sistema (VMDK)"
-
-# Regenerar UUID apenas quando o VMDK foi baixado/substituido nesta execucao
-if ($ReuseExistingVmdk) {
-    Write-Host "    Reutilizando VMDK existente; pulando regeneracao de UUID" -ForegroundColor Green
-} else {
-    Write-Host "    Regenerando UUID do disco..."
-    $uuidOutput = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
+    Write-Host "==> Criando VM '$VMName'"
+    $output = & $VBoxManagePath createvm --name "$VMName" --ostype Debian_64 --register 2>&1
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "    Aviso: Falha ao regenerar UUID: $uuidOutput" -ForegroundColor Yellow
-        Write-Host "    Tentando anexar mesmo assim..." -ForegroundColor Yellow
+        Write-Error-Exit "Falha ao criar VM. VBoxManage disse: $output"
     }
+
+    Write-Host "==> Driver de audio selecionado: $AudioDriverUsed"
+
+    # Configuracao base: VM textual, audio AC97 para acessibilidade
+    $modifyvmArgs = @(
+        "modifyvm", "$VMName",
+        "--memory", "$RAM",
+        "--cpus", "$CPUs",
+        "--ioapic", "on",
+        "--boot1", "disk", "--boot2", "none", "--boot3", "none", "--boot4", "none",
+        "--audio-driver", "$AudioDriverUsed",
+        "--audio-controller", "ac97",
+        "--audio-enabled", "on",
+        "--audio-out", "on",
+        "--audio-in", "on",
+        "--graphicscontroller", "vmsvga",
+        "--vram", "16"
+    )
+
+    # Configurar rede baseado no modo
+    if ($NetworkMode -eq "bridge") {
+        $modifyvmArgs += "--nic1", "bridged"
+        $modifyvmArgs += "--bridgeadapter1", "$BridgeAdapterUsed"
+        Write-Host "    Rede configurada como bridge" -ForegroundColor Green
+    } else {
+        $modifyvmArgs += "--nic1", "nat"
+        $modifyvmArgs += "--natpf1", "ssh,tcp,127.0.0.1,$SSHPort,,22"
+        Write-Host "    Rede configurada como NAT com port forwarding" -ForegroundColor Green
+    }
+
+    $output = & $VBoxManagePath @modifyvmArgs 2>&1
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Exit "Falha ao configurar VM. VBoxManage disse: $output"
+    }
+
+    $output = & $VBoxManagePath storagectl "$VMName" --name "SATA" --add sata --controller IntelAhci 2>&1
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Exit "Falha ao adicionar controlador SATA. VBoxManage disse: $output"
+    }
+
+    # Verificacao final antes de anexar
+    if (-not (Test-Path $VmdkPath)) {
+        Write-Error-Exit "Arquivo VMDK desapareceu antes de ser anexado: $VmdkPath`nO arquivo pode ter sido movido, deletado ou bloqueado por antivirus."
+    }
+
+    Write-Host "==> Anexando disco de sistema (VMDK)"
+
+    # Regenerar UUID apenas quando o VMDK foi baixado/substituido nesta execucao
+    if ($ReuseExistingVmdk) {
+        Write-Host "    Reutilizando VMDK existente; pulando regeneracao de UUID" -ForegroundColor Green
+    } else {
+        Write-Host "    Regenerando UUID do disco..."
+        $uuidOutput = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "    Aviso: Falha ao regenerar UUID: $uuidOutput" -ForegroundColor Yellow
+            Write-Host "    Tentando anexar mesmo assim..." -ForegroundColor Yellow
+        }
+    }
+
+    $output = & $VBoxManagePath storageattach "$VMName" `
+        --storagectl "SATA" --port 0 --device 0 `
+        --type hdd --medium "$VmdkAbsolutePath" 2>&1
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output`n`nDica: Se o erro for sobre UUID ou child media, tente deletar manualmente a VM antiga no VirtualBox e executar o script novamente."
+    }
+
+    Write-Host "    Disco de sistema anexado na porta SATA 0" -ForegroundColor Green
 }
-
-$output = & $VBoxManagePath storageattach "$VMName" `
-    --storagectl "SATA" --port 0 --device 0 `
-    --type hdd --medium "$VmdkAbsolutePath" 2>&1
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output`n`nDica: Se o erro for sobre UUID ou child media, tente deletar manualmente a VM antiga no VirtualBox e executar o script novamente."
-}
-
-Write-Host "    Disco de sistema anexado na porta SATA 0" -ForegroundColor Green
 
 # Criar ou reutilizar disco de dados do usuario (VDI persistente)
-Write-Host "==> Configurando disco de dados do usuario"
-
-if ($UserDataVdiExists) {
+if ($SkipVmCreation) {
+    Write-Host "==> Reutilizando configuracao atual do disco de dados" -ForegroundColor Green
+} elseif ($UserDataVdiExists) {
+    Write-Host "==> Configurando disco de dados do usuario"
     $existingVdi = Get-Item $UserDataVdiPath
     $existingSizeMB = [math]::Round($existingVdi.Length / 1MB, 2)
     Write-Host "    Disco de dados existente encontrado: $existingSizeMB MB" -ForegroundColor Green
     Write-Host "    Reutilizando: $UserDataVdiPath" -ForegroundColor Cyan
 } else {
+    Write-Host "==> Configurando disco de dados do usuario"
     Write-Host "    Criando novo disco de dados VDI: $UserDataSize MB" -ForegroundColor Yellow
     $output = $null
     $createVdiThrew = $false
@@ -766,7 +798,7 @@ if ($UserDataVdiExists) {
 }
 
 # Anexar disco de dados na porta SATA 1
-if ($UserDataVdiExists) {
+if ($UserDataVdiExists -and -not $SkipVmCreation) {
     $UserDataVdiAbsolutePath = (Resolve-Path $UserDataVdiPath).Path
     
     $output = & $VBoxManagePath storageattach "$VMName" `
