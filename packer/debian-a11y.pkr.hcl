@@ -75,7 +75,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.6"
+  default = "2.0.7"
 }
 
 # ------------------------------------------------------------------------------
@@ -297,6 +297,38 @@ build {
       "echo 'Debian A11y Devs' | sudo tee /etc/issue.net > /dev/null",
       "sudo chmod 644 /etc/issue /etc/issue.net",
       "echo '/etc/issue e /etc/issue.net simplificados'"
+    ]
+  }
+
+  # Instalar dependências para VirtualBox Guest Additions (compilação)
+  provisioner "shell" {
+    inline = [
+      "echo '=== Instalando dependências para Guest Additions ==='",
+      "sudo apt-get update",
+      "sudo apt-get install -y build-essential linux-headers-$(uname -r) dkms curl",
+      "echo 'Dependências instaladas: build-essential, linux-headers, dkms, curl'"
+    ]
+  }
+
+  # Copiar scripts de Guest Additions e Shared Folder
+  provisioner "file" {
+    source      = "packer/files/install-guest-additions.sh"
+    destination = "/tmp/install-guest-additions.sh"
+  }
+
+  provisioner "file" {
+    source      = "packer/files/setup-shared-folder.sh"
+    destination = "/tmp/setup-shared-folder.sh"
+  }
+
+  provisioner "shell" {
+    inline = [
+      "echo '=== Instalando scripts de Guest Additions ==='",
+      "sudo mv /tmp/install-guest-additions.sh /usr/local/sbin/",
+      "sudo mv /tmp/setup-shared-folder.sh /usr/local/sbin/",
+      "sudo chmod +x /usr/local/sbin/install-guest-additions.sh",
+      "sudo chmod +x /usr/local/sbin/setup-shared-folder.sh",
+      "echo 'Scripts instalados em /usr/local/sbin/'"
     ]
   }
 

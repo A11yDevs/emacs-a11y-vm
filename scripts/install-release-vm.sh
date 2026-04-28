@@ -29,6 +29,7 @@ HEADLESS="false"
 NETWORK_MODE="bridge"
 BRIDGE_ADAPTER=""
 AUDIO_DRIVER=""
+SHARED_FOLDER=""
 
 usage() {
     cat << 'EOF'
@@ -53,7 +54,19 @@ Opções:
   --keep-old-vm           Não remove VM existente com o mesmo nome
   --force-download        Força re-download mesmo se arquivo já existe
   --headless              Inicia VM sem janela (background, acesso via SSH)
+  --shared-folder <path>  Compartilha pasta do host com guest em /home/shared
+                          Exemplo: --shared-folder "$HOME" (Linux/macOS)
   -h, --help              Mostra esta ajuda
+
+Pasta Compartilhada (Shared Folder):
+  Use --shared-folder para montar uma pasta do host no guest (/home/shared)
+  Requer instalar Guest Additions na VM após primeiro boot:
+    1. Iniciar VM
+    2. Login: a11ydevs / a11ydevs
+    3. Executar: sudo /usr/local/sbin/install-guest-additions.sh
+    4. Reiniciar: sudo reboot
+    5. Executar: /usr/local/sbin/setup-shared-folder.sh
+  Após instalação, /home/shared estará montado automaticamente.
 
 Arquitetura de Discos:
   Disco 1 (Sistema): VMDK imutável da release (substituído em upgrades)
@@ -168,6 +181,10 @@ while [[ $# -gt 0 ]]; do
         --headless)
             HEADLESS="true"
             shift
+            ;;
+        --shared-folder)
+            SHARED_FOLDER="$2"
+            shift 2
             ;;
         -h|--help)
             usage
@@ -438,6 +455,39 @@ if [[ "$USER_DATA_VDI_EXISTS" == "true" ]]; then
         echo "    Aviso: Falha ao anexar disco de dados"
         echo "    VM continuará funcionando, mas sem disco de dados separado"
         USER_DATA_VDI_EXISTS="false"
+    fi
+fi
+
+# Configurar pasta compartilhada (Shared Folder)
+if [[ -n "$SHARED_FOLDER" ]]; then
+    echo "==> Configurando pasta compartilhada"
+    
+    # Verificar se pasta existe
+    if [[ ! -d "$SHARED_FOLDER" ]]; then
+        echo "    AVISO: Pasta não encontrada: $SHARED_FOLDER"
+        echo "    Pulando configuração de pasta compartilhada"
+    else
+        SHARED_FOLDER_NAME="host-home"
+        echo "    Nome: $SHARED_FOLDER_NAME"
+        echo "    Caminho host: $SHARED_FOLDER"
+        echo "    Caminho guest: /home/shared (após instalar Guest Additions)"
+        
+        if VBoxManage sharedfolder add "$VM_NAME" \
+            --name "$SHARED_FOLDER_NAME" \
+            --hostpath "$SHARED_FOLDER" \
+            --automount 2>/dev/null; then
+            echo "    Pasta compartilhada configurada com sucesso!"
+            echo ""
+            echo "    IMPORTANTE: Para acessar a pasta compartilhada:"
+            echo "      1. Inicie a VM e faça login (a11ydevs/a11ydevs)"
+            echo "      2. Execute: sudo /usr/local/sbin/install-guest-additions.sh"
+            echo "      3. Reinicie: sudo reboot"
+            echo "      4. Execute: /usr/local/sbin/setup-shared-folder.sh"
+            echo "      5. Acesse /home/shared dentro da VM"
+            echo ""
+        else
+            echo "    AVISO: Falha ao configurar pasta compartilhada"
+        fi
     fi
 fi
 

@@ -46,6 +46,7 @@ param(
     [switch]$KeepOldVM,
     [switch]$ForceDownload,
     [switch]$Headless,
+    [string]$SharedFolder = "",
     [switch]$Help
 )
 
@@ -82,7 +83,19 @@ Opcoes:
   -KeepOldVM              Nao remove VM existente com o mesmo nome
   -ForceDownload          Forca re-download mesmo se arquivo ja existe
   -Headless               Inicia VM sem janela (background, acesso via SSH)
+  -SharedFolder <path>    Compartilha pasta do host com guest em /home/shared
+                          Exemplo: -SharedFolder "$env:USERPROFILE" (Windows)
   -Help                   Mostra esta ajuda
+
+Pasta Compartilhada (Shared Folder):
+  Use -SharedFolder para montar uma pasta do host no guest (/home/shared)
+  Requer instalar Guest Additions na VM apos primeiro boot:
+    1. Iniciar VM
+    2. Login: a11ydevs / a11ydevs
+    3. Executar: sudo /usr/local/sbin/install-guest-additions.sh
+    4. Reiniciar: sudo reboot
+    5. Executar: /usr/local/sbin/setup-shared-folder.sh
+  Apos instalacao, /home/shared estara montado automaticamente.
 
 Arquitetura de Discos:
   Disco 1 (Sistema): VMDK imutavel da release (substituido em upgrades)
@@ -626,6 +639,42 @@ if ($UserDataVdiExists) {
         $UserDataVdiExists = $false
     } else {
         Write-Host "    Disco de dados anexado na porta SATA 1" -ForegroundColor Green
+    }
+}
+
+# Configurar pasta compartilhada (Shared Folder)
+if ($SharedFolder) {
+    Write-Host "==> Configurando pasta compartilhada"
+    
+    # Verificar se pasta existe
+    if (-not (Test-Path $SharedFolder)) {
+        Write-Host "    AVISO: Pasta nao encontrada: $SharedFolder" -ForegroundColor Yellow
+        Write-Host "    Pulando configuracao de pasta compartilhada" -ForegroundColor Yellow
+    } else {
+        $sharedFolderName = "host-home"
+        Write-Host "    Nome: $sharedFolderName"
+        Write-Host "    Caminho host: $SharedFolder"
+        Write-Host "    Caminho guest: /home/shared (apos instalar Guest Additions)"
+        
+        $output = & $VBoxManagePath sharedfolder add "$VMName" `
+            --name "$sharedFolderName" `
+            --hostpath "$SharedFolder" `
+            --automount 2>&1
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "    Pasta compartilhada configurada com sucesso!" -ForegroundColor Green
+            Write-Host ""
+            Write-Host "    IMPORTANTE: Para acessar a pasta compartilhada:" -ForegroundColor Yellow
+            Write-Host "      1. Inicie a VM e faca login (a11ydevs/a11ydevs)"
+            Write-Host "      2. Execute: sudo /usr/local/sbin/install-guest-additions.sh"
+            Write-Host "      3. Reinicie: sudo reboot"
+            Write-Host "      4. Execute: /usr/local/sbin/setup-shared-folder.sh"
+            Write-Host "      5. Acesse /home/shared dentro da VM"
+            Write-Host ""
+        } else {
+            Write-Host "    AVISO: Falha ao configurar pasta compartilhada" -ForegroundColor Yellow
+            Write-Host "    $output" -ForegroundColor Yellow
+        }
     }
 }
 
