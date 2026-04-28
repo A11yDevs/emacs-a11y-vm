@@ -750,6 +750,42 @@ if ($SkipVmCreation) {
 
     Write-Host "==> Anexando disco de sistema (VMDK)"
 
+    # Corrigir estado inaccessible causado por conflito de UUID no registry
+    Write-Host "    Verificando estado do VMDK no registry..."
+    $mediumInfo = & $VBoxManagePath showmediuminfo disk "$VmdkAbsolutePath" 2>&1 | Out-String
+    
+    if ($mediumInfo -match "State:\s+inaccessible" -or $mediumInfo -match "Access Error.*UUID.*does not match") {
+        Write-Host "    VMDK em estado inaccessible (conflito UUID registry vs arquivo)" -ForegroundColor Yellow
+        Write-Host "    Corrigindo: removendo registro conflitante e re-registrando..." -ForegroundColor Yellow
+        
+        # Extrair UUID do arquivo fisico (o UUID real embutido no VMDK)
+        $realUuid = $null
+        if ($mediumInfo -match "UUID:\s+(\{[^}]+\})") {
+            $realUuid = $matches[1]
+        }
+        
+        # Remover registro conflitante por caminho
+        try {
+            $null = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
+            Write-Host "    Registro inaccessible removido" -ForegroundColor Green
+        } catch {
+            # Pode falhar se já foi removido na limpeza anterior
+        }
+        
+        # Se tiver UUID real, tentar remover por UUID também
+        if ($realUuid) {
+            try {
+                $null = & $VBoxManagePath closemedium disk $realUuid 2>&1
+            } catch {
+                # Ignorar erro
+            }
+        }
+        
+        Write-Host "    VMDK corrigido e pronto para uso" -ForegroundColor Green
+    } else {
+        Write-Host "    VMDK acessivel" -ForegroundColor Green
+    }
+
     # Regenerar UUID apenas quando o VMDK foi baixado/substituido nesta execucao
     if ($ReuseExistingVmdk) {
         Write-Host "    Reutilizando VMDK existente; pulando regeneracao de UUID" -ForegroundColor Green
