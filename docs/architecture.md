@@ -28,13 +28,13 @@ A VM utiliza uma **arquitetura de dois discos** para separar o sistema base (imu
 └─────────────────────────────────────────────────────────┘
 ```
 
-## Disco 1: Sistema (VMDK)
+## Disco 1: Sistema (VDI)
 
 ### Características
 
-- **Formato**: VMDK (monolithicSparse)
-- **Origem**: GitHub Releases
-- **Tamanho**: ~8-10 GB (compactado ~2-3 GB)
+- **Formato**: VDI (VirtualBox Disk Image)
+- **Origem**: GitHub Releases (QCOW2) → convertido localmente para VDI
+- **Tamanho**: ~8-10 GB (QCOW2 compactado ~1.5-2 GB)
 - **Montagem**: `/` (raiz do sistema)
 - **Conteúdo**:
   - Sistema Debian base (minimal)
@@ -43,7 +43,7 @@ A VM utiliza uma **arquitetura de dois discos** para separar o sistema base (imu
   - openssh-server
   - sudo e ferramentas essenciais
 
-> **Por que monolithicSparse?** O formato `streamOptimized` (usado em versões antigas) é read-only — o VirtualBox criava automaticamente discos differencing (snapshots) para escritas. `monolithicSparse` é gravável, evitando child media indesejados e mantendo estrutura simples de dois discos.
+> **Por que VDI?** Formato nativo do VirtualBox, gravável, sem child media automáticos. O CI distribui QCOW2 (< 2GB, passa limite do GitHub), o instalador converte para VDI no host do usuário (~5-10min).
 
 ### Ciclo de Vida
 
@@ -320,22 +320,18 @@ Discos separados são mais simples, previsíveis e eficientes.
 - VDI é nativo do VirtualBox (melhor suporte)
 - Suporta snapshots nativamente (feature futura)
 - Formato growable mais eficiente
-- VMDK streamOptimized é read-only
 
-### Por que VMDK monolithicSparse em vez de streamOptimized?
+### Por que QCOW2 → VDI em vez de distribuir VDI diretamente?
 
-**Problema com streamOptimized**: Formato otimizado para distribuição OVA mas read-only. O VirtualBox detecta isso e **automaticamente cria discos differencing** (child media) para armazenar modificações, resultando em hierarquia não intencional:
+**Problema**: GitHub Releases limita assets a 2GB. VMDK gravável (monolithicSparse) e VDI excedem esse limite quando descompactados.
 
-```
-Base:  debian-a11ydevs.vmdk (read-only)
-  └─ Child: {uuid}.vmdk (gravável, em Snapshots/)
-```
+**Solução**: Distribuir QCOW2 compactado (~1.5-2 GB) e converter localmente para VDI.
 
-Isso causa confusão: usuário não criou snapshots explicitamente, mas eles aparecem em `VBoxManage list hdds`.
-
-**Solução com monolithicSparse**: Formato gravável que permite escritas diretas no VMDK sem child media. Mantém arquitetura simples de dois discos (sistema VMDK + dados VDI) sem snapshots automáticos.
-
-**Trade-off**: monolithicSparse gera arquivos ligeiramente maiores que streamOptimized (~10-15%), mas o ganho em simplicidade e previsibilidade compensa.
+**Trade-offs**:
+- ✅ QCOW2 passa limite de 2GB do GitHub
+- ✅ QCOW2 é universal (QEMU/KVM/libvirt)
+- ✅ VDI nativo do VirtualBox, sem child media
+- ⚠️ Conversão adiciona ~5-10min na primeira instalação (ocorre apenas quando versão muda)
 
 ### Por que montar em /home inteiro?
 

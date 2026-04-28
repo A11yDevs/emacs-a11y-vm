@@ -106,13 +106,15 @@ O script de instalação depende apenas de PowerShell (nativo no Windows) e Virt
 
 ---
 
-## 15. VMDK monolithicSparse para evitar child media indesejados
+## 15. Distribui QCOW2 e converte para VDI localmente
 
-O VMDK distribuído nas releases é gerado com `subformat=monolithicSparse` (gravável), não `streamOptimized` (read-only). 
+O CI gera QCOW2 compactado (< 2GB, compatível com limite do GitHub Releases). O instalador Windows converte QCOW2 → VDI nativo do VirtualBox no host do usuário usando `VBoxManage clonemedium`.
 
-**Razão**: `streamOptimized` é read-only por design — o VirtualBox automaticamente cria discos differencing (snapshots) para qualquer escrita, resultando em hierarquia base+child não intencional. `monolithicSparse` permite escritas diretas sem child media, mantendo a estrutura simples de dois discos (sistema VMDK + dados VDI).
+**Razão**: Formato VMDK ultrapassou limite de 2GB do GitHub quando monolithicSparse (gravável). streamOptimized (read-only) criava child media indesejados. QCOW2 é universal (QEMU/KVM/libvirt) e compacta bem, VDI é nativo VirtualBox e gravável.
 
-**Implicação no CI**: O comando `qemu-img convert` em `.github/workflows/release.yml` usa `-o subformat=monolithicSparse` para gerar VMDKs graváveis. Não alterar para `streamOptimized` ou outros formatos read-only sem avaliar impacto no comportamento do VirtualBox.
+**Implicação no CI**: `.github/workflows/release.yml` publica apenas `debian-a11ydevs.qcow2`. VMDK não é mais distribuído.
+
+**Implicação no Instalador**: `install-release-vm.ps1` baixa QCOW2, converte para VDI (~5-10min), anexa VDI como disco de sistema. Conversão ocorre apenas quando versão muda.
 
 ---
 

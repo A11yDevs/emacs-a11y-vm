@@ -108,13 +108,8 @@ jobs:
             "${VM}.qcow2" "${VM}-compressed.qcow2"
           mv "${VM}-compressed.qcow2" "${VM}.qcow2"
 
-          echo "==> Convertendo para VMDK (VirtualBox)..."
-          qemu-img convert -f qcow2 -O vmdk \
-            -o subformat=monolithicSparse \
-            "${VM}.qcow2" "${VM}.vmdk"
-
-          echo "==> Tamanhos finais:"
-          du -sh "${VM}.qcow2" "${VM}.vmdk"
+          echo "==> Tamanho final:"
+          du -sh "${VM}.qcow2"
 
       # ------------------------------------------------------------------
       # 8. Determinar nome e tipo de release
@@ -193,7 +188,6 @@ jobs:
             ```
           files: |
             output/debian-a11ydevs.qcow2
-            output/debian-a11ydevs.vmdk
 
       # ------------------------------------------------------------------
       # 10. Guardar log do Packer em caso de falha

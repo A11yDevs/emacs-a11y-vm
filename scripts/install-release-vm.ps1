@@ -75,7 +75,7 @@ Opcoes:
   -RAM <mb>               RAM da VM em MB (padrao: 2048)
   -CPUs <n>               Numero de CPUs (padrao: 2)
   -SSHPort <porta>        Porta SSH no host (NAT PF host:guest 2222:22)
-    -OutputDir <dir>        Pasta para guardar VMDK/VDI (padrao: %USERPROFILE%\.emacs-a11y-vm)
+    -OutputDir <dir>        Pasta para guardar QCOW2/VDI (padrao: %USERPROFILE%\.emacs-a11y-vm)
   -AudioDriver <driver>   Driver de audio do VirtualBox (auto por padrao)
   -UserDataSize <mb>      Tamanho do disco de dados em MB (padrao: 10240 = 10GB)
   -NetworkMode <nat|bridge> Modo de rede (padrao: nat)
@@ -102,15 +102,16 @@ Pasta Compartilhada (Shared Folder):
     A pasta e montada AUTOMATICAMENTE no primeiro boot - sem passos manuais.
 
 Arquitetura de Discos:
-  Disco 1 (Sistema): VMDK imutavel da release (substituido em upgrades)
+  Disco 1 (Sistema): VDI convertido do QCOW2 da release (substituido em upgrades)
   Disco 2 (Dados):   VDI persistente local em /home (preservado em upgrades)
 
 Fluxo:
   1) Busca release via API GitHub
-  2) Baixa asset .vmdk (disco de sistema)
-  3) Cria VM VirtualBox (Debian_64)
-  4) Anexa disco VMDK (sistema) e VDI (dados do usuario)
-  5) Habilita NAT + SSH forwarding
+  2) Baixa asset .qcow2 (disco de sistema compactado)
+  3) Converte QCOW2 para VDI nativo do VirtualBox (~5-10 min)
+  4) Cria VM VirtualBox (Debian_64)
+  5) Anexa disco VDI (sistema) e VDI (dados do usuario)
+  6) Habilita NAT + SSH forwarding
 "@
 }
 
@@ -328,27 +329,27 @@ try {
     Write-Error-Exit "Falha ao consultar release no GitHub: $_"
 }
 
-# Encontrar asset .vmdk
-$VmdkAsset = $ReleaseJson.assets | Where-Object { $_.name -like "*.vmdk" } | Select-Object -First 1
+# Encontrar asset .qcow2
+$Qcow2Asset = $ReleaseJson.assets | Where-Object { $_.name -like "*.qcow2" } | Select-Object -First 1
 
-if (-not $VmdkAsset) {
-    Write-Error-Exit "Nenhum asset .vmdk encontrado na release."
+if (-not $Qcow2Asset) {
+    Write-Error-Exit "Nenhum asset .qcow2 encontrado na release."
 }
 
-$AssetUrl = $VmdkAsset.browser_download_url
-$AssetName = $VmdkAsset.name
+$AssetUrl = $Qcow2Asset.browser_download_url
+$AssetName = $Qcow2Asset.name
 $ResolvedTag = $ReleaseJson.tag_name
 
-$VmdkPath = Join-Path $OutputDirPath $AssetName
+$Qcow2Path = Join-Path $OutputDirPath $AssetName
 
 # Verificar se o arquivo está em subpasta duplicada (bug de versões antigas)
 $possibleWrongPath = Join-Path $OutputDirPath "releases\$AssetName"
-if (-not (Test-Path $VmdkPath) -and (Test-Path $possibleWrongPath)) {
+if (-not (Test-Path $Qcow2Path) -and (Test-Path $possibleWrongPath)) {
     Write-Host "==> Arquivo encontrado em local incorreto (bug de versão antiga)" -ForegroundColor Yellow
     Write-Host "    Movendo de: $possibleWrongPath" -ForegroundColor Yellow
-    Write-Host "    Para:       $VmdkPath" -ForegroundColor Yellow
+    Write-Host "    Para:       $Qcow2Path" -ForegroundColor Yellow
     try {
-        Move-Item -Path $possibleWrongPath -Destination $VmdkPath -Force
+        Move-Item -Path $possibleWrongPath -Destination $Qcow2Path -Force
         Write-Host "    Arquivo movido com sucesso" -ForegroundColor Green
     } catch {
         Write-Host "    Aviso: Não foi possível mover. Continuando com download..." -ForegroundColor Yellow
@@ -357,8 +358,8 @@ if (-not (Test-Path $VmdkPath) -and (Test-Path $possibleWrongPath)) {
 
 # Verificar se arquivo ja existe (comparação por versão)
 $skipDownload = $false
-$versionFile = "$VmdkPath.version"
-if ((Test-Path $VmdkPath) -and -not $ForceDownload) {
+$versionFile = "$Qcow2Path.version"
+if ((Test-Path $Qcow2Path) -and -not $ForceDownload) {
     # Verificar se versão salva corresponde à tag solicitada
     $existingVersion = $null
     if (Test-Path $versionFile) {
@@ -368,18 +369,18 @@ if ((Test-Path $VmdkPath) -and -not $ForceDownload) {
     $requestedVersion = if ($Tag -eq "latest") { $ResolvedTag } else { $Tag }
     
     if ($existingVersion -eq $requestedVersion) {
-        $existingFile = Get-Item $VmdkPath
+        $existingFile = Get-Item $Qcow2Path
         $existingSizeMB = [math]::Round($existingFile.Length / 1MB, 2)
-        Write-Host "==> Arquivo VMDK ja existe (versao: $existingVersion)" -ForegroundColor Green
-        Write-Host "    Arquivo: $VmdkPath" -ForegroundColor Cyan
+        Write-Host "==> Arquivo QCOW2 ja existe (versao: $existingVersion)" -ForegroundColor Green
+        Write-Host "    Arquivo: $Qcow2Path" -ForegroundColor Cyan
         Write-Host "    Tamanho: $existingSizeMB MB" -ForegroundColor Cyan
         Write-Host "    Pulando download..." -ForegroundColor Yellow
         $skipDownload = $true
     } else {
-        Write-Host "==> Arquivo VMDK existe mas versao difere" -ForegroundColor Yellow
+        Write-Host "==> Arquivo QCOW2 existe mas versao difere" -ForegroundColor Yellow
         Write-Host "    Esperado: $requestedVersion, Encontrado: $existingVersion" -ForegroundColor Yellow
         Write-Host "    Removendo arquivo antigo e baixando novamente..." -ForegroundColor Yellow
-        Remove-Item $VmdkPath -Force -ErrorAction SilentlyContinue
+        Remove-Item $Qcow2Path -Force -ErrorAction SilentlyContinue
         Remove-Item $versionFile -Force -ErrorAction SilentlyContinue
     }
 }
@@ -387,7 +388,7 @@ if ((Test-Path $VmdkPath) -and -not $ForceDownload) {
 if (-not $skipDownload) {
     Write-Host "==> Baixando asset: $AssetName"
     Write-Host "    URL: $AssetUrl"
-    Write-Host "    Destino: $VmdkPath"
+    Write-Host "    Destino: $Qcow2Path"
 
     try {
         # Verificar se temos permissao de escrita no diretorio
@@ -400,7 +401,7 @@ if (-not $skipDownload) {
         }
         
         # Obter tamanho do arquivo antes de baixar
-        $assetSizeMB = [math]::Round($VmdkAsset.size / 1MB, 2)
+        $assetSizeMB = [math]::Round($Qcow2Asset.size / 1MB, 2)
         Write-Host "    Tamanho do arquivo: $assetSizeMB MB" -ForegroundColor Cyan
         Write-Host "    Baixando... (isso pode levar varios minutos)" -ForegroundColor Yellow
         Write-Host ""
@@ -410,16 +411,16 @@ if (-not $skipDownload) {
         param($url, $output)
         $ProgressPreference = 'SilentlyContinue'
         Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
-    } -ArgumentList $AssetUrl, $VmdkPath
+    } -ArgumentList $AssetUrl, $Qcow2Path
     
     # Monitorar progresso enquanto baixa
     $lastSize = 0
     while ($job.State -eq 'Running') {
         Start-Sleep -Seconds 3
-        if (Test-Path $VmdkPath) {
-            $currentSize = (Get-Item $VmdkPath).Length
+        if (Test-Path $Qcow2Path) {
+            $currentSize = (Get-Item $Qcow2Path).Length
             $currentSizeMB = [math]::Round($currentSize / 1MB, 2)
-            $percent = [math]::Round(($currentSize / $VmdkAsset.size) * 100, 1)
+            $percent = [math]::Round(($currentSize / $Qcow2Asset.size) * 100, 1)
             
             if ($currentSize -ne $lastSize) {
                 Write-Host "    Progresso: $currentSizeMB MB / $assetSizeMB MB ($percent%)" -ForegroundColor Green
@@ -434,15 +435,15 @@ if (-not $skipDownload) {
     
     Write-Host ""
     
-    if (-not (Test-Path $VmdkPath)) {
-        Write-Error-Exit "Download falhou: arquivo nao foi criado em $VmdkPath"
+    if (-not (Test-Path $Qcow2Path)) {
+        Write-Error-Exit "Download falhou: arquivo nao foi criado em $Qcow2Path"
     }
     
-    $fileSize = (Get-Item $VmdkPath).Length
+    $fileSize = (Get-Item $Qcow2Path).Length
     $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
     Write-Host "    Download completo: $fileSizeMB MB" -ForegroundColor Green
     
-    # Salvar versão do VMDK baixado
+    # Salvar versão do QCOW2 baixado
     $downloadedVersion = if ($Tag -eq "latest") { $ResolvedTag } else { $Tag }
     Set-Content -Path $versionFile -Value $downloadedVersion -NoNewline
     Write-Host "    Versão salva: $downloadedVersion" -ForegroundColor Cyan
@@ -451,12 +452,12 @@ if (-not $skipDownload) {
     }
 }
 
-# Verificacao final: garantir que o arquivo VMDK existe antes de prosseguir
-Write-Host "==> Verificando arquivo VMDK"
-if (-not (Test-Path $VmdkPath)) {
+# Verificacao final: garantir que o arquivo QCOW2 existe antes de prosseguir
+Write-Host "==> Verificando arquivo QCOW2"
+if (-not (Test-Path $Qcow2Path)) {
     Write-Host ""
-    Write-Host "Erro: Arquivo VMDK nao encontrado!" -ForegroundColor Red
-    Write-Host "Caminho esperado: $VmdkPath" -ForegroundColor Yellow
+    Write-Host "Erro: Arquivo QCOW2 nao encontrado!" -ForegroundColor Red
+    Write-Host "Caminho esperado: $Qcow2Path" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Possíveis causas:" -ForegroundColor Yellow
     Write-Host "  1. Download foi interrompido" -ForegroundColor Gray
@@ -467,19 +468,81 @@ if (-not (Test-Path $VmdkPath)) {
     Pause-BeforeExit 1
 }
 
-$finalFileSize = (Get-Item $VmdkPath).Length
+$finalFileSize = (Get-Item $Qcow2Path).Length
 $finalFileSizeMB = [math]::Round($finalFileSize / 1MB, 2)
 Write-Host "    Arquivo encontrado: $finalFileSizeMB MB" -ForegroundColor Green
-Write-Host "    Caminho completo: $VmdkPath" -ForegroundColor Cyan
+Write-Host "    Caminho completo: $Qcow2Path" -ForegroundColor Cyan
 
-$ReuseExistingVmdk = $skipDownload
+$ReuseExistingSystemDisk = $skipDownload
 
-# Resolver caminho absoluto do VMDK cedo para reutilizar nas etapas de limpeza/attach
+# Definir caminho do VDI de sistema (convertido do QCOW2)
+$SystemVdiPath = Join-Path $OutputDirPath "debian-a11ydevs-system.vdi"
+$SystemVdiVersionFile = "$SystemVdiPath.version"
+
+# Verificar se precisa converter QCOW2 -> VDI
+$needsConversion = $true
+if (Test-Path $SystemVdiPath) {
+    # VDI existe, verificar se a versão corresponde
+    $vdiVersion = $null
+    if (Test-Path $SystemVdiVersionFile) {
+        $vdiVersion = Get-Content $SystemVdiVersionFile -Raw -ErrorAction SilentlyContinue | ForEach-Object { $_.Trim() }
+    }
+    
+    $currentVersion = if ($Tag -eq "latest") { $ResolvedTag } else { $Tag }
+    
+    if ($vdiVersion -eq $currentVersion) {
+        Write-Host "==> VDI de sistema ja existe (versao: $vdiVersion)" -ForegroundColor Green
+        Write-Host "    Pulando conversao..." -ForegroundColor Yellow
+        $needsConversion = $false
+        $ReuseExistingSystemDisk = $true
+    } else {
+        Write-Host "==> VDI de sistema existe mas versao difere" -ForegroundColor Yellow
+        Write-Host "    Esperado: $currentVersion, Encontrado: $vdiVersion" -ForegroundColor Yellow
+        Write-Host "    Reconvertendo..." -ForegroundColor Yellow
+        Remove-Item $SystemVdiPath -Force -ErrorAction SilentlyContinue
+        Remove-Item $SystemVdiVersionFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($needsConversion) {
+    Write-Host "==> Convertendo QCOW2 para VDI nativo do VirtualBox"
+    Write-Host "    Origem: $Qcow2Path" -ForegroundColor Cyan
+    Write-Host "    Destino: $SystemVdiPath" -ForegroundColor Cyan
+    Write-Host "    Este processo pode levar 5-10 minutos..." -ForegroundColor Yellow
+    Write-Host ""
+    
+    try {
+        # VBoxManage clonemedium: converte formatos automaticamente
+        $convertOutput = & $VBoxManagePath clonemedium disk "$Qcow2Path" "$SystemVdiPath" --format VDI 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            $errorMsg = $convertOutput -join "`n"
+            throw "Falha na conversao: $errorMsg"
+        }
+        
+        if (-not (Test-Path $SystemVdiPath)) {
+            throw "VDI nao foi criado em: $SystemVdiPath"
+        }
+        
+        $vdiSize = (Get-Item $SystemVdiPath).Length
+        $vdiSizeMB = [math]::Round($vdiSize / 1MB, 2)
+        Write-Host "    Conversao completa: $vdiSizeMB MB" -ForegroundColor Green
+        
+        # Salvar versão do VDI
+        $convertedVersion = if ($Tag -eq "latest") { $ResolvedTag } else { $Tag }
+        Set-Content -Path $SystemVdiVersionFile -Value $convertedVersion -NoNewline
+        Write-Host "    Versão registrada: $convertedVersion" -ForegroundColor Cyan
+    } catch {
+        Write-Error-Exit "Falha ao converter QCOW2 para VDI: $($_.Exception.Message)"
+    }
+}
+
+# Resolver caminho absoluto do VDI de sistema
 try {
-    $VmdkAbsolutePath = (Resolve-Path $VmdkPath -ErrorAction Stop).Path
-    Write-Host "    Caminho absoluto do VMDK: $VmdkAbsolutePath" -ForegroundColor Cyan
+    $SystemVdiAbsolutePath = (Resolve-Path $SystemVdiPath -ErrorAction Stop).Path
+    Write-Host "    Caminho absoluto do VDI: $SystemVdiAbsolutePath" -ForegroundColor Cyan
 } catch {
-    Write-Error-Exit "Falha ao resolver caminho do VMDK: $VmdkPath`nErro: $_"
+    Write-Error-Exit "Falha ao resolver caminho do VDI: $SystemVdiPath`nErro: $_"
 }
 
 # Determinar caminho do disco de dados (VDI persistente)
@@ -531,8 +594,8 @@ if ($VMExists) {
     
     Write-Host "    VM existente encontrada, preparando remocao/recriacao..." -ForegroundColor Yellow
 
-    if ($ReuseExistingVmdk) {
-        Write-Host "    Reutilizando VMDK existente; preservando disco base e pulando limpeza de midia" -ForegroundColor Cyan
+    if ($ReuseExistingSystemDisk) {
+        Write-Host "    Reutilizando VDI de sistema existente; preservando disco base e pulando limpeza de midia" -ForegroundColor Cyan
         Write-Host "    Desregistrando VM antiga..." -ForegroundColor Yellow
         try {
             $null = & $VBoxManagePath unregistervm "$VMName" 2>&1
@@ -611,19 +674,19 @@ if ($VMExists) {
 }
 
 # Limpar TODOS os registros de discos antigos do VirtualBox
-if ($ReuseExistingVmdk) {
+if ($ReuseExistingSystemDisk) {
     Write-Host "==> Limpando registros antigos de discos..." -ForegroundColor Cyan
-    Write-Host "    Pulando limpeza: VMDK existente sera reutilizado sem alterar UUID" -ForegroundColor Green
+    Write-Host "    Pulando limpeza: VDI de sistema existente sera reutilizado" -ForegroundColor Green
 } else {
     Write-Host "==> Limpando registros antigos de discos..."
     try {
-        # Listar todos os discos registrados e encontrar o VMDK
+        # Listar todos os discos registrados e encontrar o VDI de sistema
         $hddsOutput = & $VBoxManagePath list hdds 2>&1 | Out-String
         
-        # Procurar pelo caminho do VMDK nas linhas "Location:"
+        # Procurar pelo caminho do VDI nas linhas "Location:"
         $lines = $hddsOutput -split "`n"
         $uuidsToRemove = @()
-        $foundVmdk = $false
+        $foundSystemVdi = $false
         
         for ($i = 0; $i -lt $lines.Count; $i++) {
             $line = $lines[$i]
@@ -631,10 +694,10 @@ if ($ReuseExistingVmdk) {
                 $location = $matches[1].Trim()
                 # Comparar caminhos normalizados (ignorar case e barras)
                 $normalizedLocation = $location.Replace('/', '\').ToLower()
-                $normalizedVmdkPath = $VmdkAbsolutePath.Replace('/', '\').ToLower()
+                $normalizedVdiPath = $SystemVdiAbsolutePath.Replace('/', '\').ToLower()
                 
-                if ($normalizedLocation -eq $normalizedVmdkPath) {
-                    $foundVmdk = $true
+                if ($normalizedLocation -eq $normalizedVdiPath) {
+                    $foundSystemVdi = $true
                     # Pegar o UUID da linha anterior (UUID: {xxx})
                     if ($i -gt 0 -and $lines[$i-1] -match "UUID:\s+(\{[^}]+\})") {
                         $uuidsToRemove += $matches[1]
@@ -681,10 +744,10 @@ if ($ReuseExistingVmdk) {
             }
         }
         
-        if ($foundVmdk) {
-            Write-Host "    Registros do VMDK removidos" -ForegroundColor Green
+        if ($foundSystemVdi) {
+            Write-Host "    Registros do VDI de sistema removidos" -ForegroundColor Green
         } else {
-            Write-Host "    VMDK nao estava registrado" -ForegroundColor Green
+            Write-Host "    VDI de sistema nao estava registrado" -ForegroundColor Green
         }
     } catch {
         Write-Host "    Aviso: Falha ao limpar registros (continuando...)" -ForegroundColor Yellow
@@ -744,67 +807,19 @@ if ($SkipVmCreation) {
     }
 
     # Verificacao final antes de anexar
-    if (-not (Test-Path $VmdkPath)) {
-        Write-Error-Exit "Arquivo VMDK desapareceu antes de ser anexado: $VmdkPath`nO arquivo pode ter sido movido, deletado ou bloqueado por antivirus."
+    if (-not (Test-Path $SystemVdiPath)) {
+        Write-Error-Exit "Arquivo VDI de sistema desapareceu antes de ser anexado: $SystemVdiPath`nO arquivo pode ter sido movido, deletado ou bloqueado por antivirus."
     }
 
-    Write-Host "==> Anexando disco de sistema (VMDK)"
-
-    # Corrigir estado inaccessible causado por conflito de UUID no registry
-    Write-Host "    Verificando estado do VMDK no registry..."
-    $mediumInfo = & $VBoxManagePath showmediuminfo disk "$VmdkAbsolutePath" 2>&1 | Out-String
-    
-    if ($mediumInfo -match "State:\s+inaccessible" -or $mediumInfo -match "Access Error.*UUID.*does not match") {
-        Write-Host "    VMDK em estado inaccessible (conflito UUID registry vs arquivo)" -ForegroundColor Yellow
-        Write-Host "    Corrigindo: removendo registro conflitante e re-registrando..." -ForegroundColor Yellow
-        
-        # Extrair UUID do arquivo fisico (o UUID real embutido no VMDK)
-        $realUuid = $null
-        if ($mediumInfo -match "UUID:\s+(\{[^}]+\})") {
-            $realUuid = $matches[1]
-        }
-        
-        # Remover registro conflitante por caminho
-        try {
-            $null = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
-            Write-Host "    Registro inaccessible removido" -ForegroundColor Green
-        } catch {
-            # Pode falhar se já foi removido na limpeza anterior
-        }
-        
-        # Se tiver UUID real, tentar remover por UUID também
-        if ($realUuid) {
-            try {
-                $null = & $VBoxManagePath closemedium disk $realUuid 2>&1
-            } catch {
-                # Ignorar erro
-            }
-        }
-        
-        Write-Host "    VMDK corrigido e pronto para uso" -ForegroundColor Green
-    } else {
-        Write-Host "    VMDK acessivel" -ForegroundColor Green
-    }
-
-    # Regenerar UUID apenas quando o VMDK foi baixado/substituido nesta execucao
-    if ($ReuseExistingVmdk) {
-        Write-Host "    Reutilizando VMDK existente; pulando regeneracao de UUID" -ForegroundColor Green
-    } else {
-        Write-Host "    Regenerando UUID do disco..."
-        $uuidOutput = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
-
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "    Aviso: Falha ao regenerar UUID: $uuidOutput" -ForegroundColor Yellow
-            Write-Host "    Tentando anexar mesmo assim..." -ForegroundColor Yellow
-        }
-    }
+    Write-Host "==> Anexando disco de sistema (VDI)"
+    Write-Host "    Arquivo: $SystemVdiAbsolutePath" -ForegroundColor Cyan
 
     $output = & $VBoxManagePath storageattach "$VMName" `
         --storagectl "SATA" --port 0 --device 0 `
-        --type hdd --medium "$VmdkAbsolutePath" 2>&1
+        --type hdd --medium "$SystemVdiAbsolutePath" 2>&1
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output`n`nDica: Se o erro for sobre UUID ou child media, tente deletar manualmente a VM antiga no VirtualBox e executar o script novamente."
+        Write-Error-Exit "Falha ao anexar disco VDI de sistema. VBoxManage disse: $output"
     }
 
     Write-Host "    Disco de sistema anexado na porta SATA 0" -ForegroundColor Green
@@ -1026,7 +1041,7 @@ if ($Headless) {
 }
 Write-Host ""
 Write-Host "Arquitetura de Discos:"
-Write-Host "  Sistema (SATA 0): $VmdkPath" -ForegroundColor Cyan
+Write-Host "  Sistema (SATA 0): $SystemVdiPath" -ForegroundColor Cyan
 if ($UserDataVdiExists) {
     Write-Host "  Dados (SATA 1):   $UserDataVdiPath" -ForegroundColor Cyan
     Write-Host ""

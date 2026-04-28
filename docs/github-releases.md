@@ -8,9 +8,9 @@ A distribuição da VM é baseada em um pipeline de CI/CD no GitHub Actions:
 
 1. O workflow de release é disparado.
 2. O workflow monta automaticamente a imagem Debian acessível com Packer + QEMU.
-3. A imagem gerada (`.qcow2`) é convertida para `.vmdk`.
-4. Os artefatos são publicados em um GitHub Release.
-5. O usuário final pode baixar os discos manualmente ou usar `scripts/install-release-vm.ps1` (Windows) para instalar no VirtualBox.
+3. A imagem gerada (`.qcow2`) é compactada.
+4. O artefato QCOW2 é publicado em um GitHub Release.
+5. O usuário final pode baixar manualmente ou usar `scripts/install-release-vm.ps1` (Windows) que converte QCOW2 para VDI localmente.
 
 Arquivo principal do pipeline:
 
@@ -74,20 +74,22 @@ Ou seja, `packer` é a receita da imagem. `.github` é a orquestração para exe
 
 ## Artefatos publicados no release
 
-O workflow publica os seguintes arquivos:
+O workflow publica:
 
-- `debian-a11ydevs.qcow2` (QEMU/KVM/libvirt)
-- `debian-a11ydevs.vmdk` (VirtualBox)
+- `debian-a11ydevs.qcow2` (universal: QEMU/KVM/libvirt/VirtualBox)
 
-Esses arquivos são gerados no CI e enviados automaticamente para o GitHub Release.
+O instalador Windows (`install-release-vm.ps1`) converte QCOW2 para VDI nativo do VirtualBox no host do usuário (~5-10 min, apenas quando versão muda).
+
+> **Nota**: VMDK não é mais distribuído. Versões antigas (< v2.0.16) publicavam `.vmdk`, mas ele ultrapassou o limite de 2GB do GitHub Releases. QCOW2 compacta melhor (~1.5-2 GB) e é mais universal.
 
 ## Como o script install-release-vm.ps1 se conecta ao release
 
 O script `scripts/install-release-vm.ps1` consome exatamente os releases gerados por esse pipeline:
 
 1. consulta a API de releases do GitHub
-2. encontra o asset `.vmdk`
+2. encontra o asset `.qcow2`
 3. baixa o disco
+4. converte QCOW2 para VDI usando `VBoxManage clonemedium`
 4. cria e configura uma VM no VirtualBox
 
 Isso fecha o ciclo de distribuição: o CI publica o artefato e o script instala o artefato no ambiente do usuário.
@@ -105,5 +107,5 @@ Se não forem definidas, o workflow usa os valores padrão configurados no próp
 
 1. Validar um pré-release manual após mudanças em `packer` ou no workflow.
 2. Criar tag semântica (`vX.Y.Z`) somente quando o build estiver estável.
-3. Testar o `.vmdk` publicado com `scripts/install-release-vm.ps1` antes de anunciar.
+3. Testar o `.qcow2` publicado com `scripts/install-release-vm.ps1` antes de anunciar.
 4. Manter este documento e o README atualizados quando o fluxo de release mudar.

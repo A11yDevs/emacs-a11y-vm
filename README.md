@@ -46,14 +46,15 @@ cp .env.example .env
 
 ### 3. Instalação a partir de release
 
-O script [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1) (Windows) baixa uma release de VM emacs-a11y do GitHub e instala no VirtualBox a partir de um disco VMDK pronto.
+O script [scripts/install-release-vm.ps1](scripts/install-release-vm.ps1) (Windows) baixa uma release de VM emacs-a11y do GitHub e instala no VirtualBox a partir de um disco QCOW2 que é convertido para VDI.
 
 Esse fluxo:
 
 - consulta a API de releases do GitHub
-- baixa automaticamente o asset `.vmdk`
+- baixa automaticamente o asset `.qcow2`
+- converte QCOW2 para VDI nativo do VirtualBox (~5-10 min, apenas quando versão muda)
 - cria uma VM Debian no VirtualBox
-- anexa o disco baixado
+- anexa o disco convertido
 - configura rede bridge (padrão) ou NAT (opcional, com port forwarding para SSH)
 
 Use este caminho quando você quiser subir rapidamente uma VM já pronta, sem passar pela instalação do Debian.
@@ -198,7 +199,7 @@ A VM usa uma **arquitetura de dois discos** para separar sistema e dados do usu�
 ```
 ┌─────────────────────────────────────┐
 │  Disco 1 (Sistema)  │  Disco 2 (Dados) │
-│      VMDK           │      VDI         │
+│      VDI            │      VDI         │
 │   (Imutável)        │  (Persistente)   │
 └─────────────────────────────────────┘
       Substituído           Preservado
@@ -214,7 +215,7 @@ A VM usa uma **arquitetura de dois discos** para separar sistema e dados do usu�
 
 **Discos:**
 
-- **Disco 1 (Sistema VMDK)**: Debian + Emacs + espeakup (da release GitHub)
+- **Disco 1 (Sistema VDI)**: Debian + Emacs + espeakup (da release GitHub, convertido de QCOW2)
 - **Disco 2 (Dados VDI)**: `/home` completo com suas configurações e projetos
 
 Suas configurações do Emacs (`.emacs.d`), dotfiles (`.bashrc`, `.profile`), projetos e arquivos pessoais ficam no **disco de dados** e são **automaticamente preservados** em upgrades.
@@ -241,21 +242,22 @@ Esse comando mostra:
 
 O script `install-release-vm.ps1` usa **comparação por versão** (não por tamanho de arquivo) para evitar downloads desnecessários:
 
-1. **Primeira instalação**: Baixa o VMDK e cria arquivo `.version` ao lado (ex: `releases/debian-a11ydevs.vmdk.version`)
-2. **Reinstalação mesma versão**: Detecta versão igual no `.version`, **pula download** ✅
+1. **Primeira instalação**: Baixa o QCOW2, converte para VDI e cria arquivo `.version` ao lado (ex: `debian-a11ydevs-system.vdi.version`)
+2. **Reinstalação mesma versão**: Detecta versão igual no `.version`, **pula download e conversão** ✅
 3. **Upgrade (nova versão)**: Detecta versão diferente, baixa nova release 🔄
 4. **Forçar download**: Use `-ForceDownload` (PS1) ou `--force-download` (bash) para ignorar `.version` e baixar sempre
 
 **Por que comparação por versão?**
 
-Comparar tamanhos de arquivo não funciona com VMDKs porque:
-- VMDK é um formato dinâmico que cresce com uso
+Comparar tamanhos de arquivo não funciona com discos de sistema porque:
+- Formato dinâmico cresce com uso
+- Ao inicializar a VM, logs e estado alteram o tamanho do arquivo
 - Ao inicializar a VM, logs e estado alteram o tamanho do arquivo
 - Mesmo sem mudanças do usuário, o tamanho muda
 
 Com comparação por versão:
-- ✅ Não baixa VMDK desnecessariamente
-- ✅ Funciona mesmo após VM ser inicializada (VMDK alterado)
+- ✅ Não baixa/converte desnecessariamente
+- ✅ Funciona mesmo após VM ser inicializada (disco alterado)
 - ✅ Lógica mais confiável e previsível
 - ✅ Suporta upgrade e downgrade de versões
 
