@@ -411,9 +411,26 @@ fi
 VBoxManage storagectl "$VM_NAME" --name "SATA" --add sata --controller IntelAhci
 
 echo "==> Anexando disco de sistema (VMDK)"
-VBoxManage storageattach "$VM_NAME" \
+
+# Regenerar UUID do VMDK para evitar conflitos com registros anteriores
+echo "    Regenerando UUID do disco..."
+VBoxManage internalcommands sethduuid "$VMDK_PATH" 2>/dev/null
+
+if ! VBoxManage storageattach "$VM_NAME" \
     --storagectl "SATA" --port 0 --device 0 \
-    --type hdd --medium "$VMDK_PATH"
+    --type hdd --medium "$VMDK_PATH" 2>/dev/null; then
+    
+    # Se falhar, pode ser conflito de UUID - tentar regenerar novamente
+    echo "    Detectado possível conflito de UUID, regenerando..."
+    VBoxManage internalcommands sethduuid "$VMDK_PATH" 2>/dev/null
+    
+    # Tentar anexar novamente
+    if ! VBoxManage storageattach "$VM_NAME" \
+        --storagectl "SATA" --port 0 --device 0 \
+        --type hdd --medium "$VMDK_PATH"; then
+        die "Falha ao anexar disco VMDK"
+    fi
+fi
 
 echo "    Disco de sistema anexado na porta SATA 0"
 

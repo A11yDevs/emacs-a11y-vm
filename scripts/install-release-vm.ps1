@@ -554,12 +554,32 @@ try {
 }
 
 Write-Host "==> Anexando disco de sistema (VMDK)"
+
+# Regenerar UUID do VMDK para evitar conflitos com registros anteriores
+Write-Host "    Regenerando UUID do disco..."
+$null = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
+
 $output = & $VBoxManagePath storageattach "$VMName" `
     --storagectl "SATA" --port 0 --device 0 `
     --type hdd --medium "$VmdkAbsolutePath" 2>&1
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output"
+    # Se falhar, pode ser conflito de UUID - tentar regenerar novamente
+    if ($output -match "UUID.*does not match") {
+        Write-Host "    Detectado conflito de UUID, regenerando..." -ForegroundColor Yellow
+        $null = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
+        
+        # Tentar anexar novamente
+        $output = & $VBoxManagePath storageattach "$VMName" `
+            --storagectl "SATA" --port 0 --device 0 `
+            --type hdd --medium "$VmdkAbsolutePath" 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output"
+        }
+    } else {
+        Write-Error-Exit "Falha ao anexar disco VMDK. VBoxManage disse: $output"
+    }
 }
 
 Write-Host "    Disco de sistema anexado na porta SATA 0" -ForegroundColor Green
