@@ -106,6 +106,16 @@ O script de instalação depende apenas de PowerShell (nativo no Windows) e Virt
 
 ---
 
+## 15. VMDK monolithicSparse para evitar child media indesejados
+
+O VMDK distribuído nas releases é gerado com `subformat=monolithicSparse` (gravável), não `streamOptimized` (read-only). 
+
+**Razão**: `streamOptimized` é read-only por design — o VirtualBox automaticamente cria discos differencing (snapshots) para qualquer escrita, resultando em hierarquia base+child não intencional. `monolithicSparse` permite escritas diretas sem child media, mantendo a estrutura simples de dois discos (sistema VMDK + dados VDI).
+
+**Implicação no CI**: O comando `qemu-img convert` em `.github/workflows/release.yml` usa `-o subformat=monolithicSparse` para gerar VMDKs graváveis. Não alterar para `streamOptimized` ou outros formatos read-only sem avaliar impacto no comportamento do VirtualBox.
+
+---
+
 ## Checklist para modificações
 
 Antes de aplicar qualquer mudança significativa ao projeto, verifique:

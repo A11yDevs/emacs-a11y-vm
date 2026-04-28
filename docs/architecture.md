@@ -32,7 +32,7 @@ A VM utiliza uma **arquitetura de dois discos** para separar o sistema base (imu
 
 ### Características
 
-- **Formato**: VMDK (streamOptimized)
+- **Formato**: VMDK (monolithicSparse)
 - **Origem**: GitHub Releases
 - **Tamanho**: ~8-10 GB (compactado ~2-3 GB)
 - **Montagem**: `/` (raiz do sistema)
@@ -42,6 +42,8 @@ A VM utiliza uma **arquitetura de dois discos** para separar o sistema base (imu
   - espeakup (síntese de voz)
   - openssh-server
   - sudo e ferramentas essenciais
+
+> **Por que monolithicSparse?** O formato `streamOptimized` (usado em versões antigas) é read-only — o VirtualBox criava automaticamente discos differencing (snapshots) para escritas. `monolithicSparse` é gravável, evitando child media indesejados e mantendo estrutura simples de dois discos.
 
 ### Ciclo de Vida
 
@@ -319,6 +321,21 @@ Discos separados são mais simples, previsíveis e eficientes.
 - Suporta snapshots nativamente (feature futura)
 - Formato growable mais eficiente
 - VMDK streamOptimized é read-only
+
+### Por que VMDK monolithicSparse em vez de streamOptimized?
+
+**Problema com streamOptimized**: Formato otimizado para distribuição OVA mas read-only. O VirtualBox detecta isso e **automaticamente cria discos differencing** (child media) para armazenar modificações, resultando em hierarquia não intencional:
+
+```
+Base:  debian-a11ydevs.vmdk (read-only)
+  └─ Child: {uuid}.vmdk (gravável, em Snapshots/)
+```
+
+Isso causa confusão: usuário não criou snapshots explicitamente, mas eles aparecem em `VBoxManage list hdds`.
+
+**Solução com monolithicSparse**: Formato gravável que permite escritas diretas no VMDK sem child media. Mantém arquitetura simples de dois discos (sistema VMDK + dados VDI) sem snapshots automáticos.
+
+**Trade-off**: monolithicSparse gera arquivos ligeiramente maiores que streamOptimized (~10-15%), mas o ganho em simplicidade e previsibilidade compensa.
 
 ### Por que montar em /home inteiro?
 

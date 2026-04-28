@@ -110,7 +110,7 @@ jobs:
 
           echo "==> Convertendo para VMDK (VirtualBox)..."
           qemu-img convert -f qcow2 -O vmdk \
-            -o adapter_type=lsilogic,subformat=streamOptimized \
+            -o subformat=monolithicSparse \
             "${VM}.qcow2" "${VM}.vmdk"
 
           echo "==> Tamanhos finais:"
