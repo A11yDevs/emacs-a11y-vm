@@ -437,6 +437,14 @@ $finalFileSizeMB = [math]::Round($finalFileSize / 1MB, 2)
 Write-Host "    Arquivo encontrado: $finalFileSizeMB MB" -ForegroundColor Green
 Write-Host "    Caminho completo: $VmdkPath" -ForegroundColor Cyan
 
+# Resolver caminho absoluto do VMDK cedo para reutilizar nas etapas de limpeza/attach
+try {
+    $VmdkAbsolutePath = (Resolve-Path $VmdkPath -ErrorAction Stop).Path
+    Write-Host "    Caminho absoluto do VMDK: $VmdkAbsolutePath" -ForegroundColor Cyan
+} catch {
+    Write-Error-Exit "Falha ao resolver caminho do VMDK: $VmdkPath`nErro: $_"
+}
+
 # Determinar caminho do disco de dados (VDI persistente)
 $UserDataVdiPath = Join-Path $OutputDirPath "$VMName-userdata.vdi"
 $UserDataVdiExists = Test-Path $UserDataVdiPath
@@ -497,6 +505,12 @@ if ($VMExists) {
 # Limpar TODOS os registros de discos antigos do VirtualBox
 Write-Host "==> Limpando registros antigos de discos..."
 try {
+    # Primeiro, tentar fechar registro por caminho para evitar conflitos de UUID por location
+    $closeByPathOutput = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "    Registro anterior do VMDK removido por caminho" -ForegroundColor Green
+    }
+
     # Listar todos os discos registrados e encontrar o VMDK
     $hddsOutput = & $VBoxManagePath list hdds 2>&1 | Out-String
     
@@ -536,6 +550,7 @@ try {
     }
 } catch {
     Write-Host "    Aviso: Falha ao limpar registros (continuando...)" -ForegroundColor Yellow
+    Write-Host "    Detalhes: $($_.Exception.Message)" -ForegroundColor Gray
 }
 
 Write-Host "==> Criando VM '$VMName'"
@@ -586,15 +601,9 @@ if ($LASTEXITCODE -ne 0) {
     Write-Error-Exit "Falha ao adicionar controlador SATA. VBoxManage disse: $output"
 }
 
-# Converter caminho para formato absoluto (verificar novamente antes de converter)
+# Verificacao final antes de anexar
 if (-not (Test-Path $VmdkPath)) {
     Write-Error-Exit "Arquivo VMDK desapareceu antes de ser anexado: $VmdkPath`nO arquivo pode ter sido movido, deletado ou bloqueado por antivirus."
-}
-
-try {
-    $VmdkAbsolutePath = (Resolve-Path $VmdkPath -ErrorAction Stop).Path
-} catch {
-    Write-Error-Exit "Falha ao resolver caminho do VMDK: $VmdkPath`nErro: $_"
 }
 
 Write-Host "==> Anexando disco de sistema (VMDK)"
