@@ -412,16 +412,27 @@ VBoxManage storagectl "$VM_NAME" --name "SATA" --add sata --controller IntelAhci
 
 echo "==> Anexando disco de sistema (VMDK)"
 
+# Desregistrar o disco se estiver registrado com UUID antigo
+echo "    Desregistrando disco anterior (se existir)..."
+VBoxManage closemedium disk "$VMDK_PATH" 2>/dev/null
+
 # Regenerar UUID do VMDK para evitar conflitos com registros anteriores
 echo "    Regenerando UUID do disco..."
-VBoxManage internalcommands sethduuid "$VMDK_PATH" 2>/dev/null
+if ! VBoxManage internalcommands sethduuid "$VMDK_PATH" 2>/dev/null; then
+    echo "    Aviso: Falha ao regenerar UUID, tentando anexar mesmo assim..."
+fi
 
 if ! VBoxManage storageattach "$VM_NAME" \
     --storagectl "SATA" --port 0 --device 0 \
     --type hdd --medium "$VMDK_PATH" 2>/dev/null; then
     
-    # Se falhar, pode ser conflito de UUID - tentar regenerar novamente
-    echo "    Detectado possível conflito de UUID, regenerando..."
+    # Se falhar, pode ser conflito de UUID - desregistrar e regenerar novamente
+    echo "    Detectado possível conflito de UUID, desregistrando e regenerando..."
+    
+    # Desregistrar novamente
+    VBoxManage closemedium disk "$VMDK_PATH" 2>/dev/null
+    
+    # Regenerar UUID novamente
     VBoxManage internalcommands sethduuid "$VMDK_PATH" 2>/dev/null
     
     # Tentar anexar novamente

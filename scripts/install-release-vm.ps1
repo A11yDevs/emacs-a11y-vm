@@ -555,18 +555,32 @@ try {
 
 Write-Host "==> Anexando disco de sistema (VMDK)"
 
+# Desregistrar o disco se estiver registrado com UUID antigo
+Write-Host "    Desregistrando disco anterior (se existir)..."
+$null = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
+
 # Regenerar UUID do VMDK para evitar conflitos com registros anteriores
 Write-Host "    Regenerando UUID do disco..."
-$null = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
+$uuidOutput = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "    Aviso: Falha ao regenerar UUID: $uuidOutput" -ForegroundColor Yellow
+    Write-Host "    Tentando anexar mesmo assim..." -ForegroundColor Yellow
+}
 
 $output = & $VBoxManagePath storageattach "$VMName" `
     --storagectl "SATA" --port 0 --device 0 `
     --type hdd --medium "$VmdkAbsolutePath" 2>&1
 
 if ($LASTEXITCODE -ne 0) {
-    # Se falhar, pode ser conflito de UUID - tentar regenerar novamente
+    # Se falhar, pode ser conflito de UUID - tentar desregistrar e regenerar novamente
     if ($output -match "UUID.*does not match") {
-        Write-Host "    Detectado conflito de UUID, regenerando..." -ForegroundColor Yellow
+        Write-Host "    Detectado conflito de UUID, desregistrando e regenerando..." -ForegroundColor Yellow
+        
+        # Desregistrar novamente
+        $null = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
+        
+        # Regenerar UUID novamente
         $null = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
         
         # Tentar anexar novamente
