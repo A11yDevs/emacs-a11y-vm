@@ -75,7 +75,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.4"
+  default = "2.0.5"
 }
 
 # ------------------------------------------------------------------------------
@@ -288,7 +288,12 @@ build {
       "fi",
       "# Remover /run/motd.dynamic se existir",
       "sudo rm -f /run/motd.dynamic",
-      "echo 'Mensagem de boas-vindas configurada (apenas /etc/motd estático)'"
+      "echo 'Mensagem de boas-vindas configurada (apenas /etc/motd estático)'",
+      "# Limpar /etc/issue (exibido ANTES do login - contém uname -a)",
+      "echo 'Debian A11y Devs' | sudo tee /etc/issue > /dev/null",
+      "echo 'Debian A11y Devs' | sudo tee /etc/issue.net > /dev/null",
+      "sudo chmod 644 /etc/issue /etc/issue.net",
+      "echo '/etc/issue e /etc/issue.net simplificados'"
     ]
   }
 

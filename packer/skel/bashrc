@@ -134,14 +134,14 @@ elif [ -f /usr/share/bash-completion/bash_completion ]; then
 fi
 
 # ==============================================================================
-# Mensagem de boas-vindas
+# Mensagem de boas-vindas (apenas em login shell)
 # ==============================================================================
 
-# Comentar se preferir sem mensagem
-if [ -f /etc/motd ]; then
+# Exibir MOTD simples apenas no login (não em subshells)
+if [ -f /etc/motd ] && shopt -q login_shell; then
     cat /etc/motd
-fiExibir mensagem simples apenas no login
-if [ -f /etc/motd ] && shopt -q login_shell
+fi
+
 # ==============================================================================
 # Configurações adicionais do usuário
 # ==============================================================================
