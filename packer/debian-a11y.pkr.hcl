@@ -364,7 +364,7 @@ build {
       "grep -q 'speakup.synth=soft' /etc/default/grub && echo 'GRUB speakup: OK' || echo 'GRUB speakup: AVISO'",
       "test -x /usr/local/sbin/setup-userdata-disk.sh && echo 'setup-userdata-disk.sh: OK' || echo 'setup-userdata-disk.sh: AVISO'",
       "grep -q 'auto enp0s3' /etc/network/interfaces && echo 'Network config: OK' || echo 'Network config: AVISO'",
-      "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO',
+      "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO'"
     ]
   }
 }
