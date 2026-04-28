@@ -437,6 +437,8 @@ $finalFileSizeMB = [math]::Round($finalFileSize / 1MB, 2)
 Write-Host "    Arquivo encontrado: $finalFileSizeMB MB" -ForegroundColor Green
 Write-Host "    Caminho completo: $VmdkPath" -ForegroundColor Cyan
 
+$ReuseExistingVmdk = $skipDownload
+
 # Resolver caminho absoluto do VMDK cedo para reutilizar nas etapas de limpeza/attach
 try {
     $VmdkAbsolutePath = (Resolve-Path $VmdkPath -ErrorAction Stop).Path
@@ -470,87 +472,130 @@ if ($VMExists) {
     if ($KeepOldVM) {
         Write-Error-Exit "VM '$VMName' ja existe e -KeepOldVM foi usado. Escolha outro -VMName."
     }
-    
-    Write-Host "    VM existente encontrada, desanexando discos antes de remover..." -ForegroundColor Yellow
-    
-    # Desanexar disco de dados (porta 1) se existir e PreserveUserData ativo
-    if ($PreserveUserData -and $UserDataVdiExists) {
-        try {
-            $null = & $VBoxManagePath storageattach "$VMName" --storagectl "SATA" --port 1 --device 0 --medium none 2>&1
-            Write-Host "    Disco de dados desanexado" -ForegroundColor Green
-        } catch {
-            Write-Host "    Aviso: Nao foi possivel desanexar disco de dados (pode nao estar anexado)" -ForegroundColor Yellow
+
+    $vmConfigDir = $null
+    try {
+        $vmInfo = & $VBoxManagePath showvminfo "$VMName" --machinereadable 2>&1
+        $cfgLine = $vmInfo | Where-Object { $_ -match '^CfgFile=' } | Select-Object -First 1
+        if ($cfgLine -match '^CfgFile="(.+)"$') {
+            $vmConfigDir = Split-Path -Parent $matches[1]
         }
+    } catch {
+        $vmConfigDir = $null
+    }
+
+    try {
+        $null = & $VBoxManagePath controlvm "$VMName" poweroff 2>&1
+    } catch {
+        # Ignorar: a VM pode ja estar desligada
     }
     
-    # Desanexar disco de sistema (porta 0) para evitar que seja deletado junto com a VM
-    try {
-        $null = & $VBoxManagePath storageattach "$VMName" --storagectl "SATA" --port 0 --device 0 --medium none 2>&1
-        Write-Host "    Disco de sistema desanexado" -ForegroundColor Green
-    } catch {
-        Write-Host "    Aviso: Nao foi possivel desanexar disco de sistema (pode nao estar anexado)" -ForegroundColor Yellow
-    }
-    
-    Write-Host "    Removendo VM antiga..." -ForegroundColor Yellow
-    try {
-        $null = & $VBoxManagePath unregistervm "$VMName" --delete 2>&1
-        Write-Host "    VM antiga removida com sucesso" -ForegroundColor Green
-    } catch {
-        Write-Host "    Aviso: Falha ao remover VM antiga (pode nao existir)" -ForegroundColor Yellow
+    Write-Host "    VM existente encontrada, preparando remocao/recriacao..." -ForegroundColor Yellow
+
+    if ($ReuseExistingVmdk) {
+        Write-Host "    Reutilizando VMDK existente; preservando disco base e pulando limpeza de midia" -ForegroundColor Cyan
+        Write-Host "    Desregistrando VM antiga..." -ForegroundColor Yellow
+        try {
+            $null = & $VBoxManagePath unregistervm "$VMName" 2>&1
+            Write-Host "    VM antiga desregistrada com sucesso" -ForegroundColor Green
+
+            if ($vmConfigDir -and (Test-Path $vmConfigDir)) {
+                try {
+                    Remove-Item -Path $vmConfigDir -Recurse -Force -ErrorAction Stop
+                    Write-Host "    Arquivos antigos da VM removidos: $vmConfigDir" -ForegroundColor Green
+                } catch {
+                    Write-Host "    Aviso: Nao foi possivel remover a pasta antiga da VM: $vmConfigDir" -ForegroundColor Yellow
+                }
+            }
+        } catch {
+            Write-Host "    Aviso: Falha ao desregistrar VM antiga" -ForegroundColor Yellow
+            Write-Host "    Detalhes: $($_.Exception.Message)" -ForegroundColor Gray
+        }
+    } else {
+        # Desanexar disco de dados (porta 1) se existir e PreserveUserData ativo
+        if ($PreserveUserData -and $UserDataVdiExists) {
+            try {
+                $null = & $VBoxManagePath storageattach "$VMName" --storagectl "SATA" --port 1 --device 0 --medium none 2>&1
+                Write-Host "    Disco de dados desanexado" -ForegroundColor Green
+            } catch {
+                Write-Host "    Aviso: Nao foi possivel desanexar disco de dados (pode nao estar anexado)" -ForegroundColor Yellow
+            }
+        }
+
+        # Desanexar disco de sistema para evitar que seja deletado junto com a VM
+        try {
+            $null = & $VBoxManagePath storageattach "$VMName" --storagectl "SATA" --port 0 --device 0 --medium none 2>&1
+            Write-Host "    Disco de sistema desanexado" -ForegroundColor Green
+        } catch {
+            Write-Host "    Aviso: Nao foi possivel desanexar disco de sistema (pode nao estar anexado)" -ForegroundColor Yellow
+        }
+
+        Write-Host "    Removendo VM antiga..." -ForegroundColor Yellow
+        try {
+            $null = & $VBoxManagePath unregistervm "$VMName" --delete 2>&1
+            Write-Host "    VM antiga removida com sucesso" -ForegroundColor Green
+        } catch {
+            Write-Host "    Aviso: Falha ao remover VM antiga (pode nao existir)" -ForegroundColor Yellow
+        }
     }
 } else {
     Write-Host "    Nenhuma VM existente com esse nome" -ForegroundColor Green
 }
 
 # Limpar TODOS os registros de discos antigos do VirtualBox
-Write-Host "==> Limpando registros antigos de discos..."
-try {
-    # Primeiro, tentar fechar registro por caminho para evitar conflitos de UUID por location
-    $closeByPathOutput = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "    Registro anterior do VMDK removido por caminho" -ForegroundColor Green
-    }
+if ($ReuseExistingVmdk) {
+    Write-Host "==> Limpando registros antigos de discos..." -ForegroundColor Cyan
+    Write-Host "    Pulando limpeza: VMDK existente sera reutilizado sem alterar UUID" -ForegroundColor Green
+} else {
+    Write-Host "==> Limpando registros antigos de discos..."
+    try {
+        # Primeiro, tentar fechar registro por caminho para evitar conflitos de UUID por location
+        $closeByPathOutput = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "    Registro anterior do VMDK removido por caminho" -ForegroundColor Green
+        }
 
-    # Listar todos os discos registrados e encontrar o VMDK
-    $hddsOutput = & $VBoxManagePath list hdds 2>&1 | Out-String
-    
-    # Procurar pelo caminho do VMDK nas linhas "Location:"
-    $lines = $hddsOutput -split "`n"
-    $uuidsToRemove = @()
-    $foundVmdk = $false
-    
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        $line = $lines[$i]
-        if ($line -match "^Location:\s+(.+)$") {
-            $location = $matches[1].Trim()
-            # Comparar caminhos normalizados (ignorar case e barras)
-            $normalizedLocation = $location.Replace('/', '\').ToLower()
-            $normalizedVmdkPath = $VmdkAbsolutePath.Replace('/', '\').ToLower()
-            
-            if ($normalizedLocation -eq $normalizedVmdkPath) {
-                $foundVmdk = $true
-                # Pegar o UUID da linha anterior (UUID: {xxx})
-                if ($i -gt 0 -and $lines[$i-1] -match "UUID:\s+(\{[^}]+\})") {
-                    $uuidsToRemove += $matches[1]
+        # Listar todos os discos registrados e encontrar o VMDK
+        $hddsOutput = & $VBoxManagePath list hdds 2>&1 | Out-String
+        
+        # Procurar pelo caminho do VMDK nas linhas "Location:"
+        $lines = $hddsOutput -split "`n"
+        $uuidsToRemove = @()
+        $foundVmdk = $false
+        
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            if ($line -match "^Location:\s+(.+)$") {
+                $location = $matches[1].Trim()
+                # Comparar caminhos normalizados (ignorar case e barras)
+                $normalizedLocation = $location.Replace('/', '\').ToLower()
+                $normalizedVmdkPath = $VmdkAbsolutePath.Replace('/', '\').ToLower()
+                
+                if ($normalizedLocation -eq $normalizedVmdkPath) {
+                    $foundVmdk = $true
+                    # Pegar o UUID da linha anterior (UUID: {xxx})
+                    if ($i -gt 0 -and $lines[$i-1] -match "UUID:\s+(\{[^}]+\})") {
+                        $uuidsToRemove += $matches[1]
+                    }
                 }
             }
         }
+        
+        # Remover todos os UUIDs encontrados
+        foreach ($uuid in $uuidsToRemove) {
+            Write-Host "    Removendo registro com UUID: $uuid" -ForegroundColor Cyan
+            $null = & $VBoxManagePath closemedium disk $uuid 2>&1
+        }
+        
+        if ($foundVmdk) {
+            Write-Host "    Registros do VMDK removidos" -ForegroundColor Green
+        } else {
+            Write-Host "    VMDK nao estava registrado" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "    Aviso: Falha ao limpar registros (continuando...)" -ForegroundColor Yellow
+        Write-Host "    Detalhes: $($_.Exception.Message)" -ForegroundColor Gray
     }
-    
-    # Remover todos os UUIDs encontrados
-    foreach ($uuid in $uuidsToRemove) {
-        Write-Host "    Removendo registro com UUID: $uuid" -ForegroundColor Cyan
-        $null = & $VBoxManagePath closemedium disk $uuid 2>&1
-    }
-    
-    if ($foundVmdk) {
-        Write-Host "    Registros do VMDK removidos" -ForegroundColor Green
-    } else {
-        Write-Host "    VMDK nao estava registrado" -ForegroundColor Green
-    }
-} catch {
-    Write-Host "    Aviso: Falha ao limpar registros (continuando...)" -ForegroundColor Yellow
-    Write-Host "    Detalhes: $($_.Exception.Message)" -ForegroundColor Gray
 }
 
 Write-Host "==> Criando VM '$VMName'"
@@ -608,13 +653,17 @@ if (-not (Test-Path $VmdkPath)) {
 
 Write-Host "==> Anexando disco de sistema (VMDK)"
 
-# Regenerar UUID do VMDK para evitar conflitos com registros anteriores
-Write-Host "    Regenerando UUID do disco..."
-$uuidOutput = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
+# Regenerar UUID apenas quando o VMDK foi baixado/substituido nesta execucao
+if ($ReuseExistingVmdk) {
+    Write-Host "    Reutilizando VMDK existente; pulando regeneracao de UUID" -ForegroundColor Green
+} else {
+    Write-Host "    Regenerando UUID do disco..."
+    $uuidOutput = & $VBoxManagePath internalcommands sethduuid "$VmdkAbsolutePath" 2>&1
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "    Aviso: Falha ao regenerar UUID: $uuidOutput" -ForegroundColor Yellow
-    Write-Host "    Tentando anexar mesmo assim..." -ForegroundColor Yellow
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "    Aviso: Falha ao regenerar UUID: $uuidOutput" -ForegroundColor Yellow
+        Write-Host "    Tentando anexar mesmo assim..." -ForegroundColor Yellow
+    }
 }
 
 $output = & $VBoxManagePath storageattach "$VMName" `
