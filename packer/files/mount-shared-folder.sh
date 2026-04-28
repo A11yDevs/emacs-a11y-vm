@@ -11,22 +11,34 @@ set -uo pipefail
 USER_UID=1000
 USER_GID=1000
 
+echo "=== mount-shared-folder.sh iniciado ==="
+echo "Data: $(date)"
+
 # --- Verificações de pré-requisito -------------------------------------------
 
 # Guest Additions disponível?
 if ! modinfo vboxsf &>/dev/null; then
+    echo "AVISO: módulo vboxsf não encontrado (Guest Additions não instalado?)"
     exit 0
 fi
+echo "OK: módulo vboxsf disponível"
 
 # Carregar módulo vboxsf se necessário
 if ! lsmod | grep -q vboxsf; then
-    modprobe vboxsf 2>/dev/null || exit 0
+    echo "Carregando módulo vboxsf..."
+    modprobe vboxsf 2>/dev/null || {
+        echo "AVISO: falha ao carregar módulo vboxsf"
+        exit 0
+    }
 fi
+echo "OK: módulo vboxsf carregado"
 
 # VBoxControl acessível?
 if ! command -v VBoxControl &>/dev/null; then
+    echo "AVISO: VBoxControl não encontrado no PATH"
     exit 0
 fi
+echo "OK: VBoxControl encontrado em $(command -v VBoxControl)"
 
 # --- Descobrir shares configuradas -------------------------------------------
 # Formato da saída de VBoxControl sharedfolder list (VirtualBox 6+):
@@ -34,12 +46,19 @@ fi
 #   ---  ----        ---------        ------  ---------  --------------
 #     1  joao        C:\Users\joao    rw      y          /home/joao
 #
-# Extrai a coluna "Name" (campo 2, linhas de dados após o cabeçalho de 4 linhas).
+# Extrai a coluna "Name" (campo 2, linhas de dados após o cabeçalho).
+# Usa método robusto: pula linhas que começam com "No." ou "---" ou são vazias.
 
 mapfile -t SHARE_NAMES < <(
-    VBoxControl --nologo sharedfolder list 2>/dev/null \
-        | awk 'NR>4 && NF>=2 { print $2 }'
+    VBoxControl sharedfolder list 2>/dev/null \
+        | awk '$1 ~ /^[0-9]+$/ && NF>=2 { print $2 }'
 )
+
+# Debug: mostrar o que foi encontrado
+echo "VBoxControl encontrou ${#SHARE_NAMES[@]} share(s)"
+for share_name in "${SHARE_NAMES[@]}"; do
+    echo "  - $share_name"
+done
 
 if [[ ${#SHARE_NAMES[@]} -eq 0 ]]; then
     # Nenhuma shared folder configurada — sair silenciosamente

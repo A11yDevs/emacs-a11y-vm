@@ -75,7 +75,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.21"
+  default = "2.0.22"
 }
 
 # ------------------------------------------------------------------------------
@@ -292,6 +292,7 @@ build {
       "sudo mv /tmp/espeakup-resilience.conf /etc/systemd/system/espeakup.service.d/resilience.conf",
       "sudo chmod 644 /etc/systemd/system/espeakup.service.d/resilience.conf",
       "sudo mv /tmp/a11y-speech-sudoers /etc/sudoers.d/a11y-speech",
+      "sudo chown root:root /etc/sudoers.d/a11y-speech",
       "sudo chmod 440 /etc/sudoers.d/a11y-speech",
       "sudo systemctl daemon-reload",
       "echo 'Recuperação de emergência configurada (F12 + falar + auto-restart)'",
