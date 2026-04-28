@@ -637,6 +637,8 @@ if ($UserDataVdiExists) {
     Write-Host "    Reutilizando: $UserDataVdiPath" -ForegroundColor Cyan
 } else {
     Write-Host "    Criando novo disco de dados VDI: $UserDataSize MB" -ForegroundColor Yellow
+    $output = $null
+    $createVdiThrew = $false
     
     try {
         # Garantir que o diretorio existe
@@ -644,13 +646,27 @@ if ($UserDataVdiExists) {
         if (-not (Test-Path $userDataDir)) {
             New-Item -ItemType Directory -Path $userDataDir -Force | Out-Null
         }
+
+        # Em alguns ambientes, progresso de comando nativo em stderr (ex.: 0%...)
+        # pode ser tratado como erro pelo PowerShell. Desabilitar isso localmente.
+        $nativePrefVar = Get-Variable -Name PSNativeCommandUseErrorActionPreference -Scope Global -ErrorAction SilentlyContinue
+        if ($null -ne $nativePrefVar) {
+            $previousNativePref = $global:PSNativeCommandUseErrorActionPreference
+            $global:PSNativeCommandUseErrorActionPreference = $false
+        }
         
         # Criar disco com caminho entre aspas
-        $output = & $VBoxManagePath createmedium disk `
-            --filename "$UserDataVdiPath" `
-            --size $UserDataSize `
-            --format VDI `
-            --variant Standard 2>&1
+        try {
+            $output = & $VBoxManagePath createmedium disk `
+                --filename "$UserDataVdiPath" `
+                --size $UserDataSize `
+                --format VDI `
+                --variant Standard 2>&1
+        } finally {
+            if ($null -ne $nativePrefVar) {
+                $global:PSNativeCommandUseErrorActionPreference = $previousNativePref
+            }
+        }
         
         # VBoxManage pode retornar progresso (0%...10%...) mesmo em sucesso
         # Verificar se arquivo foi criado com sucesso
@@ -676,12 +692,27 @@ if ($UserDataVdiExists) {
             $UserDataVdiExists = $false
         }
     } catch {
-        Write-Host "" -ForegroundColor Yellow
-        Write-Host "    Aviso: Erro ao criar disco de dados" -ForegroundColor Yellow
-        Write-Host "    Detalhes: $_" -ForegroundColor Gray
-        Write-Host "    Continuando sem disco de dados separado" -ForegroundColor Yellow
-        Write-Host "" -ForegroundColor Yellow
-        $UserDataVdiExists = $false
+        $createVdiThrew = $true
+        if (Test-Path $UserDataVdiPath) {
+            Write-Host "    Disco de dados criado com sucesso" -ForegroundColor Green
+            Write-Host "    Aviso: VBoxManage retornou saida de progresso durante criacao (nao fatal)" -ForegroundColor Yellow
+            $UserDataVdiExists = $true
+        } else {
+            Write-Host "" -ForegroundColor Yellow
+            Write-Host "    Aviso: Erro ao criar disco de dados" -ForegroundColor Yellow
+            Write-Host "    Detalhes: $_" -ForegroundColor Gray
+            if ($output) {
+                $errorMsg = $output -join "`n"
+                Write-Host "    Output: $errorMsg" -ForegroundColor Gray
+            }
+            Write-Host "    Continuando sem disco de dados separado" -ForegroundColor Yellow
+            Write-Host "" -ForegroundColor Yellow
+            $UserDataVdiExists = $false
+        }
+    }
+
+    if ($createVdiThrew -and $UserDataVdiExists) {
+        Write-Host "    Prosseguindo com anexo do disco de dados" -ForegroundColor Cyan
     }
 }
 
