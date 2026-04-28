@@ -289,7 +289,7 @@ build {
       "# Remover /run/motd.dynamic se existir",
       "sudo rm -f /run/motd.dynamic",
       "# Desabilitar pam_motd.so para evitar duplicação (bashrc já exibe)",
-      "sudo sed -i 's/^\(.*pam_motd\.so.*\)$/# \1/' /etc/pam.d/login",
+      "sudo sed -i 's/^\\(.*pam_motd\\.so.*\\)$/# \\1/' /etc/pam.d/login",
       "echo 'pam_motd.so desabilitado em /etc/pam.d/login'",
       "echo 'Mensagem de boas-vindas configurada (apenas /etc/motd via bashrc)'",
       "# Limpar /etc/issue (exibido ANTES do login - contém uname -a)",
