@@ -617,12 +617,6 @@ if ($ReuseExistingVmdk) {
 } else {
     Write-Host "==> Limpando registros antigos de discos..."
     try {
-        # Primeiro, tentar fechar registro por caminho para evitar conflitos de UUID por location
-        $closeByPathOutput = & $VBoxManagePath closemedium disk "$VmdkAbsolutePath" 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "    Registro anterior do VMDK removido por caminho" -ForegroundColor Green
-        }
-
         # Listar todos os discos registrados e encontrar o VMDK
         $hddsOutput = & $VBoxManagePath list hdds 2>&1 | Out-String
         
@@ -652,7 +646,39 @@ if ($ReuseExistingVmdk) {
         # Remover todos os UUIDs encontrados
         foreach ($uuid in $uuidsToRemove) {
             Write-Host "    Removendo registro com UUID: $uuid" -ForegroundColor Cyan
-            $null = & $VBoxManagePath closemedium disk $uuid 2>&1
+            
+            # Tentar closemedium normal primeiro
+            $closeOutput = & $VBoxManagePath closemedium disk $uuid 2>&1
+            
+            # Se falhar com "has child media", listar e remover os filhos primeiro
+            if ($LASTEXITCODE -ne 0 -and $closeOutput -match "has \d+ child media") {
+                Write-Host "    Disco tem child media (diferenciais/snapshots); removendo hierarquia..." -ForegroundColor Yellow
+                
+                # Usar showmediuminfo para encontrar os filhos
+                $mediumInfo = & $VBoxManagePath showmediuminfo disk $uuid 2>&1 | Out-String
+                $childUuids = @()
+                
+                # Extrair UUIDs dos filhos (linhas "Child UUID: {xxx}")
+                foreach ($infoLine in ($mediumInfo -split "`n")) {
+                    if ($infoLine -match "Child UUID:\s+(\{[^}]+\})") {
+                        $childUuids += $matches[1]
+                    }
+                }
+                
+                # Remover filhos recursivamente (bottom-up)
+                foreach ($childUuid in $childUuids) {
+                    Write-Host "    Removendo child medium: $childUuid" -ForegroundColor Gray
+                    $null = & $VBoxManagePath closemedium disk $childUuid --delete 2>&1
+                }
+                
+                # Tentar novamente remover o disco pai
+                $closeOutput = & $VBoxManagePath closemedium disk $uuid 2>&1
+            }
+            
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "    Aviso: Nao foi possivel remover UUID $uuid" -ForegroundColor Yellow
+                Write-Host "    $closeOutput" -ForegroundColor Gray
+            }
         }
         
         if ($foundVmdk) {
@@ -873,13 +899,45 @@ if (-not $NoSharedFolder -and $SharedFolder) {
         Write-Host "    Caminho host:   $SharedFolder"
         Write-Host "    Caminho guest:  $guestMountPoint"
 
-        $output = & $VBoxManagePath sharedfolder add "$VMName" `
-            --name "$sharedFolderName" `
-            --hostpath "$SharedFolder" `
-            --automount `
-            --automount-point "$guestMountPoint" 2>&1
+        # Remover share anterior (se existir) para manter comportamento idempotente
+        try {
+            & $VBoxManagePath sharedfolder remove "$VMName" --name "$sharedFolderName" 2>$null | Out-Null
+        } catch {
+            # Ignorar: share pode nao existir ainda
+        }
 
-        if ($LASTEXITCODE -eq 0) {
+        $output = $null
+        $sharedFolderConfigured = $false
+
+        # Tentativa 1: usar automount-point explicito (/home/<usuario>)
+        try {
+            $output = & $VBoxManagePath sharedfolder add "$VMName" `
+                --name "$sharedFolderName" `
+                --hostpath "$SharedFolder" `
+                --automount `
+                --automount-point "$guestMountPoint" 2>&1
+            $sharedFolderConfigured = ($LASTEXITCODE -eq 0)
+        } catch {
+            $output = @($_.Exception.Message)
+            $sharedFolderConfigured = $false
+        }
+
+        # Tentativa 2 (fallback): algumas combinacoes VBox/PowerShell falham com --automount-point
+        if (-not $sharedFolderConfigured) {
+            Write-Host "    Aviso: Falha com --automount-point, tentando fallback sem esse parametro..." -ForegroundColor Yellow
+            try {
+                $output = & $VBoxManagePath sharedfolder add "$VMName" `
+                    --name "$sharedFolderName" `
+                    --hostpath "$SharedFolder" `
+                    --automount 2>&1
+                $sharedFolderConfigured = ($LASTEXITCODE -eq 0)
+            } catch {
+                $output = @($_.Exception.Message)
+                $sharedFolderConfigured = $false
+            }
+        }
+
+        if ($sharedFolderConfigured) {
             Write-Host "    Pasta compartilhada configurada com sucesso!" -ForegroundColor Green
             Write-Host ""
             Write-Host "    A pasta sera montada AUTOMATICAMENTE em $guestMountPoint" -ForegroundColor Green
