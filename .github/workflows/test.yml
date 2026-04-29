@@ -24,13 +24,13 @@ jobs:
       matrix:
         test-suite:
           - name: "smoke"
-            path: "tests/smoke/"
+            path: "smoke/"
             timeout: 5
           - name: "integration"
-            path: "tests/integration/"
+            path: "integration/"
             timeout: 15
           - name: "e2e"
-            path: "tests/e2e/"
+            path: "e2e/"
             timeout: 25
     
     steps:
