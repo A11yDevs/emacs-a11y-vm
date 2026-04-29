@@ -26,12 +26,15 @@ jobs:
           - name: "smoke"
             path: "smoke/"
             timeout: 5
+            ssh-port: 2222
           - name: "integration"
             path: "integration/"
             timeout: 15
+            ssh-port: 2223
           - name: "e2e"
             path: "e2e/"
             timeout: 25
+            ssh-port: 2224
     
     steps:
       - name: Checkout repository
@@ -121,6 +124,7 @@ jobs:
             --tb=short \
             --timeout=300 \
             --qcow2=../${{ env.QCOW2_PATH }} \
+            --ssh-port=${{ matrix.test-suite.ssh-port }} \
             --junitxml=../test-results-${{ matrix.test-suite.name }}.xml \
             --html=../test-report-${{ matrix.test-suite.name }}.html \
             --self-contained-html
