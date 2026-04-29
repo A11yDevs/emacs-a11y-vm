@@ -20,15 +20,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     
-    # Executa apenas o teste mínimo de porta SSH para validação de infraestrutura
+    # Executa um teste mínimo de boot que so passa quando o SSH autentica de fato
     strategy:
       max-parallel: 1
       matrix:
         test-suite:
-          - name: "qemu-port"
+          - name: "qemu-ssh-ready"
             path: "smoke/test_qemu_port.py"
-            timeout: 10
+            timeout: 15
             ssh-port: 2222
+            ssh-ready-timeout: 300
     
     steps:
       - name: Checkout repository
@@ -167,6 +168,7 @@ jobs:
             --timeout=180 \
             --qcow2=../${{ env.QCOW2_PATH }} \
             --ssh-port=${{ matrix.test-suite.ssh-port }} \
+            --ssh-ready-timeout=${{ matrix.test-suite.ssh-ready-timeout }} \
             --vm-memory=1536 \
             --vm-cpus=1 \
             --junitxml=../test-results-${{ matrix.test-suite.name }}.xml \

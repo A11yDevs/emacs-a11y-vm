@@ -47,6 +47,12 @@ def pytest_addoption(parser):
         default="2",
         help="VM CPUs (default: 2)"
     )
+    parser.addoption(
+        "--ssh-ready-timeout",
+        action="store",
+        default="300",
+        help="Seconds to wait for SSH readiness (default: 300)"
+    )
 
 
 @pytest.fixture(scope="session")
@@ -74,7 +80,13 @@ def vm_config(request):
 
 
 @pytest.fixture(scope="session")
-def qcow2_vm(qcow2_path, ssh_port, vm_config):
+def ssh_ready_timeout(request):
+    """Get SSH readiness timeout from command line."""
+    return int(request.config.getoption("--ssh-ready-timeout"))
+
+
+@pytest.fixture(scope="session")
+def qcow2_vm(qcow2_path, ssh_port, vm_config, ssh_ready_timeout):
     """
     Session-scoped VM fixture.
     
@@ -90,6 +102,7 @@ def qcow2_vm(qcow2_path, ssh_port, vm_config):
     logger.info(f"QCOW2: {qcow2_path}")
     logger.info(f"SSH port: {ssh_port}")
     logger.info(f"Memory: {vm_config['memory']}MB, CPUs: {vm_config['cpus']}")
+    logger.info(f"SSH readiness timeout: {ssh_ready_timeout}s")
     
     vm = VMManager()
     
@@ -102,10 +115,9 @@ def qcow2_vm(qcow2_path, ssh_port, vm_config):
             cpus=vm_config["cpus"]
         )
         
-        # Wait for SSH with very long timeout for CI (10 minutes)
-        # VM boot on GitHub Actions runners is significantly slower
-        logger.info("Waiting for SSH to become ready (may take 5-10 minutes on CI)...")
-        vm.wait_ssh_ready(timeout=600)
+        # Wait until SSH actually accepts auth and command execution.
+        logger.info("Waiting for SSH to become ready...")
+        vm.wait_ssh_ready(timeout=ssh_ready_timeout)
         
         logger.info("=== VM is ready for testing ===")
         
@@ -135,7 +147,7 @@ def ssh_client(qcow2_vm):
 
 
 @pytest.fixture
-def fresh_vm(qcow2_path, vm_config):
+def fresh_vm(qcow2_path, vm_config, ssh_ready_timeout):
     """
     Function-scoped fresh VM fixture.
     
@@ -165,7 +177,7 @@ def fresh_vm(qcow2_path, vm_config):
             cpus=vm_config["cpus"]
         )
         
-        vm.wait_ssh_ready(timeout=120)
+        vm.wait_ssh_ready(timeout=ssh_ready_timeout)
         
         yield vm
         
