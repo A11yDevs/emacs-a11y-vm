@@ -51,7 +51,7 @@ echo "OK: VBoxControl encontrado em $(command -v VBoxControl)"
 
 mapfile -t SHARE_NAMES < <(
     VBoxControl sharedfolder list 2>/dev/null \
-        | awk '$1 ~ /^[0-9]+$/ && NF>=2 { print $2 }'
+        | awk '$1 ~ /^[0-9]+$/ && NF>=3 { print $3 }'
 )
 
 # Debug: mostrar o que foi encontrado
