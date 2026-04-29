@@ -20,14 +20,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     
-    # Executa um teste mínimo de boot que so passa quando o SSH autentica de fato
+    # Executa a suíte por grupos para isolar falhas sem misturar logs
     strategy:
       max-parallel: 1
       matrix:
         test-suite:
-          - name: "qemu-ssh-ready"
-            path: "smoke/test_qemu_port.py"
-            timeout: 15
+          - name: "smoke"
+            path: "smoke/"
+            timeout: 20
+            ssh-port: 2222
+            ssh-ready-timeout: 300
+          - name: "integration"
+            path: "integration/"
+            timeout: 35
+            ssh-port: 2222
+            ssh-ready-timeout: 300
+          - name: "e2e"
+            path: "e2e/"
+            timeout: 45
             ssh-port: 2222
             ssh-ready-timeout: 300
     
@@ -158,7 +168,7 @@ jobs:
           qemu-img info "${{ env.QCOW2_PATH }}"
           qemu-img check "${{ env.QCOW2_PATH }}"
       
-      - name: Run ${{ matrix.test-suite.name }} test (qemu port)
+      - name: Run ${{ matrix.test-suite.name }} test group
         timeout-minutes: ${{ matrix.test-suite.timeout }}
         run: |
           cd tests
