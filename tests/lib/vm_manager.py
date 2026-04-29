@@ -12,6 +12,7 @@ This class manages the lifecycle of a QEMU VM for automated testing:
 import subprocess
 import time
 import logging
+import socket
 import paramiko
 from pathlib import Path
 
@@ -29,6 +30,29 @@ class VMManager:
         self.ssh_user = "a11ydevs"
         self.ssh_password = "a11ydevs"
         self.qcow2_path = None
+    
+    def _is_port_available(self, port: int) -> bool:
+        """
+        Check if a TCP port is available for binding.
+        
+        Args:
+            port: Port number to check
+            
+        Returns:
+            True if port is available, False if in use
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        try:
+            # Try to bind to the port
+            sock.bind(('localhost', port))
+            sock.close()
+            return True
+        except OSError:
+            # Port is in use
+            return False
+        finally:
+            sock.close()
         
     def boot(self, qcow2_path: str, ssh_port: int = 2222, memory: int = 2048, cpus: int = 2):
         """
@@ -42,11 +66,20 @@ class VMManager:
         
         Raises:
             FileNotFoundError: If QCOW2 file doesn't exist
-            RuntimeError: If QEMU fails to start
+            RuntimeError: If QEMU fails to start or port is already in use
         """
         qcow2_path = Path(qcow2_path)
         if not qcow2_path.exists():
             raise FileNotFoundError(f"QCOW2 file not found: {qcow2_path}")
+        
+        # Check if SSH port is available before starting QEMU
+        if not self._is_port_available(ssh_port):
+            raise RuntimeError(
+                f"Port {ssh_port} is already in use. "
+                f"Another VM or service might be using it. "
+                f"Try a different port with --ssh-port option."
+            )
+        logger.info(f"Port {ssh_port} is available")
         
         self.qcow2_path = qcow2_path
         self.ssh_port = ssh_port
@@ -89,13 +122,12 @@ class VMManager:
         # Wait a bit for QEMU to initialize
         time.sleep(2)
         
-        # Check if QEMU is still running
+        # Verify QEMU process is still running
         if self.qemu_process.poll() is not None:
-            stdout, stderr = self.qemu_process.communicate()
+            stderr = self.qemu_process.stderr.read().decode('utf-8')
             raise RuntimeError(
-                f"QEMU exited immediately with code {self.qemu_process.returncode}\n"
-                f"STDOUT: {stdout.decode()}\n"
-                f"STDERR: {stderr.decode()}"
+                f"QEMU process exited immediately with code {self.qemu_process.returncode}. "
+                f"Error: {stderr}"
             )
     
     def wait_ssh_ready(self, timeout: int = 120):
@@ -111,8 +143,25 @@ class VMManager:
         logger.info(f"Waiting for SSH on {self.ssh_host}:{self.ssh_port} (timeout: {timeout}s)")
         
         start_time = time.time()
+        last_log_time = start_time
+        attempt = 0
+        
         while time.time() - start_time < timeout:
+            elapsed = int(time.time() - start_time)
+            attempt += 1
+            
+            # Log progress every 30 seconds
+            if elapsed - (last_log_time - start_time) >= 30:
+                logger.info(f"Still waiting for SSH... ({elapsed}/{timeout}s elapsed, attempt #{attempt})")
+                last_log_time = time.time()
+            
             try:
+                # Check if QEMU process is still running
+                if self.qemu_process and self.qemu_process.poll() is not None:
+                    raise RuntimeError(
+                        f"QEMU process died while waiting for SSH (exit code: {self.qemu_process.returncode})"
+                    )
+                
                 # Attempt SSH connection
                 client = paramiko.SSHClient()
                 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -130,16 +179,16 @@ class VMManager:
                 result = stdout.read().decode().strip()
                 
                 if result == "ready":
-                    logger.info("SSH is ready!")
+                    logger.info(f"SSH is ready after {elapsed}s and {attempt} attempts!")
                     self.ssh_client = client
                     return
                 
                 client.close()
             except Exception as e:
-                logger.debug(f"SSH not ready yet: {e}")
+                logger.debug(f"SSH not ready yet (attempt #{attempt}): {type(e).__name__}")
                 time.sleep(5)
         
-        raise TimeoutError(f"SSH did not become ready within {timeout} seconds")
+        raise TimeoutError(f"SSH did not become ready within {timeout} seconds (tried {attempt} times)")
     
     def ssh_exec(self, command: str, timeout: int = 30) -> str:
         """

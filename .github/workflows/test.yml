@@ -18,7 +18,7 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     
     strategy:
       max-parallel: 1  # Run jobs sequentially to avoid resource contention
@@ -26,15 +26,15 @@ jobs:
         test-suite:
           - name: "smoke"
             path: "smoke/"
-            timeout: 5
+            timeout: 15
             ssh-port: 2222
           - name: "integration"
             path: "integration/"
-            timeout: 15
+            timeout: 25
             ssh-port: 2223
           - name: "e2e"
             path: "e2e/"
-            timeout: 25
+            timeout: 35
             ssh-port: 2224
     
     steps:
@@ -126,7 +126,7 @@ jobs:
             --timeout=300 \
             --qcow2=../${{ env.QCOW2_PATH }} \
             --ssh-port=${{ matrix.test-suite.ssh-port }} \
-            --vm-memory=1024 \
+            --vm-memory=1536 \
             --vm-cpus=1 \
             --junitxml=../test-results-${{ matrix.test-suite.name }}.xml \
             --html=../test-report-${{ matrix.test-suite.name }}.html \
