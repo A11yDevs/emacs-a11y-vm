@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 45
     
     strategy:
+      max-parallel: 1  # Run jobs sequentially to avoid resource contention
       matrix:
         test-suite:
           - name: "smoke"
@@ -125,6 +126,8 @@ jobs:
             --timeout=300 \
             --qcow2=../${{ env.QCOW2_PATH }} \
             --ssh-port=${{ matrix.test-suite.ssh-port }} \
+            --vm-memory=1024 \
+            --vm-cpus=1 \
             --junitxml=../test-results-${{ matrix.test-suite.name }}.xml \
             --html=../test-report-${{ matrix.test-suite.name }}.html \
             --self-contained-html
