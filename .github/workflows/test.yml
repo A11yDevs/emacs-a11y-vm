@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main ]
   workflow_run:
-    workflows: ["Release"]
+    workflows: ["Build & Release Debian A11y VM"]
     types:
       - completed
   # Allow manual trigger
@@ -76,6 +76,10 @@ jobs:
         run: |
           echo "Downloading QCOW2 from latest release..."
           mkdir -p output
+          
+          # Wait a bit for release to be fully published and indexed
+          echo "Waiting 60 seconds for release to be fully published..."
+          sleep 60
           
           # Get release info with authentication to avoid rate limits
           RELEASE_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
