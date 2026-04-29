@@ -75,7 +75,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.26"
+  default = "2.0.27"
 }
 
 # ------------------------------------------------------------------------------
@@ -379,6 +379,26 @@ build {
     ]
   }
 
+  # Configurar repositórios A11yDevs e instalar pacotes
+  provisioner "shell" {
+    inline = [
+      "echo '=== Configurando repositórios A11yDevs ==='",
+      "echo 'Baixando keyring GPG do emacspeak...'",
+      "sudo curl -fsSL https://a11ydevs.github.io/emacspeak-a11ydevs/debian/emacspeak-archive-keyring.gpg -o /usr/share/keyrings/emacspeak-archive-keyring.gpg",
+      "echo 'Configurando repositório emacspeak...'",
+      "echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/emacspeak-archive-keyring.gpg] https://a11ydevs.github.io/emacspeak-a11ydevs/debian stable main' | sudo tee /etc/apt/sources.list.d/emacspeak.list",
+      "echo 'Baixando keyring GPG do emacs-a11y...'",
+      "sudo curl -fsSL https://a11ydevs.github.io/emacs-a11y/debian/a11y-emacs-archive-keyring.gpg -o /usr/share/keyrings/emacs-a11y-archive-keyring.gpg",
+      "echo 'Configurando repositório emacs-a11y...'",
+      "echo 'deb [arch=all signed-by=/usr/share/keyrings/emacs-a11y-archive-keyring.gpg] https://a11ydevs.github.io/emacs-a11y/debian stable main' | sudo tee /etc/apt/sources.list.d/emacs-a11y.list",
+      "echo 'Atualizando lista de pacotes...'",
+      "sudo apt-get update",
+      "echo 'Instalando pacotes A11yDevs...'",
+      "sudo apt-get install -y emacs-a11y-config emacs-a11y-launchers",
+      "echo 'Repositórios e pacotes A11yDevs configurados com sucesso'"
+    ]
+  }
+
   # Verificação mínima pós-instalação
   provisioner "shell" {
     inline = [
@@ -393,7 +413,11 @@ build {
       "grep -q 'speakup.synth=soft' /etc/default/grub && echo 'GRUB speakup: OK' || echo 'GRUB speakup: AVISO'",
       "test -x /usr/local/sbin/setup-userdata-disk.sh && echo 'setup-userdata-disk.sh: OK' || echo 'setup-userdata-disk.sh: AVISO'",
       "grep -q 'auto enp0s3' /etc/network/interfaces && echo 'Network config: OK' || echo 'Network config: AVISO'",
-      "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO'"
+      "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO'",
+      "dpkg -l | grep -q emacs-a11y-config && echo 'emacs-a11y-config: OK' || echo 'emacs-a11y-config: AVISO'",
+      "dpkg -l | grep -q emacs-a11y-launchers && echo 'emacs-a11y-launchers: OK' || echo 'emacs-a11y-launchers: AVISO'",
+      "test -f /etc/apt/sources.list.d/emacspeak.list && echo 'Repositório emacspeak: OK' || echo 'Repositório emacspeak: AVISO'",
+      "test -f /etc/apt/sources.list.d/emacs-a11y.list && echo 'Repositório emacs-a11y: OK' || echo 'Repositório emacs-a11y: AVISO'"
     ]
   }
 }
