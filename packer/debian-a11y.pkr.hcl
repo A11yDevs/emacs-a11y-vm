@@ -403,7 +403,9 @@ build {
       "echo 'Atualizando lista de pacotes...'",
       "sudo apt-get update",
       "echo 'Instalando pacotes A11yDevs...'",
-      "sudo apt-get install -y emacs-a11y-config emacs-a11y-launchers",
+      "sudo apt-get install -y emacspeak emacs-a11y-config emacs-a11y-launchers",
+      "echo 'Instalando ferramentas de desenvolvimento...'",
+      "sudo apt-get install -y git",
       "echo 'Repositórios e pacotes A11yDevs configurados com sucesso'"
     ]
   }

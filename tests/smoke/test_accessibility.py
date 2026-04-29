@@ -62,7 +62,7 @@ def test_restart_speech_executable(qcow2_vm):
 @pytest.mark.smoke
 def test_sudoers_restart_speech_configured(qcow2_vm):
     """sudoers should allow restart-speech without password (v2.0.20)."""
-    result = qcow2_vm.ssh_exec("test -f /etc/sudoers.d/restart-speech && echo 'exists'")
+    result = qcow2_vm.ssh_exec("test -f /etc/sudoers.d/a11y-speech && echo 'exists'")
     assert "exists" in result
 
 

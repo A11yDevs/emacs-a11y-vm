@@ -46,7 +46,7 @@ def test_system_responsive(qcow2_vm):
 @pytest.mark.smoke
 def test_disk_accessible(qcow2_vm):
     """Root filesystem should be mounted and accessible."""
-    result = qcow2_vm.ssh_exec("df -h /")
+    result = qcow2_vm.ssh_exec("LANG=C df -h /")
     assert "/" in result
     assert "Filesystem" in result
 
