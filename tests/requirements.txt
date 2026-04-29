@@ -1,0 +1,10 @@
+# Pytest framework
+pytest>=7.4.0
+pytest-xdist>=3.3.0      # Parallel test execution
+pytest-timeout>=2.1.0    # Per-test timeouts
+
+# SSH client for VM command execution
+paramiko>=3.0.0
+
+# Test reporting
+pytest-html>=3.2.0       # HTML test reports

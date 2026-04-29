@@ -1,0 +1,29 @@
+# Pytest cache
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Test reports
+*.xml
+*.html
+test-results-*.xml
+test-report-*.html
+
+# Coverage reports
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Virtual environment
+venv/
+env/
+.venv/
