@@ -81,17 +81,29 @@ jobs:
           echo "Waiting 60 seconds for release to be fully published..."
           sleep 60
           
-          # Get release info with authentication to avoid rate limits
-          RELEASE_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/releases/latest)
-          
-          # Debug: show release info
-          echo "Release info:"
-          echo "$RELEASE_JSON" | jq -r '{tag_name, assets: [.assets[].name]}'
-          
+          # Get recent releases (including prereleases) and pick the newest one with QCOW2 asset
+          RELEASES_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=20")
+
+          SELECTED_RELEASE=$(echo "$RELEASES_JSON" | jq -c '
+            map(select(.draft == false))
+            | map(select((.assets // []) | any(.name | endswith(".qcow2") or endswith(".qcow2.xz"))))
+            | .[0]
+          ')
+
+          if [ -z "$SELECTED_RELEASE" ] || [ "$SELECTED_RELEASE" = "null" ]; then
+            echo "❌ No published release with QCOW2 asset found"
+            echo "Available releases:"
+            echo "$RELEASES_JSON" | jq -r '.[].tag_name'
+            exit 1
+          fi
+
+          echo "Selected release:"
+          echo "$SELECTED_RELEASE" | jq -r '{tag_name, prerelease, assets: [.assets[].name]}'
+
           # Try to get compressed (.qcow2.xz) first, fallback to uncompressed (.qcow2)
-          DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".qcow2.xz")) | .browser_download_url' | head -1)
-          
+          DOWNLOAD_URL=$(echo "$SELECTED_RELEASE" | jq -r '.assets[]? | select(.name | endswith(".qcow2.xz")) | .browser_download_url' | head -1)
+
           if [ -n "$DOWNLOAD_URL" ]; then
             echo "Found compressed QCOW2, downloading from: $DOWNLOAD_URL"
             curl -L -o output/debian-a11ydevs.qcow2.xz "$DOWNLOAD_URL"
@@ -99,15 +111,15 @@ jobs:
             xz -d output/debian-a11ydevs.qcow2.xz
           else
             # Try uncompressed
-            DOWNLOAD_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".qcow2")) | .browser_download_url' | head -1)
-            
+            DOWNLOAD_URL=$(echo "$SELECTED_RELEASE" | jq -r '.assets[]? | select(.name | endswith(".qcow2")) | .browser_download_url' | head -1)
+
             if [ -z "$DOWNLOAD_URL" ]; then
-              echo "❌ No QCOW2 release found (tried .qcow2.xz and .qcow2)"
+              echo "❌ Selected release has no QCOW2 asset"
               echo "Available assets:"
-              echo "$RELEASE_JSON" | jq -r '.assets[]?.name'
+              echo "$SELECTED_RELEASE" | jq -r '.assets[]?.name'
               exit 1
             fi
-            
+
             echo "Found uncompressed QCOW2, downloading from: $DOWNLOAD_URL"
             curl -L -o "${{ env.QCOW2_PATH }}" "$DOWNLOAD_URL"
           fi
