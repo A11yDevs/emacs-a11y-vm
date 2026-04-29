@@ -81,15 +81,39 @@ jobs:
           echo "Waiting 60 seconds for release to be fully published..."
           sleep 60
           
-          # Get recent releases (including prereleases) and pick the newest one with QCOW2 asset
+          # Get recent releases (including prereleases)
           RELEASES_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases?per_page=20")
+
+          # For workflow_run, prefer a release built from the same commit SHA.
+          # For manual/push runs, fallback to the most recently published release with QCOW2 asset.
+          PREFERRED_SHA=""
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            PREFERRED_SHA="${{ github.event.workflow_run.head_sha }}"
+          fi
 
           SELECTED_RELEASE=$(echo "$RELEASES_JSON" | jq -c '
             map(select(.draft == false))
             | map(select((.assets // []) | any(.name | endswith(".qcow2") or endswith(".qcow2.xz"))))
+            | sort_by(.published_at)
+            | reverse
             | .[0]
           ')
+
+          if [ -n "$PREFERRED_SHA" ]; then
+            MATCHED_BY_SHA=$(echo "$RELEASES_JSON" | jq -c --arg sha "$PREFERRED_SHA" '
+              map(select(.draft == false))
+              | map(select(.target_commitish == $sha))
+              | map(select((.assets // []) | any(.name | endswith(".qcow2") or endswith(".qcow2.xz"))))
+              | sort_by(.published_at)
+              | reverse
+              | .[0]
+            ')
+
+            if [ -n "$MATCHED_BY_SHA" ] && [ "$MATCHED_BY_SHA" != "null" ]; then
+              SELECTED_RELEASE="$MATCHED_BY_SHA"
+            fi
+          fi
 
           if [ -z "$SELECTED_RELEASE" ] || [ "$SELECTED_RELEASE" = "null" ]; then
             echo "❌ No published release with QCOW2 asset found"
