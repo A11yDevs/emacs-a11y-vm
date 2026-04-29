@@ -501,7 +501,7 @@ if (Test-Path $SystemVdiPath) {
         Write-Host "    Reconvertendo..." -ForegroundColor Yellow
         
         # Limpar registros UUID do VirtualBox antes de reconverter
-        # Estratégia robusta: capturar UUID, deletar arquivo, limpar registro
+        # ESTRATÉGIA CRÍTICA: closemedium ANTES de deletar arquivo (ordem invertida)
         Write-Host "    Limpando registros UUID do VDI antigo..." -ForegroundColor Yellow
         
         # 1. Capturar UUID do arquivo atual (se registrado)
@@ -510,47 +510,61 @@ if (Test-Path $SystemVdiPath) {
             $vdiInfo = & $VBoxManagePath showmediuminfo disk "$SystemVdiPath" 2>&1 | Out-String
             if ($LASTEXITCODE -eq 0 -and $vdiInfo -match 'UUID:\s+([a-f0-9-]+)') {
                 $oldUuid = $matches[1]
-                Write-Host "    UUID capturado: $oldUuid" -ForegroundColor Cyan
+                Write-Host "    UUID atual capturado: $oldUuid" -ForegroundColor Cyan
             }
         } catch {
             # Arquivo pode não estar registrado
         }
         
-        # 2. Deletar arquivo físico primeiro (evita clonemedium criar arquivo parcial)
+        # 2. closemedium ENQUANTO arquivo ainda existe (ORDEM CRÍTICA!)
+        if ($oldUuid) {
+            try {
+                Write-Host "    Desregistrando UUID $oldUuid (arquivo ainda existe)..." -ForegroundColor Yellow
+                $null = & $VBoxManagePath closemedium disk $oldUuid 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "    UUID desregistrado com sucesso" -ForegroundColor Green
+                }
+            } catch {
+                Write-Host "    Aviso: closemedium via UUID falhou, tentando via caminho..." -ForegroundColor Yellow
+            }
+        }
+        
+        # Tentar closemedium via caminho também (fallback)
+        try {
+            $null = & $VBoxManagePath closemedium disk "$SystemVdiPath" 2>&1
+        } catch {
+            # Ignorar erro
+        }
+        
+        # 3. Agora sim, deletar arquivo físico
         if (Test-Path $SystemVdiPath) {
             Remove-Item $SystemVdiPath -Force -ErrorAction SilentlyContinue
             Write-Host "    Arquivo VDI antigo deletado" -ForegroundColor Green
         }
         Remove-Item $SystemVdiVersionFile -Force -ErrorAction SilentlyContinue
         
-        # 3. Remover UUID do registro (se capturado)
-        if ($oldUuid) {
-            try {
-                $null = & $VBoxManagePath closemedium disk $oldUuid 2>&1
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "    UUID $oldUuid removido do registro" -ForegroundColor Green
-                }
-            } catch {
-                # UUID pode já ter sido removido
-            }
-        }
-        
-        # 4. Limpar qualquer referência órfã ao caminho do VDI
-        # Listar todos os discos registrados e remover os que apontam para nosso caminho
+        # 4. Limpar qualquer UUID órfão remanescente no registro
+        # Listar todos os discos e remover referências ao nosso caminho
         try {
+            Write-Host "    Verificando UUIDs órfãos no registro..." -ForegroundColor Yellow
             $allHdds = & $VBoxManagePath list hdds 2>&1 | Out-String
-            # Procurar por blocos que referenciam nosso caminho
-            $hddBlocks = $allHdds -split "(?m)^UUID:"
+            
+            # Procurar por blocos que referenciam nosso caminho (mesmo sem arquivo)
+            $hddBlocks = $allHdds -split "(?m)^UUID:\s*"
             foreach ($block in $hddBlocks) {
-                if ($block -match "Location:.*$([regex]::Escape($SystemVdiPath))" -and $block -match "^([a-f0-9-]+)") {
-                    $orphanUuid = $matches[1].Trim()
-                    Write-Host "    Removendo UUID órfão: $orphanUuid" -ForegroundColor Yellow
-                    $null = & $VBoxManagePath closemedium disk $orphanUuid 2>&1
+                if ($block -match "^([a-f0-9-]{36})") {
+                    $uuidFound = $matches[1]
+                    if ($block -match "Location:.*$([regex]::Escape($SystemVdiPath))") {
+                        Write-Host "    Removendo UUID órfão: $uuidFound" -ForegroundColor Yellow
+                        $null = & $VBoxManagePath closemedium disk $uuidFound 2>&1
+                    }
                 }
             }
         } catch {
             # Pode não haver registros órfãos
         }
+        
+        Write-Host "    Limpeza completa - pronto para reconverter" -ForegroundColor Green
     }
 }
 
