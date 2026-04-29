@@ -54,7 +54,7 @@ def qcow2_path(request):
     """Get QCOW2 path from command line or default."""
     path = Path(request.config.getoption("--qcow2"))
     if not path.exists():
-        pytest.skip(f"QCOW2 file not found: {path}")
+        pytest.fail(f"QCOW2 file not found: {path}. Please provide a valid QCOW2 image with --qcow2 option.")
     return str(path)
 
 

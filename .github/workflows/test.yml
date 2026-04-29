@@ -120,6 +120,7 @@ jobs:
             -v \
             --tb=short \
             --timeout=300 \
+            --qcow2=../${{ env.QCOW2_PATH }} \
             --junitxml=../test-results-${{ matrix.test-suite.name }}.xml \
             --html=../test-report-${{ matrix.test-suite.name }}.html \
             --self-contained-html
