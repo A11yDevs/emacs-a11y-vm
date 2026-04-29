@@ -167,6 +167,16 @@ build {
     ]
   }
 
+    # Forçar nome de interface de rede estável (eth0)
+    provisioner "shell" {
+      inline = [
+        "echo '=== Forçando nome de interface de rede para eth0 (net.ifnames=0 biosdevname=0) ==='",
+        "sudo sed -i '/^GRUB_CMDLINE_LINUX=/d' /etc/default/grub",
+        "echo 'GRUB_CMDLINE_LINUX=\"console=tty0 net.ifnames=0 biosdevname=0\"' | sudo tee -a /etc/default/grub",
+        "sudo update-grub"
+      ]
+    }
+
   # Aplicar dotfiles ao usuário a11ydevs (diretamente durante build)
   provisioner "shell" {
     inline = [

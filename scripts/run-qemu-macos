@@ -1,0 +1,14 @@
+qemu-system-x86_64 \
+  -m 1536 \
+  -smp 1 \
+  -accel hvf \
+  -cpu host,-svm \
+  -drive file=../output/debian-a11ydevs.qcow2,format=qcow2,if=virtio \
+  -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+  -device virtio-net,netdev=net0 \
+  -vga virtio \
+  -display cocoa,zoom-to-fit=on,full-screen=on \
+  -k en-us \
+  -audiodev coreaudio,id=audio0,out.frequency=44100,out.mixing-engine=on,in.mixing-engine=off \
+  -device virtio-sound-pci,audiodev=audio0
+  
