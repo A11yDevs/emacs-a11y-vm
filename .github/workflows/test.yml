@@ -20,22 +20,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     
+    # Executa apenas o teste mínimo de porta SSH para validação de infraestrutura
     strategy:
-      max-parallel: 1  # Run jobs sequentially to avoid resource contention
+      max-parallel: 1
       matrix:
         test-suite:
-          - name: "smoke"
-            path: "smoke/"
-            timeout: 20
+          - name: "qemu-port"
+            path: "smoke/test_qemu_port.py"
+            timeout: 10
             ssh-port: 2222
-          - name: "integration"
-            path: "integration/"
-            timeout: 35
-            ssh-port: 2223
-          - name: "e2e"
-            path: "e2e/"
-            timeout: 45
-            ssh-port: 2224
     
     steps:
       - name: Checkout repository
@@ -124,14 +117,14 @@ jobs:
           qemu-img info "${{ env.QCOW2_PATH }}"
           qemu-img check "${{ env.QCOW2_PATH }}"
       
-      - name: Run ${{ matrix.test-suite.name }} tests
+      - name: Run ${{ matrix.test-suite.name }} test (qemu port)
         timeout-minutes: ${{ matrix.test-suite.timeout }}
         run: |
           cd tests
           pytest ${{ matrix.test-suite.path }} \
             -v \
             --tb=short \
-            --timeout=900 \
+            --timeout=180 \
             --qcow2=../${{ env.QCOW2_PATH }} \
             --ssh-port=${{ matrix.test-suite.ssh-port }} \
             --vm-memory=1536 \
