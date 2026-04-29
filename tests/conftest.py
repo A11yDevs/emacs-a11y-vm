@@ -102,9 +102,9 @@ def qcow2_vm(qcow2_path, ssh_port, vm_config):
             cpus=vm_config["cpus"]
         )
         
-        # Wait for SSH
+        # Wait for SSH (longer timeout for CI environments with limited resources)
         logger.info("Waiting for SSH to become ready...")
-        vm.wait_ssh_ready(timeout=120)
+        vm.wait_ssh_ready(timeout=300)
         
         logger.info("=== VM is ready for testing ===")
         
