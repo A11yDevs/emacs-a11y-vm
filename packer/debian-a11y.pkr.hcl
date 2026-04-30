@@ -279,14 +279,14 @@ build {
   # Configurar script e service
   provisioner "shell" {
     inline = [
-      "echo '=== Configurando disco de dados persistente ===",
+      "echo '=== Configurando disco de dados persistente ==='",
       "sudo mv /tmp/setup-userdata-disk.sh /usr/local/sbin/",
       "sudo chmod +x /usr/local/sbin/setup-userdata-disk.sh",
       "sudo mv /tmp/emacs-a11y-userdata.service /etc/systemd/system/",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable emacs-a11y-userdata.service",
       "echo 'Setup de disco de dados configurado'",
-      "echo '=== Configurando voz pt-br no espeakup ===",
+      "echo '=== Configurando voz pt-br no espeakup ==='",
       "sudo mv /tmp/espeakup.conf /etc/default/espeakup",
       "sudo chmod 644 /etc/default/espeakup",
       "sudo mkdir -p /etc/systemd/system/espeakup.service.d",
