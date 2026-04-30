@@ -6,7 +6,7 @@ ConditionPathExists=/sbin/mount.vboxsf
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/mount-shared-folder.sh
+ExecStart=/usr/local/bin/mount-shared-folder.sh
 RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal

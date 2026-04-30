@@ -377,8 +377,8 @@ build {
   provisioner "shell" {
     inline = [
       "echo '=== Configurando montagem automática de shared folders ==='",
-      "sudo mv /tmp/mount-shared-folder.sh /usr/local/sbin/",
-      "sudo chmod +x /usr/local/sbin/mount-shared-folder.sh",
+      "sudo mv /tmp/mount-shared-folder.sh /usr/local/bin/",
+      "sudo chmod +x /usr/local/bin/mount-shared-folder.sh",
       "sudo mv /tmp/mount-shared-folder.service /etc/systemd/system/",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable mount-shared-folder.service",
@@ -403,9 +403,7 @@ build {
       "echo 'Atualizando lista de pacotes...'",
       "sudo apt-get update",
       "echo 'Instalando pacotes A11yDevs...'",
-      "sudo apt-get install -y emacspeak emacs-a11y-config emacs-a11y-launchers",
-      "echo 'Instalando ferramentas de desenvolvimento...'",
-      "sudo apt-get install -y git",
+      "sudo apt-get install -y emacs-a11y-config emacs-a11y-launchers",
       "echo 'Repositórios e pacotes A11yDevs configurados com sucesso'"
     ]
   }
