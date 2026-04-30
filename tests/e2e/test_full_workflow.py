@@ -187,8 +187,8 @@ def test_accessibility_features_remain_active(qcow2_vm):
 def test_system_resource_usage_reasonable(qcow2_vm):
     """System should not consume excessive resources."""
     # Check memory usage
-    result = qcow2_vm.ssh_exec("LANG=C free -m | grep Mem | awk '{print $3/$2 * 100}'")
-    memory_usage = float(result.strip())
+    result = qcow2_vm.ssh_exec("LC_ALL=C free -m | grep Mem | awk '{printf \"%d\", ($3*100)/$2}'")
+    memory_usage = int(result.strip())
     
     # Should use less than 80% of available memory (2GB)
     assert memory_usage < 80, f"Memory usage is {memory_usage}%, should be <80%"
