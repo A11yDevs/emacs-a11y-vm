@@ -404,6 +404,8 @@ build {
       "sudo apt-get update",
       "echo 'Instalando pacotes A11yDevs (incluindo emacspeak)...'",
       "sudo apt-get install -y emacspeak emacs-a11y-config emacs-a11y-launchers",
+      "echo 'Aplicando compatibilidade Emacs 30 no site-start do emacspeak...'",
+      "sudo sed -i '1s/^/(defvar flavor (quote emacs))\\n/' /etc/emacs/site-start.d/50emacspeak.el 2>/dev/null || true",
       "echo 'Repositórios e pacotes A11yDevs configurados com sucesso'"
     ]
   }

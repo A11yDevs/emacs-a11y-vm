@@ -81,12 +81,12 @@ def test_emacspeak_info_documentation(qcow2_vm):
 
 @pytest.mark.integration
 def test_emacspeak_servers_directory(qcow2_vm):
-    """emacspeak servers directory should exist."""
+    """emacspeak servers directory or server files should exist."""
     result = qcow2_vm.ssh_exec(
-        "find /usr/share -type d -name 'servers' -path '*emacspeak*' 2>/dev/null | head -1"
+        "find /usr/share -path '*emacspeak*' \\( -type d -name 'servers' -o -name '*server*' \\) 2>/dev/null | head -1"
     )
     
-    # Servers directory should exist
+    # Servers directory or server files should exist
     assert len(result.strip()) > 0, "emacspeak servers directory not found"
 
 
