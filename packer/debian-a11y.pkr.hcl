@@ -402,8 +402,8 @@ build {
       "echo 'deb [arch=all signed-by=/usr/share/keyrings/emacs-a11y-archive-keyring.gpg] https://a11ydevs.github.io/emacs-a11y/debian stable main' | sudo tee /etc/apt/sources.list.d/emacs-a11y.list",
       "echo 'Atualizando lista de pacotes...'",
       "sudo apt-get update",
-      "echo 'Instalando pacotes A11yDevs...'",
-      "sudo apt-get install -y emacs-a11y-config emacs-a11y-launchers",
+      "echo 'Instalando pacotes A11yDevs (incluindo emacspeak)...'",
+      "sudo apt-get install -y emacspeak emacs-a11y-config emacs-a11y-launchers",
       "echo 'Repositórios e pacotes A11yDevs configurados com sucesso'"
     ]
   }
@@ -423,6 +423,7 @@ build {
       "test -x /usr/local/sbin/setup-userdata-disk.sh && echo 'setup-userdata-disk.sh: OK' || echo 'setup-userdata-disk.sh: AVISO'",
       "grep -q 'auto enp0s3' /etc/network/interfaces && echo 'Network config: OK' || echo 'Network config: AVISO'",
       "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO'",
+      "dpkg -l | grep -q '^ii  emacspeak ' && echo 'emacspeak: OK' || echo 'emacspeak: AVISO — pacote não instalado'",
       "dpkg -l | grep -q emacs-a11y-config && echo 'emacs-a11y-config: OK' || echo 'emacs-a11y-config: AVISO'",
       "dpkg -l | grep -q emacs-a11y-launchers && echo 'emacs-a11y-launchers: OK' || echo 'emacs-a11y-launchers: AVISO'",
       "test -f /etc/apt/sources.list.d/emacspeak.list && echo 'Repositório emacspeak: OK' || echo 'Repositório emacspeak: AVISO'",

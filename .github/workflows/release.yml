@@ -25,6 +25,25 @@ jobs:
 
     steps:
       # ------------------------------------------------------------------
+      # 0. Definir metadados da release/imagem
+      # ------------------------------------------------------------------
+      - name: Definir metadados da release
+        id: meta
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${{ github.ref_name }}"
+            IMAGE_VERSION="${TAG#v}"
+            echo "tag=$TAG"                >> "$GITHUB_OUTPUT"
+            echo "image_version=$IMAGE_VERSION" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"        >> "$GITHUB_OUTPUT"
+          else
+            TAG="dev-$(date +%Y%m%d-%H%M%S)"
+            echo "tag=$TAG"                               >> "$GITHUB_OUTPUT"
+            echo "image_version=$TAG"                     >> "$GITHUB_OUTPUT"
+            echo "prerelease=${{ inputs.prerelease || 'true' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ------------------------------------------------------------------
       # 1. Código-fonte
       # ------------------------------------------------------------------
       - name: Checkout
@@ -90,6 +109,7 @@ jobs:
             -var "iso_url=file://${{ github.workspace }}/debian-netinst.iso" \
             -var "iso_checksum=none" \
             -var "output_dir=${{ github.workspace }}/output" \
+            -var "version=${{ steps.meta.outputs.image_version }}" \
             packer/debian-a11y.pkr.hcl
         env:
           PACKER_LOG: 1
@@ -112,22 +132,7 @@ jobs:
           du -sh "${VM}.qcow2"
 
       # ------------------------------------------------------------------
-      # 8. Determinar nome e tipo de release
-      # ------------------------------------------------------------------
-      - name: Definir metadados da release
-        id: meta
-        run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false"          >> "$GITHUB_OUTPUT"
-          else
-            TAG="dev-$(date +%Y%m%d-%H%M%S)"
-            echo "tag=$TAG"                                          >> "$GITHUB_OUTPUT"
-            echo "prerelease=${{ inputs.prerelease || 'true' }}"    >> "$GITHUB_OUTPUT"
-          fi
-
-      # ------------------------------------------------------------------
-      # 9. Publicar release no GitHub
+      # 8. Publicar release no GitHub
       # ------------------------------------------------------------------
       - name: Criar GitHub Release
         uses: softprops/action-gh-release@v2
@@ -190,7 +195,7 @@ jobs:
             output/debian-a11ydevs.qcow2
 
       # ------------------------------------------------------------------
-      # 10. Guardar log do Packer em caso de falha
+      # 9. Guardar log do Packer em caso de falha
       # ------------------------------------------------------------------
       - name: Upload do log do Packer (em caso de falha)
         if: failure()
