@@ -63,7 +63,7 @@ def test_espeakup_timeout_configuration(qcow2_vm):
 @pytest.mark.e2e
 def test_emacs_a11y_userdata_service_exists(qcow2_vm):
     """emacs-a11y-userdata service should exist."""
-    result = qcow2_vm.ssh_exec("systemctl list-unit-files | grep -q '^emacs-a11y-userdata.service' && echo 'exists' || echo 'missing'")
+    result = qcow2_vm.ssh_exec("test -f /etc/systemd/system/emacs-a11y-userdata.service && echo 'exists' || echo 'missing'")
     assert "exists" in result
 
 
