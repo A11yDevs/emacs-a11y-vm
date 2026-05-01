@@ -90,7 +90,11 @@ def test_emacspeak_package_installed(qcow2_vm):
 @pytest.mark.integration
 def test_emacspeak_directory_exists(qcow2_vm):
     """emacspeak installation directory should exist."""
-    result = qcow2_vm.ssh_exec("ls -la /usr/share/emacs/site-lisp/emacspeak* 2>/dev/null || ls -la /usr/share/emacspeak 2>/dev/null || echo 'checking'")
+    result = qcow2_vm.ssh_exec(
+        "dpkg -L emacspeak 2>/dev/null | grep '/emacspeak' | head -5 || "
+        "ls -la /usr/share/emacs/site-lisp/emacspeak* 2>/dev/null || "
+        "ls -la /usr/share/emacspeak 2>/dev/null || echo 'checking'"
+    )
     # emacspeak should be installed somewhere
     assert result is not None and len(result) > 0
 
@@ -101,15 +105,33 @@ def test_emacspeak_loads_in_emacs(qcow2_vm):
     result = qcow2_vm.ssh_exec(
         "emacs --batch --eval '(condition-case err (progn (require (quote emacspeak)) (message \"emacspeak-loaded\")) (error (message \"ERROR: %s\" err)))' 2>&1"
     )
-    # Check if emacspeak loaded successfully or if the package exists
-    assert "emacspeak-loaded" in result or "Cannot open load file" not in result
+
+    if "emacspeak-loaded" in result:
+        return
+
+    # Fallback for custom packaging where library is present but not on default load-path.
+    fallback = qcow2_vm.ssh_exec(
+        "EMACSPEAK_EL=$(dpkg -L emacspeak 2>/dev/null | grep '/emacspeak\\.el$' | head -1); "
+        "if [ -n \"$EMACSPEAK_EL\" ]; then "
+        "  EMACSPEAK_DIR=$(dirname \"$EMACSPEAK_EL\"); "
+        "  emacs --batch --eval \"(condition-case err "
+        "(progn (add-to-list 'load-path \\\"$EMACSPEAK_DIR\\\") "
+        "(require 'emacspeak) (message \\\"emacspeak-loaded-fallback\\\")) "
+        "(error (message \\\"ERROR-FALLBACK: %s\\\" err)))\" 2>&1; "
+        "else echo 'ERROR-FALLBACK: emacspeak.el not found in package'; fi"
+    )
+
+    assert "emacspeak-loaded-fallback" in fallback, (
+        "emacspeak não carregou nem com fallback de load-path. "
+        f"raw={result}\n\nfallback={fallback}"
+    )
 
 
 @pytest.mark.integration
 def test_emacspeak_voices_available(qcow2_vm):
     """emacspeak should have voice configurations available."""
     result = qcow2_vm.ssh_exec(
-        "find /usr/share -name '*emacspeak*' -type d 2>/dev/null | head -5"
+        "dpkg -L emacspeak 2>/dev/null | grep -Ei 'voice|voices|emacspeak' | head -5"
     )
     # Should find emacspeak directories
     assert result is not None
@@ -120,6 +142,6 @@ def test_emacspeak_server_exists(qcow2_vm):
     """emacspeak speech server should exist."""
     # Check for espeak server (most common)
     result = qcow2_vm.ssh_exec(
-        "find /usr/share -name '*espeak*' -o -name '*speech-server*' 2>/dev/null | grep -i emacspeak || echo 'checking'"
+        "dpkg -L emacspeak 2>/dev/null | grep -Ei 'espeak|speech-server|servers?/|dtk-' | head -5 || echo 'checking'"
     )
     assert result is not None
