@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.6'
+$EA11CTL_FALLBACK_VERSION = '0.1.7'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -99,11 +99,6 @@ function Invoke-SelfUpdate {
 
     $force = Has-Flag -Tokens $Tokens -Flags @('--force', '-f')
 
-    $updateArgs = @()
-    if ($force) {
-        $updateArgs += '-Force'
-    }
-
     $localVersion = Get-LocalCliVersion
     if (-not $force) {
         try {
@@ -120,29 +115,20 @@ function Invoke-SelfUpdate {
         }
     }
 
-    $repoRoot = Get-RepoRoot
-    if ($repoRoot) {
-        $localInstaller = Join-Path $repoRoot 'cli/install.ps1'
-        if (Test-Path $localInstaller) {
-            Write-EA11Info "Executando self-update via instalador local: $localInstaller"
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $localInstaller @updateArgs
-            return
-        }
+    # Atualiza os arquivos diretamente no diretorio de instalacao,
+    # sem depender do install.ps1 (evita quebra por mudanca de assinatura entre versoes).
+    $installDir = $PSScriptRoot
+    $baseRaw = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli"
+    $files = @('ea11ctl.ps1', 'ea11ctl.cmd', 'VERSION')
+
+    foreach ($file in $files) {
+        $dest = Join-Path $installDir $file
+        Write-EA11Info "Baixando $file..."
+        Invoke-WebRequest -Uri "$baseRaw/$file" -OutFile $dest -UseBasicParsing
     }
 
-    $remote = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli/install.ps1"
-    $tmp = Join-Path $env:TEMP 'ea11ctl-install.ps1'
-
-    Write-EA11Info "Baixando instalador da CLI: $remote"
-    Invoke-WebRequest -Uri $remote -OutFile $tmp -UseBasicParsing
-
-    try {
-        Write-EA11Info 'Atualizando ea11ctl...'
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $tmp @updateArgs
-    }
-    finally {
-        Remove-Item -Path $tmp -ErrorAction SilentlyContinue
-    }
+    $newVersion = (Get-Content -Path (Join-Path $installDir 'VERSION') -Raw -ErrorAction SilentlyContinue).Trim()
+    Write-Host "ea11ctl atualizado para v$newVersion" -ForegroundColor Green
 }
 
 function Assert-Command {
