@@ -1,12 +1,12 @@
 [CmdletBinding()]
 param(
-    [string]$Owner = 'A11yDevs',
-    [string]$Repo = 'emacs-a11y-vm',
-    [string]$Branch = 'main',
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
+$INSTALL_OWNER = 'A11yDevs'
+$INSTALL_REPO = 'emacs-a11y-vm'
+$INSTALL_BRANCH = 'main'
 
 function Write-Info {
     param([string]$Message)
@@ -71,7 +71,7 @@ Assert-Windows
 $installDir = Join-Path $env:LOCALAPPDATA 'ea11ctl\bin'
 Ensure-Directory -Path $installDir
 
-$baseRaw = "https://raw.githubusercontent.com/$Owner/$Repo/$Branch/cli"
+$baseRaw = "https://raw.githubusercontent.com/$INSTALL_OWNER/$INSTALL_REPO/$INSTALL_BRANCH/cli"
 $files = @(
     @{ Name = 'ea11ctl.ps1'; Url = "$baseRaw/ea11ctl.ps1" },
     @{ Name = 'ea11ctl.cmd'; Url = "$baseRaw/ea11ctl.cmd" },

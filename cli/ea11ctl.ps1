@@ -5,7 +5,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.5'
+$EA11CTL_FALLBACK_VERSION = '0.1.6'
+$EA11CTL_OWNER = 'A11yDevs'
+$EA11CTL_REPO = 'emacs-a11y-vm'
+$EA11CTL_BRANCH = 'main'
 
 function Write-EA11Info {
     param([string]$Message)
@@ -28,8 +31,8 @@ ea11ctl - CLI do projeto emacs-a11y-vm
 
 Uso:
   ea11ctl help|-h|--help
-  ea11ctl version|--version [-c|--check-update] [-o|--owner OWNER] [-R|--repo REPO] [-b|--branch BRANCH]
-  ea11ctl self-update|update [-f|--force] [-o|--owner OWNER] [-R|--repo REPO] [-b|--branch BRANCH]
+  ea11ctl version|--version [-c|--check-update]
+  ea11ctl self-update|update [-f|--force]
   ea11ctl vm|vm install|-i [args-do-install-release-vm.ps1]
   ea11ctl vm list|-l
   ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
@@ -61,13 +64,7 @@ function Get-LocalCliVersion {
 }
 
 function Get-RemoteCliVersion {
-    param(
-        [string]$Owner,
-        [string]$Repo,
-        [string]$Branch
-    )
-
-    $remoteVersionUrl = "https://raw.githubusercontent.com/$Owner/$Repo/$Branch/cli/VERSION"
+    $remoteVersionUrl = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli/VERSION"
     $content = Invoke-WebRequest -Uri $remoteVersionUrl -UseBasicParsing
     return $content.Content.Trim()
 }
@@ -82,12 +79,8 @@ function Invoke-VersionCommand {
         return
     }
 
-    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner', '-o') -Default 'A11yDevs'
-    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo', '-R') -Default 'emacs-a11y-vm'
-    $branch = Get-OptionValue -Tokens $Tokens -Names @('--branch', '-b') -Default 'main'
-
     try {
-        $remoteVersion = Get-RemoteCliVersion -Owner $owner -Repo $repo -Branch $branch
+        $remoteVersion = Get-RemoteCliVersion
         if ($remoteVersion -eq $localVersion) {
             Write-EA11Info "Voce ja esta na versao mais recente ($localVersion)."
         }
@@ -104,12 +97,9 @@ function Invoke-VersionCommand {
 function Invoke-SelfUpdate {
     param([string[]]$Tokens)
 
-    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner', '-o') -Default 'A11yDevs'
-    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo', '-R') -Default 'emacs-a11y-vm'
-    $branch = Get-OptionValue -Tokens $Tokens -Names @('--branch', '-b') -Default 'main'
     $force = Has-Flag -Tokens $Tokens -Flags @('--force', '-f')
 
-    $updateArgs = @('-Owner', $owner, '-Repo', $repo, '-Branch', $branch)
+    $updateArgs = @()
     if ($force) {
         $updateArgs += '-Force'
     }
@@ -117,7 +107,7 @@ function Invoke-SelfUpdate {
     $localVersion = Get-LocalCliVersion
     if (-not $force) {
         try {
-            $remoteVersion = Get-RemoteCliVersion -Owner $owner -Repo $repo -Branch $branch
+            $remoteVersion = Get-RemoteCliVersion
             if ($remoteVersion -eq $localVersion) {
                 Write-EA11Info "ea11ctl ja esta atualizado (v$localVersion)."
                 return
@@ -140,7 +130,7 @@ function Invoke-SelfUpdate {
         }
     }
 
-    $remote = "https://raw.githubusercontent.com/$owner/$repo/$branch/cli/install.ps1"
+    $remote = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli/install.ps1"
     $tmp = Join-Path $env:TEMP 'ea11ctl-install.ps1'
 
     Write-EA11Info "Baixando instalador da CLI: $remote"
