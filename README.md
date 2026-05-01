@@ -113,6 +113,35 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
 & ([scriptblock]::Create((iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.ps1' -UseBasicParsing).Content)) -Tag v1.0.0 -RAM 4096
 ```
 
+### 4. CLI global no Windows: `ea11ctl`
+
+Também é possível instalar a CLI `ea11ctl` para usar comandos da VM em qualquer diretório/shell do Windows.
+
+Instalação remota:
+
+```powershell
+iex (iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/cli/install.ps1' -UseBasicParsing).Content
+```
+
+Após instalar (abra um novo terminal), você pode usar:
+
+```powershell
+ea11ctl vm install
+ea11ctl vm list
+ea11ctl vm start
+ea11ctl vm stop
+ea11ctl vm status
+ea11ctl vm ssh
+ea11ctl vm share-folder list
+ea11ctl vm share-folder add --path "C:\\Users\\seu-usuario"
+```
+
+Ajuda da CLI:
+
+```powershell
+ea11ctl help
+```
+
 **Solução de problemas no Windows:**
 
 **Erro: "O script não está assinado digitalmente"**
