@@ -131,6 +131,7 @@ ea11ctl vm list
 ea11ctl vm start
 ea11ctl vm stop
 ea11ctl vm close
+ea11ctl vm diagnose --try-start
 ea11ctl vm status
 ea11ctl vm ssh
 ea11ctl vm share-folder list
@@ -166,7 +167,7 @@ Versionamento da CLI `ea11ctl`:
 
 - A versão atual da CLI fica em `cli/VERSION`.
 - A cada nova funcionalidade ou correção na CLI, a versão deve ser incrementada (por exemplo: `0.1.0` -> `0.1.1`).
-- Versão atual: `0.1.3`.
+- Versão atual: `0.1.4`.
 
 **Solução de problemas no Windows:**
 

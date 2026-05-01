@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.3'
+$EA11CTL_FALLBACK_VERSION = '0.1.4'
 
 function Write-EA11Info {
     param([string]$Message)
@@ -35,6 +35,7 @@ Uso:
   ea11ctl vm start [--name VM] [--headless]
   ea11ctl vm stop [--name VM] [--force]
     ea11ctl vm close [--name VM] [--timeout SEGUNDOS]
+    ea11ctl vm diagnose [--name VM] [--try-start] [--lines N]
   ea11ctl vm status [--name VM]
   ea11ctl vm ssh [--user USER] [--port PORT] [-- vm-extra-args]
   ea11ctl vm share-folder add --path CAMINHO [--name NOME] [--vm VM] [--readonly]
@@ -332,6 +333,110 @@ function Get-VMUUID {
     return ($line -replace '^UUID="?', '' -replace '"$', '')
 }
 
+function Get-VMConfigFile {
+    param([string]$VMName)
+
+    $raw = & VBoxManage showvminfo $VMName --machinereadable 2>$null
+    $line = $raw | Where-Object { $_ -like 'CfgFile=*' }
+    if (-not $line) {
+        return $null
+    }
+
+    return ($line -replace '^CfgFile="?', '' -replace '"$', '')
+}
+
+function Get-VMHardeningLogPath {
+    param([string]$VMName)
+
+    $cfgFile = Get-VMConfigFile -VMName $VMName
+    if (-not [string]::IsNullOrWhiteSpace($cfgFile)) {
+        $cfgDir = Split-Path -Path $cfgFile -Parent
+        if (-not [string]::IsNullOrWhiteSpace($cfgDir)) {
+            return (Join-Path $cfgDir 'Logs\VBoxHardening.log')
+        }
+    }
+
+    return (Join-Path $env:USERPROFILE "VirtualBox VMs\$VMName\Logs\VBoxHardening.log")
+}
+
+function Show-HardeningLogSummary {
+    param(
+        [string]$LogPath,
+        [int]$Lines = 80
+    )
+
+    if (-not (Test-Path $LogPath)) {
+        Write-EA11Warn "VBoxHardening.log nao encontrado em: $LogPath"
+        return
+    }
+
+    Write-EA11Info "Lendo log: $LogPath"
+    Write-Host ''
+    Write-Host '--- Ultimas linhas do VBoxHardening.log ---' -ForegroundColor Cyan
+    Get-Content -Path $LogPath -Tail $Lines -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+    Write-Host '--- Fim ---' -ForegroundColor Cyan
+    Write-Host ''
+
+    $patterns = 'supR3Hardened', 'Error', 'error', 'rc=', 'dll', 'NtCreateSection', 'Signature', 'denied'
+    $hits = Select-String -Path $LogPath -Pattern $patterns -SimpleMatch -ErrorAction SilentlyContinue | Select-Object -Last 30
+
+    if ($hits) {
+        Write-Host '--- Linhas suspeitas (hardening) ---' -ForegroundColor Yellow
+        foreach ($hit in $hits) {
+            Write-Host ("{0}:{1}" -f $hit.LineNumber, $hit.Line)
+        }
+        Write-Host '--- Fim ---' -ForegroundColor Yellow
+    }
+    else {
+        Write-EA11Info 'Nenhuma linha suspeita encontrada pelos padrões padrão.'
+    }
+}
+
+function Invoke-VMDiagnose {
+    param([string[]]$Tokens)
+    Ensure-VBoxManage
+
+    $vmName = Get-VMName -Tokens $Tokens
+    $tryStart = Has-Flag -Tokens $Tokens -Flags @('--try-start')
+
+    $linesRaw = Get-OptionValue -Tokens $Tokens -Names @('--lines') -Default '80'
+    $lines = 80
+    if (-not [int]::TryParse($linesRaw, [ref]$lines)) {
+        throw "Valor invalido para --lines: $linesRaw"
+    }
+
+    Write-EA11Info "Diagnostico da VM '$vmName'"
+    $state = Get-VMState -VMName $vmName
+    if ($state) {
+        Write-Host "Estado atual: $state"
+    }
+    else {
+        Write-EA11Warn "Nao foi possivel obter estado da VM via VBoxManage showvminfo."
+    }
+
+    if ($tryStart) {
+        Write-EA11Info "Tentando start headless para reproduzir erro..."
+        try {
+            $startOut = & VBoxManage startvm $vmName --type headless 2>&1
+            if ($startOut) {
+                $startOut | ForEach-Object { Write-Host $_ }
+            }
+        }
+        catch {
+            Write-EA11Warn "Start headless retornou erro: $($_.Exception.Message)"
+        }
+    }
+
+    $logPath = Get-VMHardeningLogPath -VMName $vmName
+    Show-HardeningLogSummary -LogPath $logPath -Lines $lines
+
+    Write-Host ''
+    Write-Host 'Dicas rapidas:' -ForegroundColor Green
+    Write-Host '1) Desative temporariamente antivirus/overlay que injete DLL no VirtualBox.'
+    Write-Host '2) Reinstale VirtualBox + Extension Pack na mesma versao.'
+    Write-Host '3) Atualize VC++ Redistributable e reinicie o Windows.'
+}
+
 function Close-VMWindowProcess {
     param([string]$VMName)
 
@@ -495,7 +600,7 @@ function Invoke-VMCommand {
     param([string[]]$Tokens)
 
     if ($Tokens.Length -eq 0) {
-        throw "Uso: ea11ctl vm <install|list|start|stop|close|status|ssh|share-folder>"
+        throw "Uso: ea11ctl vm <install|list|start|stop|close|diagnose|status|ssh|share-folder>"
     }
 
     $sub = $Tokens[0]
@@ -510,6 +615,7 @@ function Invoke-VMCommand {
         'start' { Invoke-VMStart -Tokens $rest }
         'stop' { Invoke-VMStop -Tokens $rest }
         'close' { Invoke-VMClose -Tokens $rest }
+        'diagnose' { Invoke-VMDiagnose -Tokens $rest }
         'status' { Invoke-VMStatus -Tokens $rest }
         'ssh' { Invoke-VMSSH -Tokens $rest }
         'share-folder' { Invoke-VMShareFolder -Tokens $rest }
