@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.2'
+$EA11CTL_FALLBACK_VERSION = '0.1.3'
 
 function Write-EA11Info {
     param([string]$Message)
@@ -360,8 +360,10 @@ function Close-VMWindowProcess {
     }
 
     foreach ($proc in $candidates) {
-        Write-EA11Info "Fechando janela da VM '$VMName' (PID $($proc.ProcessId))"
-        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+        Write-EA11Info "Solicitando fechamento da janela da VM '$VMName' (PID $($proc.ProcessId))"
+
+        # Fechamento gracioso: evita corromper estado interno do VirtualBox.
+        Stop-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue
     }
 }
 
