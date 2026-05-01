@@ -246,7 +246,14 @@ if (-not (Test-Command "VBoxManage")) {
     }
 }
 
-$vboxVersion = VBoxManage --version 2>&1
+# Resolver caminho absoluto do VBoxManage para uso consistente com operador '&'.
+try {
+    $VBoxManagePath = (Get-Command VBoxManage -ErrorAction Stop).Source
+} catch {
+    Write-Error-Exit "Nao foi possivel localizar VBoxManage no PATH apos verificacao inicial."
+}
+
+$vboxVersion = & $VBoxManagePath --version 2>&1
 Write-Host "    VirtualBox versao: $vboxVersion" -ForegroundColor Green
 
 
