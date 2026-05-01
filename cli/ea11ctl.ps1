@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.1'
+$EA11CTL_FALLBACK_VERSION = '0.1.2'
 
 function Write-EA11Info {
     param([string]$Message)
@@ -34,6 +34,7 @@ Uso:
   ea11ctl vm list
   ea11ctl vm start [--name VM] [--headless]
   ea11ctl vm stop [--name VM] [--force]
+    ea11ctl vm close [--name VM] [--timeout SEGUNDOS]
   ea11ctl vm status [--name VM]
   ea11ctl vm ssh [--user USER] [--port PORT] [-- vm-extra-args]
   ea11ctl vm share-folder add --path CAMINHO [--name NOME] [--vm VM] [--readonly]
@@ -307,6 +308,103 @@ function Invoke-VMStatus {
     Write-Host "State: $state"
 }
 
+function Get-VMState {
+    param([string]$VMName)
+
+    $raw = & VBoxManage showvminfo $VMName --machinereadable 2>$null
+    $line = $raw | Where-Object { $_ -like 'VMState=*' }
+    if (-not $line) {
+        return $null
+    }
+
+    return (($line -replace '^VMState="?', '' -replace '"$', '').ToLowerInvariant())
+}
+
+function Get-VMUUID {
+    param([string]$VMName)
+
+    $raw = & VBoxManage showvminfo $VMName --machinereadable 2>$null
+    $line = $raw | Where-Object { $_ -like 'UUID=*' }
+    if (-not $line) {
+        return $null
+    }
+
+    return ($line -replace '^UUID="?', '' -replace '"$', '')
+}
+
+function Close-VMWindowProcess {
+    param([string]$VMName)
+
+    $vmUuid = Get-VMUUID -VMName $VMName
+    if ([string]::IsNullOrWhiteSpace($vmUuid)) {
+        Write-EA11Warn "Nao foi possivel resolver UUID da VM '$VMName' para fechar janela."
+        return
+    }
+
+    if (-not (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
+        Write-EA11Warn "Get-CimInstance indisponivel; nao foi possivel identificar a janela da VM para fechamento automatico."
+        return
+    }
+
+    $candidates = Get-CimInstance Win32_Process -Filter "Name='VirtualBoxVM.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and (
+                $_.CommandLine -match [regex]::Escape($vmUuid) -or
+                $_.CommandLine -match [regex]::Escape($VMName)
+            )
+        }
+
+    if (-not $candidates) {
+        Write-EA11Info "Nenhuma janela/processo VirtualBoxVM aberta para '$VMName'."
+        return
+    }
+
+    foreach ($proc in $candidates) {
+        Write-EA11Info "Fechando janela da VM '$VMName' (PID $($proc.ProcessId))"
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-VMClose {
+    param([string[]]$Tokens)
+    Ensure-VBoxManage
+
+    $vmName = Get-VMName -Tokens $Tokens
+    $timeoutRaw = Get-OptionValue -Tokens $Tokens -Names @('--timeout') -Default '30'
+    $timeout = 30
+    if (-not [int]::TryParse($timeoutRaw, [ref]$timeout)) {
+        throw "Valor invalido para --timeout: $timeoutRaw"
+    }
+
+    $state = Get-VMState -VMName $vmName
+    if (-not $state) {
+        throw "Nao foi possivel consultar o estado da VM '$vmName'."
+    }
+
+    if ($state -in @('running', 'paused', 'stuck')) {
+        Write-EA11Info "VM '$vmName' esta '$state'. Solicitando encerramento gracioso (ACPI)..."
+        & VBoxManage controlvm $vmName acpipowerbutton | Out-Null
+
+        $start = Get-Date
+        do {
+            Start-Sleep -Seconds 2
+            $state = Get-VMState -VMName $vmName
+            if (-not $state) { break }
+            $elapsed = ((Get-Date) - $start).TotalSeconds
+        } while (($state -in @('running', 'paused', 'stuck')) -and ($elapsed -lt $timeout))
+
+        if ($state -in @('running', 'paused', 'stuck')) {
+            Write-EA11Warn "VM '$vmName' nao desligou em $timeout s. Forcando poweroff..."
+            & VBoxManage controlvm $vmName poweroff | Out-Null
+        }
+    }
+    else {
+        Write-EA11Info "VM '$vmName' ja estava parada (estado: $state)."
+    }
+
+    Close-VMWindowProcess -VMName $vmName
+}
+
 function Invoke-VMSSH {
     param([string[]]$Tokens)
 
@@ -395,7 +493,7 @@ function Invoke-VMCommand {
     param([string[]]$Tokens)
 
     if ($Tokens.Length -eq 0) {
-        throw "Uso: ea11ctl vm <install|list|start|stop|status|ssh|share-folder>"
+        throw "Uso: ea11ctl vm <install|list|start|stop|close|status|ssh|share-folder>"
     }
 
     $sub = $Tokens[0]
@@ -409,6 +507,7 @@ function Invoke-VMCommand {
         'list' { Invoke-VMList }
         'start' { Invoke-VMStart -Tokens $rest }
         'stop' { Invoke-VMStop -Tokens $rest }
+        'close' { Invoke-VMClose -Tokens $rest }
         'status' { Invoke-VMStatus -Tokens $rest }
         'ssh' { Invoke-VMSSH -Tokens $rest }
         'share-folder' { Invoke-VMShareFolder -Tokens $rest }
