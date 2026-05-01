@@ -119,20 +119,24 @@ source "qemu" "debian-a11y" {
   http_port_max  = 8199
 
   # --- Sequência de boot ------------------------------------------------
-  # Boot direto via QEMU -kernel/-initrd/-append (qemuargs abaixo).
-  # Isso bypassa completamente o GRUB, evitando incompatibilidades de
-  # boot command entre ISOLINUX (Debian 12) e GRUB (Debian 13+).
-  # O boot_command fica vazio; os parâmetros do kernel são passados via
-  # qemuargs na variável kernel_append.
-  boot_wait    = "1s"
-  boot_command = []
-
-  # Boot direto: kernel + initrd extraídos do ISO; preseed via HTTP.
-  # net.ifnames=0 biosdevname=0 garante que a interface seja eth0.
-  qemuargs = [
-    ["-kernel", "${path.root}/../install.amd/vmlinuz"],
-    ["-initrd", "${path.root}/../install.amd/initrd.gz"],
-    ["-append", "auto=true priority=critical url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg hostname=${var.vm_name} domain=local net.ifnames=0 biosdevname=0 --- quiet"]
+  # Usa boot_command para digitar no terminal do GRUB do instalador Debian 13.
+  # A abordagem -kernel/-initrd (qemuargs) foi descartada pois o QEMU recarrega
+  # o kernel em todo reset da VM, causando loop infinito de reinstalação.
+  # Com boot_command, o GRUB do CD é invocado apenas na primeira inicialização;
+  # após a instalação, o GRUB instalado no disco assume o controle.
+  #
+  # Sequência: aguarda o menu GRUB aparecer → pressiona 'c' (linha de comando)
+  # → digita os comandos linux/initrd/boot → prossegue a instalação desassistida.
+  boot_wait = "5s"
+  boot_command = [
+    "<wait10>",
+    "c",
+    "<wait2>",
+    "linux /install.amd/vmlinuz auto=true priority=critical url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg net.ifnames=0 biosdevname=0 hostname=${var.vm_name} domain=local --- quiet<enter>",
+    "<wait2>",
+    "initrd /install.amd/initrd.gz<enter>",
+    "<wait2>",
+    "boot<enter>"
   ]
 
   # --- SSH (Packer usa para verificar que a instalação terminou) --------
