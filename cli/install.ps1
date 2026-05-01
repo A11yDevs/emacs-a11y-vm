@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param(
-    [switch]$Force
+    [switch]$Force,
+    # Parâmetros legados (ignorados a partir de v0.1.6 — owner/repo/branch são constantes)
+    [string]$Owner,
+    [string]$Repo,
+    [string]$Branch
 )
 
 $ErrorActionPreference = 'Stop'
