@@ -74,7 +74,8 @@ Ensure-Directory -Path $installDir
 $baseRaw = "https://raw.githubusercontent.com/$Owner/$Repo/$Branch/cli"
 $files = @(
     @{ Name = 'ea11ctl.ps1'; Url = "$baseRaw/ea11ctl.ps1" },
-    @{ Name = 'ea11ctl.cmd'; Url = "$baseRaw/ea11ctl.cmd" }
+    @{ Name = 'ea11ctl.cmd'; Url = "$baseRaw/ea11ctl.cmd" },
+    @{ Name = 'VERSION'; Url = "$baseRaw/VERSION" }
 )
 
 foreach ($file in $files) {
@@ -107,6 +108,13 @@ if (-not (($env:Path -split ';') -contains $installDir)) {
 
 Write-Host ''
 Write-Host 'Instalacao concluida.' -ForegroundColor Green
+$installedVersion = 'desconhecida'
+$versionFile = Join-Path $installDir 'VERSION'
+if (Test-Path $versionFile) {
+    $installedVersion = (Get-Content -Path $versionFile -Raw -ErrorAction SilentlyContinue).Trim()
+}
+Write-Host "Versao instalada: $installedVersion" -ForegroundColor Green
 Write-Host 'Teste agora com:' -ForegroundColor Green
 Write-Host '  ea11ctl help' -ForegroundColor Green
+Write-Host '  ea11ctl version --check-update' -ForegroundColor Green
 Write-Host '  ea11ctl vm install' -ForegroundColor Green

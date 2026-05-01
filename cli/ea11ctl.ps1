@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$EA11CTL_FALLBACK_VERSION = '0.1.1'
 
 function Write-EA11Info {
     param([string]$Message)
@@ -27,7 +28,7 @@ ea11ctl - CLI do projeto emacs-a11y-vm
 
 Uso:
   ea11ctl help
-  ea11ctl version
+    ea11ctl version [--check-update] [--owner OWNER] [--repo REPO] [--branch BRANCH]
     ea11ctl self-update [--force] [--owner OWNER] [--repo REPO] [--branch BRANCH]
   ea11ctl vm install [args-do-install-release-vm.ps1]
   ea11ctl vm list
@@ -46,6 +47,58 @@ Defaults:
 "@
 }
 
+function Get-LocalCliVersion {
+    $versionFile = Join-Path $PSScriptRoot 'VERSION'
+    if (Test-Path $versionFile) {
+        $v = (Get-Content -Path $versionFile -Raw -ErrorAction SilentlyContinue).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($v)) {
+            return $v
+        }
+    }
+    return $EA11CTL_FALLBACK_VERSION
+}
+
+function Get-RemoteCliVersion {
+    param(
+        [string]$Owner,
+        [string]$Repo,
+        [string]$Branch
+    )
+
+    $remoteVersionUrl = "https://raw.githubusercontent.com/$Owner/$Repo/$Branch/cli/VERSION"
+    $content = Invoke-WebRequest -Uri $remoteVersionUrl -UseBasicParsing
+    return $content.Content.Trim()
+}
+
+function Invoke-VersionCommand {
+    param([string[]]$Tokens)
+
+    $localVersion = Get-LocalCliVersion
+    Write-Host "ea11ctl v$localVersion"
+
+    if (-not (Has-Flag -Tokens $Tokens -Flags @('--check-update', '-c'))) {
+        return
+    }
+
+    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner') -Default 'A11yDevs'
+    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo') -Default 'emacs-a11y-vm'
+    $branch = Get-OptionValue -Tokens $Tokens -Names @('--branch') -Default 'main'
+
+    try {
+        $remoteVersion = Get-RemoteCliVersion -Owner $owner -Repo $repo -Branch $branch
+        if ($remoteVersion -eq $localVersion) {
+            Write-EA11Info "Voce ja esta na versao mais recente ($localVersion)."
+        }
+        else {
+            Write-EA11Info "Nova versao disponivel: $remoteVersion (local: $localVersion)"
+            Write-Host 'Use: ea11ctl self-update' -ForegroundColor Green
+        }
+    }
+    catch {
+        Write-EA11Warn "Nao foi possivel consultar versao remota: $($_.Exception.Message)"
+    }
+}
+
 function Invoke-SelfUpdate {
     param([string[]]$Tokens)
 
@@ -57,6 +110,22 @@ function Invoke-SelfUpdate {
     $updateArgs = @('-Owner', $owner, '-Repo', $repo, '-Branch', $branch)
     if ($force) {
         $updateArgs += '-Force'
+    }
+
+    $localVersion = Get-LocalCliVersion
+    if (-not $force) {
+        try {
+            $remoteVersion = Get-RemoteCliVersion -Owner $owner -Repo $repo -Branch $branch
+            if ($remoteVersion -eq $localVersion) {
+                Write-EA11Info "ea11ctl ja esta atualizado (v$localVersion)."
+                return
+            }
+
+            Write-EA11Info "Atualizando ea11ctl de v$localVersion para v$remoteVersion..."
+        }
+        catch {
+            Write-EA11Warn "Nao foi possivel validar versao remota; prosseguindo com update."
+        }
     }
 
     $repoRoot = Get-RepoRoot
@@ -363,8 +432,8 @@ try {
         'help' { Show-Help }
         '--help' { Show-Help }
         '-h' { Show-Help }
-        'version' { Write-Host 'ea11ctl v0.1.0' }
-        '--version' { Write-Host 'ea11ctl v0.1.0' }
+        'version' { Invoke-VersionCommand -Tokens $rest }
+        '--version' { Invoke-VersionCommand -Tokens $rest }
         'self-update' { Invoke-SelfUpdate -Tokens $rest }
         'update' { Invoke-SelfUpdate -Tokens $rest }
         'vm' { Invoke-VMCommand -Tokens $rest }

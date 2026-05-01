@@ -149,11 +149,22 @@ Atualizar a CLI instalada (sem repetir `iex (...)`):
 ea11ctl self-update
 ```
 
+Checar se existe versão mais nova da CLI:
+
+```powershell
+ea11ctl version --check-update
+```
+
 Forçar atualização:
 
 ```powershell
 ea11ctl self-update --force
 ```
+
+Versionamento da CLI `ea11ctl`:
+
+- A versão atual da CLI fica em `cli/VERSION`.
+- A cada nova funcionalidade ou correção na CLI, a versão deve ser incrementada (por exemplo: `0.1.0` -> `0.1.1`).
 
 **Solução de problemas no Windows:**
 
