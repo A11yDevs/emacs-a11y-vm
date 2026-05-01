@@ -28,6 +28,7 @@ ea11ctl - CLI do projeto emacs-a11y-vm
 Uso:
   ea11ctl help
   ea11ctl version
+    ea11ctl self-update [--force] [--owner OWNER] [--repo REPO] [--branch BRANCH]
   ea11ctl vm install [args-do-install-release-vm.ps1]
   ea11ctl vm list
   ea11ctl vm start [--name VM] [--headless]
@@ -43,6 +44,44 @@ Defaults:
   SSH user: a11ydevs
   SSH port: 2222
 "@
+}
+
+function Invoke-SelfUpdate {
+    param([string[]]$Tokens)
+
+    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner') -Default 'A11yDevs'
+    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo') -Default 'emacs-a11y-vm'
+    $branch = Get-OptionValue -Tokens $Tokens -Names @('--branch') -Default 'main'
+    $force = Has-Flag -Tokens $Tokens -Flags @('--force', '-f')
+
+    $updateArgs = @('-Owner', $owner, '-Repo', $repo, '-Branch', $branch)
+    if ($force) {
+        $updateArgs += '-Force'
+    }
+
+    $repoRoot = Get-RepoRoot
+    if ($repoRoot) {
+        $localInstaller = Join-Path $repoRoot 'cli/install.ps1'
+        if (Test-Path $localInstaller) {
+            Write-EA11Info "Executando self-update via instalador local: $localInstaller"
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $localInstaller @updateArgs
+            return
+        }
+    }
+
+    $remote = "https://raw.githubusercontent.com/$owner/$repo/$branch/cli/install.ps1"
+    $tmp = Join-Path $env:TEMP 'ea11ctl-install.ps1'
+
+    Write-EA11Info "Baixando instalador da CLI: $remote"
+    Invoke-WebRequest -Uri $remote -OutFile $tmp -UseBasicParsing
+
+    try {
+        Write-EA11Info 'Atualizando ea11ctl...'
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $tmp @updateArgs
+    }
+    finally {
+        Remove-Item -Path $tmp -ErrorAction SilentlyContinue
+    }
 }
 
 function Assert-Command {
@@ -326,6 +365,8 @@ try {
         '-h' { Show-Help }
         'version' { Write-Host 'ea11ctl v0.1.0' }
         '--version' { Write-Host 'ea11ctl v0.1.0' }
+        'self-update' { Invoke-SelfUpdate -Tokens $rest }
+        'update' { Invoke-SelfUpdate -Tokens $rest }
         'vm' { Invoke-VMCommand -Tokens $rest }
         default {
             throw "Comando desconhecido: $root"

@@ -134,12 +134,25 @@ ea11ctl vm status
 ea11ctl vm ssh
 ea11ctl vm share-folder list
 ea11ctl vm share-folder add --path "C:\\Users\\seu-usuario"
+ea11ctl self-update
 ```
 
 Ajuda da CLI:
 
 ```powershell
 ea11ctl help
+```
+
+Atualizar a CLI instalada (sem repetir `iex (...)`):
+
+```powershell
+ea11ctl self-update
+```
+
+Forçar atualização:
+
+```powershell
+ea11ctl self-update --force
 ```
 
 **Solução de problemas no Windows:**
