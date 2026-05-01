@@ -89,6 +89,17 @@ jobs:
           wget -q --show-progress "$ISO_URL" -O debian-netinst.iso
           echo "ISO baixado: $(du -sh debian-netinst.iso | cut -f1)"
 
+      - name: Extrair kernel e initrd do instalador
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libarchive-tools
+          rm -rf install.amd
+          mkdir -p install.amd
+          bsdtar -xf debian-netinst.iso install.amd/vmlinuz install.amd/initrd.gz
+          test -f install.amd/vmlinuz
+          test -f install.amd/initrd.gz
+          ls -lh install.amd/vmlinuz install.amd/initrd.gz
+
       # ------------------------------------------------------------------
       # 5. Packer
       # ------------------------------------------------------------------

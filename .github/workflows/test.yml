@@ -1,10 +1,6 @@
 name: Test VM Image
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_run:
     workflows: ["Build & Release Debian A11y VM"]
     types:
@@ -17,6 +13,7 @@ env:
 
 jobs:
   test:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     
@@ -85,51 +82,56 @@ jobs:
       - name: Download QCOW2 from release
         if: steps.check_qcow2.outputs.exists == 'false'
         run: |
-          echo "Downloading QCOW2 from latest release..."
+          echo "Downloading QCOW2 from matching release..."
           mkdir -p output
-          
-          # Wait a bit for release to be fully published and indexed
+
+          # Wait for release publication/indexing.
           echo "Waiting 60 seconds for release to be fully published..."
           sleep 60
-          
-          # Get recent releases (including prereleases)
+
           RELEASES_JSON=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=20")
+            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=50")
 
-          # For workflow_run, prefer a release built from the same commit SHA.
-          # For manual/push runs, fallback to the most recently published release with QCOW2 asset.
-          PREFERRED_SHA=""
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            PREFERRED_SHA="${{ github.event.workflow_run.head_sha }}"
-          fi
+            TRIGGER_SHA="${{ github.event.workflow_run.head_sha }}"
+            TRIGGER_BRANCH="${{ github.event.workflow_run.head_branch }}"
 
-          SELECTED_RELEASE=$(echo "$RELEASES_JSON" | jq -c '
-            map(select(.draft == false))
-            | map(select((.assets // []) | any(.name | endswith(".qcow2") or endswith(".qcow2.xz"))))
-            | sort_by(.published_at)
-            | reverse
-            | .[0]
-          ')
-
-          if [ -n "$PREFERRED_SHA" ]; then
-            MATCHED_BY_SHA=$(echo "$RELEASES_JSON" | jq -c --arg sha "$PREFERRED_SHA" '
+            # For tag-based releases, require exact tag match.
+            if [[ "$TRIGGER_BRANCH" == v* ]]; then
+              SELECTED_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg tag "$TRIGGER_BRANCH" '
+                map(select(.draft == false and .tag_name == $tag))
+                | map(select((.assets // []) | any(.name | endswith(".qcow2") or endswith(".qcow2.xz"))))
+                | .[0]
+              ')
+            else
+              # For non-tag runs, require same commit SHA (no fallback to older releases).
+              SELECTED_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg sha "$TRIGGER_SHA" '
+                map(select(.draft == false and .target_commitish == $sha))
+                | map(select((.assets // []) | any(.name | endswith(".qcow2") or endswith(".qcow2.xz"))))
+                | sort_by(.published_at)
+                | reverse
+                | .[0]
+              ')
+            fi
+          else
+            # Manual dispatch: use latest available published release with QCOW2.
+            SELECTED_RELEASE=$(echo "$RELEASES_JSON" | jq -c '
               map(select(.draft == false))
-              | map(select(.target_commitish == $sha))
               | map(select((.assets // []) | any(.name | endswith(".qcow2") or endswith(".qcow2.xz"))))
               | sort_by(.published_at)
               | reverse
               | .[0]
             ')
-
-            if [ -n "$MATCHED_BY_SHA" ] && [ "$MATCHED_BY_SHA" != "null" ]; then
-              SELECTED_RELEASE="$MATCHED_BY_SHA"
-            fi
           fi
 
           if [ -z "$SELECTED_RELEASE" ] || [ "$SELECTED_RELEASE" = "null" ]; then
-            echo "❌ No published release with QCOW2 asset found"
+            echo "❌ No matching published release with QCOW2 asset found for this run"
+            if [ "${{ github.event_name }}" = "workflow_run" ]; then
+              echo "Expected head_sha: ${{ github.event.workflow_run.head_sha }}"
+              echo "Expected head_branch: ${{ github.event.workflow_run.head_branch }}"
+            fi
             echo "Available releases:"
-            echo "$RELEASES_JSON" | jq -r '.[].tag_name'
+            echo "$RELEASES_JSON" | jq -r '.[] | [.tag_name, .target_commitish] | @tsv'
             exit 1
           fi
 
@@ -205,7 +207,7 @@ jobs:
   test-summary:
     runs-on: ubuntu-latest
     needs: test
-    if: always()
+    if: always() && needs.test.result != 'skipped'
     
     steps:
       - name: Check test results
@@ -238,7 +240,7 @@ jobs:
   block-release:
     runs-on: ubuntu-latest
     needs: test
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'v') && needs.test.result != 'skipped'
     
     steps:
       - name: Check test results for release
