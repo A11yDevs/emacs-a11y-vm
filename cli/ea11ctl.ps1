@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.4'
+$EA11CTL_FALLBACK_VERSION = '0.1.5'
 
 function Write-EA11Info {
     param([string]$Message)
@@ -27,20 +27,20 @@ function Show-Help {
 ea11ctl - CLI do projeto emacs-a11y-vm
 
 Uso:
-  ea11ctl help
-    ea11ctl version [--check-update] [--owner OWNER] [--repo REPO] [--branch BRANCH]
-    ea11ctl self-update [--force] [--owner OWNER] [--repo REPO] [--branch BRANCH]
-  ea11ctl vm install [args-do-install-release-vm.ps1]
-  ea11ctl vm list
-  ea11ctl vm start [--name VM] [--headless]
-  ea11ctl vm stop [--name VM] [--force]
-    ea11ctl vm close [--name VM] [--timeout SEGUNDOS]
-    ea11ctl vm diagnose [--name VM] [--try-start] [--lines N]
-  ea11ctl vm status [--name VM]
-  ea11ctl vm ssh [--user USER] [--port PORT] [-- vm-extra-args]
-  ea11ctl vm share-folder add --path CAMINHO [--name NOME] [--vm VM] [--readonly]
-  ea11ctl vm share-folder remove --name NOME [--vm VM]
-  ea11ctl vm share-folder list [--vm VM]
+  ea11ctl help|-h|--help
+  ea11ctl version|--version [-c|--check-update] [-o|--owner OWNER] [-R|--repo REPO] [-b|--branch BRANCH]
+  ea11ctl self-update|update [-f|--force] [-o|--owner OWNER] [-R|--repo REPO] [-b|--branch BRANCH]
+  ea11ctl vm|vm install|-i [args-do-install-release-vm.ps1]
+  ea11ctl vm list|-l
+  ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
+  ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
+  ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS]
+  ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N]
+  ea11ctl vm status|-q [-n|--name VM]
+  ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
+  ea11ctl vm share-folder|-F add [-n|--name VM] -p|--path CAMINHO [--name NOME] [-r|--readonly]
+  ea11ctl vm share-folder|-F remove [-n|--name VM] --name NOME
+  ea11ctl vm share-folder|-F list [-n|--name VM]
 
 Defaults:
   VM: debian-a11y
@@ -82,9 +82,9 @@ function Invoke-VersionCommand {
         return
     }
 
-    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner') -Default 'A11yDevs'
-    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo') -Default 'emacs-a11y-vm'
-    $branch = Get-OptionValue -Tokens $Tokens -Names @('--branch') -Default 'main'
+    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner', '-o') -Default 'A11yDevs'
+    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo', '-R') -Default 'emacs-a11y-vm'
+    $branch = Get-OptionValue -Tokens $Tokens -Names @('--branch', '-b') -Default 'main'
 
     try {
         $remoteVersion = Get-RemoteCliVersion -Owner $owner -Repo $repo -Branch $branch
@@ -104,9 +104,9 @@ function Invoke-VersionCommand {
 function Invoke-SelfUpdate {
     param([string[]]$Tokens)
 
-    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner') -Default 'A11yDevs'
-    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo') -Default 'emacs-a11y-vm'
-    $branch = Get-OptionValue -Tokens $Tokens -Names @('--branch') -Default 'main'
+    $owner = Get-OptionValue -Tokens $Tokens -Names @('--owner', '-o') -Default 'A11yDevs'
+    $repo = Get-OptionValue -Tokens $Tokens -Names @('--repo', '-R') -Default 'emacs-a11y-vm'
+    $branch = Get-OptionValue -Tokens $Tokens -Names @('--branch', '-b') -Default 'main'
     $force = Has-Flag -Tokens $Tokens -Flags @('--force', '-f')
 
     $updateArgs = @('-Owner', $owner, '-Repo', $repo, '-Branch', $branch)
@@ -268,7 +268,7 @@ function Invoke-VMStart {
     Ensure-VBoxManage
 
     $vmName = Get-VMName -Tokens $Tokens
-    $type = if (Has-Flag -Tokens $Tokens -Flags @('--headless', '-H')) { 'headless' } else { 'gui' }
+    $type = if (Has-Flag -Tokens $Tokens -Flags @('--headless', '-h')) { 'headless' } else { 'gui' }
 
     Write-EA11Info "Iniciando VM '$vmName' ($type)..."
     & VBoxManage startvm $vmName --type $type
@@ -397,9 +397,9 @@ function Invoke-VMDiagnose {
     Ensure-VBoxManage
 
     $vmName = Get-VMName -Tokens $Tokens
-    $tryStart = Has-Flag -Tokens $Tokens -Flags @('--try-start')
+    $tryStart = Has-Flag -Tokens $Tokens -Flags @('--try-start', '-T')
 
-    $linesRaw = Get-OptionValue -Tokens $Tokens -Names @('--lines') -Default '80'
+    $linesRaw = Get-OptionValue -Tokens $Tokens -Names @('--lines', '-L') -Default '80'
     $lines = 80
     if (-not [int]::TryParse($linesRaw, [ref]$lines)) {
         throw "Valor invalido para --lines: $linesRaw"
@@ -477,7 +477,7 @@ function Invoke-VMClose {
     Ensure-VBoxManage
 
     $vmName = Get-VMName -Tokens $Tokens
-    $timeoutRaw = Get-OptionValue -Tokens $Tokens -Names @('--timeout') -Default '30'
+    $timeoutRaw = Get-OptionValue -Tokens $Tokens -Names @('--timeout', '-t') -Default '30'
     $timeout = 30
     if (-not [int]::TryParse($timeoutRaw, [ref]$timeout)) {
         throw "Valor invalido para --timeout: $timeoutRaw"
@@ -535,9 +535,9 @@ function Invoke-ShareFolderAdd {
     Ensure-VBoxManage
 
     $vmName = Get-VMName -Tokens $Tokens
-    $path = Get-OptionValue -Tokens $Tokens -Names @('--path') -Default ''
+    $path = Get-OptionValue -Tokens $Tokens -Names @('--path', '-p') -Default ''
     $name = Get-OptionValue -Tokens $Tokens -Names @('--name') -Default 'host-home'
-    $readonly = Has-Flag -Tokens $Tokens -Flags @('--readonly')
+    $readonly = Has-Flag -Tokens $Tokens -Flags @('--readonly', '-r')
 
     if ([string]::IsNullOrWhiteSpace($path)) {
         throw "Use --path para informar a pasta do host."
@@ -610,15 +610,15 @@ function Invoke-VMCommand {
     }
 
     switch ($sub) {
-        'install' { Invoke-VMInstall -InstallArgs $rest }
-        'list' { Invoke-VMList }
-        'start' { Invoke-VMStart -Tokens $rest }
-        'stop' { Invoke-VMStop -Tokens $rest }
-        'close' { Invoke-VMClose -Tokens $rest }
-        'diagnose' { Invoke-VMDiagnose -Tokens $rest }
-        'status' { Invoke-VMStatus -Tokens $rest }
-        'ssh' { Invoke-VMSSH -Tokens $rest }
-        'share-folder' { Invoke-VMShareFolder -Tokens $rest }
+        { $_ -in @('install', '-i') }      { Invoke-VMInstall -InstallArgs $rest }
+        { $_ -in @('list', '-l') }          { Invoke-VMList }
+        { $_ -in @('start', '-s') }         { Invoke-VMStart -Tokens $rest }
+        { $_ -in @('stop', '-S') }          { Invoke-VMStop -Tokens $rest }
+        { $_ -in @('close', '-c') }         { Invoke-VMClose -Tokens $rest }
+        { $_ -in @('diagnose', '-d') }      { Invoke-VMDiagnose -Tokens $rest }
+        { $_ -in @('status', '-q') }        { Invoke-VMStatus -Tokens $rest }
+        { $_ -in @('ssh', '-x') }           { Invoke-VMSSH -Tokens $rest }
+        { $_ -in @('share-folder', '-F') }  { Invoke-VMShareFolder -Tokens $rest }
         default { throw "Subcomando vm desconhecido: $sub" }
     }
 }
