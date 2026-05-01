@@ -83,8 +83,8 @@ jobs:
         if: steps.cache-iso.outputs.cache-hit != 'true'
         run: |
           # URL configurável via variável de repositório DEBIAN_ISO_URL.
-          # Padrão: Debian 12 (bookworm) stable — atualize conforme necessário.
-          ISO_URL="${{ vars.DEBIAN_ISO_URL || 'https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.11.0-amd64-netinst.iso' }}"
+          # Padrão: Debian 13 (trixie) stable.
+          ISO_URL="${{ vars.DEBIAN_ISO_URL || 'https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.4.0-amd64-netinst.iso' }}"
           echo "Baixando: $ISO_URL"
           wget -q --show-progress "$ISO_URL" -O debian-netinst.iso
           echo "ISO baixado: $(du -sh debian-netinst.iso | cut -f1)"

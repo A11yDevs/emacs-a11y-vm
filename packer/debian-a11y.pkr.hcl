@@ -27,7 +27,7 @@ packer {
 variable "iso_url" {
   type        = string
   description = "URL ou caminho local (file://) da ISO netinst do Debian."
-  default     = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.11.0-amd64-netinst.iso"
+  default     = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.4.0-amd64-netinst.iso"
 }
 
 variable "iso_checksum" {
@@ -60,6 +60,12 @@ variable "memory" {
 variable "cpus" {
   type    = number
   default = 2
+}
+
+variable "accelerator" {
+  type        = string
+  description = "Acelerador do QEMU. Use kvm no Linux/CI e hvf no macOS."
+  default     = "kvm"
 }
 
 variable "ssh_username" {
@@ -96,7 +102,7 @@ source "qemu" "debian-a11y" {
   cpus        = var.cpus
   memory      = var.memory
   disk_size   = var.disk_size
-  accelerator = "kvm"        # KVM disponível nos runners ubuntu-latest
+  accelerator = var.accelerator
 
   # Placa de rede virtio para melhor desempenho
   net_device = "virtio-net"
@@ -104,8 +110,8 @@ source "qemu" "debian-a11y" {
   # Modo headless (sem janela gráfica — necessário no CI)
   headless = true
 
-  # VGA mínimo; a VM é puramente textual
-  display = "none"
+  # display = "none" removido: causa crash do QEMU/HVF quando o GRUB tenta
+  # ativar gfxterm (modo gráfico). Com headless=true o Packer gerencia o VNC.
 
   # --- Servidor HTTP do Packer (serve o preseed.cfg) --------------------
   http_directory = "${path.root}/http"
@@ -113,16 +119,20 @@ source "qemu" "debian-a11y" {
   http_port_max  = 8199
 
   # --- Sequência de boot ------------------------------------------------
-  # O instalador Debian netinst usa ISOLINUX (BIOS).
-  # ESC → prompt "boot:" → comando de instalação automática com preseed via HTTP.
-  boot_wait = "12s"
-  boot_command = [
-    "<esc><wait2>",
-    "auto priority=critical ",
-    "url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg ",
-    "hostname=${var.vm_name} domain=local ",
-    "speakup.synth=soft ",
-    "<enter>"
+  # Boot direto via QEMU -kernel/-initrd/-append (qemuargs abaixo).
+  # Isso bypassa completamente o GRUB, evitando incompatibilidades de
+  # boot command entre ISOLINUX (Debian 12) e GRUB (Debian 13+).
+  # O boot_command fica vazio; os parâmetros do kernel são passados via
+  # qemuargs na variável kernel_append.
+  boot_wait    = "1s"
+  boot_command = []
+
+  # Boot direto: kernel + initrd extraídos do ISO; preseed via HTTP.
+  # net.ifnames=0 biosdevname=0 garante que a interface seja eth0.
+  qemuargs = [
+    ["-kernel", "${path.root}/../install.amd/vmlinuz"],
+    ["-initrd", "${path.root}/../install.amd/initrd.gz"],
+    ["-append", "auto=true priority=critical url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg hostname=${var.vm_name} domain=local net.ifnames=0 biosdevname=0 --- quiet"]
   ]
 
   # --- SSH (Packer usa para verificar que a instalação terminou) --------
@@ -131,7 +141,7 @@ source "qemu" "debian-a11y" {
   ssh_password = var.ssh_password
   ssh_port     = 22
   # Tempo generoso: download de pacotes + instalação completa
-  ssh_timeout  = "90m"
+  ssh_timeout  = "120m"
 
   # Desligar a VM ao fim do build
   shutdown_command = "echo '${var.ssh_password}' | sudo -S shutdown -P now"
@@ -312,7 +322,7 @@ build {
       "sudo systemctl daemon-reload",
       "sudo systemctl enable configure-speakup.service",
       "echo 'Script de configuração do speakup instalado'",
-      "echo '=== Configurando rede (DHCP em enp0s3) ==='",
+      "echo '=== Configurando rede (DHCP em eth0) ==='",
       "sudo mv /tmp/interfaces /etc/network/interfaces",
       "sudo chmod 644 /etc/network/interfaces",
       "echo 'Configuração de rede instalada'",
@@ -423,7 +433,7 @@ build {
       "test -f /sbin/mount.vboxsf && echo 'VBox Guest Additions: OK' || echo 'VBox Guest Additions: AVISO'",
       "grep -q 'speakup.synth=soft' /etc/default/grub && echo 'GRUB speakup: OK' || echo 'GRUB speakup: AVISO'",
       "test -x /usr/local/sbin/setup-userdata-disk.sh && echo 'setup-userdata-disk.sh: OK' || echo 'setup-userdata-disk.sh: AVISO'",
-      "grep -q 'auto enp0s3' /etc/network/interfaces && echo 'Network config: OK' || echo 'Network config: AVISO'",
+      "grep -q '^allow-hotplug eth0$' /etc/network/interfaces && grep -q '^iface eth0 inet dhcp$' /etc/network/interfaces && echo 'Network config: OK' || echo 'Network config: AVISO'",
       "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO'",
       "dpkg -l | grep -q '^ii  emacspeak ' && echo 'emacspeak: OK' || echo 'emacspeak: AVISO — pacote não instalado'",
       "dpkg -l | grep -q emacs-a11y-config && echo 'emacs-a11y-config: OK' || echo 'emacs-a11y-config: AVISO'",

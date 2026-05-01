@@ -58,9 +58,17 @@ def test_internet_connectivity(qcow2_vm):
 
 @pytest.mark.integration
 def test_dhcp_client_configured(qcow2_vm):
-    """DHCP client should be configured."""
+    """DHCP client should be configured on eth0."""
     result = qcow2_vm.ssh_exec("cat /etc/network/interfaces")
-    assert "dhcp" in result or "auto" in result
+    assert "allow-hotplug eth0" in result
+    assert "iface eth0 inet dhcp" in result
+
+
+@pytest.mark.integration
+def test_eth0_interface_exists(qcow2_vm):
+    """Guest should expose the primary NIC as eth0."""
+    result = qcow2_vm.ssh_exec("ip link show eth0 2>&1")
+    assert "eth0" in result
 
 
 @pytest.mark.integration

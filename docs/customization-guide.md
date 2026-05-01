@@ -358,7 +358,7 @@ go install golang.org/x/tools/gopls@latest
 
 ### DHCP Automático (Padrão)
 
-A VM está configurada para obter IP automaticamente via DHCP na interface `enp0s3` (primeira interface de rede). Configuração em `/etc/network/interfaces`:
+A VM está configurada para obter IP automaticamente via DHCP na interface `eth0` (primeira interface de rede). Configuração em `/etc/network/interfaces`:
 
 ```bash
 # Ver configuração atual
@@ -368,8 +368,8 @@ cat /etc/network/interfaces
 # auto lo
 # iface lo inet loopback
 #
-# auto enp0s3
-# iface enp0s3 inet dhcp
+# allow-hotplug eth0
+# iface eth0 inet dhcp
 ```
 
 ### Verificar Status da Rede
@@ -379,10 +379,10 @@ cat /etc/network/interfaces
 ip addr
 
 # Verificar se interface está ativa
-ip link show enp0s3
+ip link show eth0
 
 # Ver configuração DHCP obtida
-ip addr show enp0s3
+ip addr show eth0
 
 # Testar conectividade
 ping -c 3 8.8.8.8
@@ -394,15 +394,15 @@ Se a rede não subir automaticamente:
 
 ```bash
 # Método 1: ifup/ifdown (recomendado)
-sudo ifdown enp0s3
-sudo ifup enp0s3
+sudo ifdown eth0
+sudo ifup eth0
 
 # Método 2: systemd-networkd (se disponível)
 sudo systemctl restart networking
 
 # Método 3: forçar DHCP
-sudo dhclient -r enp0s3  # release
-sudo dhclient enp0s3     # request
+sudo dhclient -r eth0  # release
+sudo dhclient eth0     # request
 ```
 
 ### IP Estático (Opcional)
@@ -416,16 +416,16 @@ sudo cp /etc/network/interfaces /home/a11ydevs/interfaces.backup
 # Editar configuração
 sudo nano /etc/network/interfaces
 
-# Substituir "iface enp0s3 inet dhcp" por:
-auto enp0s3
-iface enp0s3 inet static
+# Substituir "iface eth0 inet dhcp" por:
+allow-hotplug eth0
+iface eth0 inet static
     address 192.168.1.100
     netmask 255.255.255.0
     gateway 192.168.1.1
     dns-nameservers 8.8.8.8 8.8.4.4
 
 # Aplicar
-sudo ifdown enp0s3 && sudo ifup enp0s3
+sudo ifdown eth0 && sudo ifup eth0
 ```
 
 ⚠️ **IMPORTANTE**: Modificações em `/etc/network/interfaces` são **preservadas em upgrades** (arquivo está fora do sistema base).
