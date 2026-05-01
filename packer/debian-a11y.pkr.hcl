@@ -81,7 +81,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.29"
+  default = "2.0.33"
 }
 
 # ------------------------------------------------------------------------------
@@ -119,27 +119,22 @@ source "qemu" "debian-a11y" {
   http_port_max  = 8199
 
   # --- Sequência de boot ------------------------------------------------
-  # Usa boot_command para digitar no terminal do GRUB do instalador Debian 13.
-  # A abordagem -kernel/-initrd (qemuargs) foi descartada pois o QEMU recarrega
-  # o kernel em todo reset da VM, causando loop infinito de reinstalação.
-  # Com boot_command, o GRUB do CD é invocado apenas na primeira inicialização;
-  # após a instalação, o GRUB instalado no disco assume o controle.
+  # O instalador Debian 13 netinst usa ISOLINUX (SYSLINUX) para boot via BIOS
+  # (QEMU usa SeaBIOS por padrão). A abordagem é idêntica ao Debian 12:
   #
-  # Sequência robusta para runners CI:
-  # 1) aguarda GRUB aparecer, 2) envia ESC para interromper auto-boot,
-  # 3) abre linha de comando com 'c', 4) envia linux/initrd/boot.
-  # O duplo ESC e os waits reduzem falhas intermitentes de sincronização VNC.
-  boot_wait = "12s"
+  # 1) aguardar o ISOLINUX aparecer (boot_wait + <wait5>)
+  # 2) pressionar ESC para abrir o prompt "boot:"
+  # 3) digitar o label "auto" com parâmetros extras e pressionar Enter
+  #
+  # O label "auto" no isolinux.cfg já inclui auto=true priority=critical;
+  # os parâmetros adicionais são concatenados ao final da linha de kernel.
+  # Todos os parâmetros (incluindo net.ifnames=0 biosdevname=0) ficam
+  # visíveis em /proc/cmdline e são processados pelo kernel e pelo d-i.
+  boot_wait = "5s"
   boot_command = [
-    "<wait10>",
-    "<esc><wait2><esc><wait2>",
-    "c",
     "<wait5>",
-    "linux /install.amd/vmlinuz auto=true priority=critical url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg net.ifnames=0 biosdevname=0 hostname=${var.vm_name} domain=local --- quiet<enter>",
-    "<wait3>",
-    "initrd /install.amd/initrd.gz<enter>",
-    "<wait3>",
-    "boot<enter>"
+    "<esc><wait2>",
+    "auto priority=critical url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg net.ifnames=0 biosdevname=0 hostname=${var.vm_name} domain=local<enter>"
   ]
 
   # --- SSH (Packer usa para verificar que a instalação terminou) --------
