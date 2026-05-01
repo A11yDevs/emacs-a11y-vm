@@ -13,44 +13,65 @@ A VM é textual, sem interface gráfica, com fala habilitada desde o boot via es
 
 ---
 
-## Instalação rápida
+## Instalação com ea11ctl (recomendado)
 
-### Método mais fácil: arquivo .cmd
+`ea11ctl` é a CLI do projeto. Com ela você instala, atualiza e gerencia a VM sem precisar clonar o repositório.
 
-Baixe ou clone este repositório e execute:
+### 1. Instalar a CLI
 
-```cmd
-scripts\install-release-vm.cmd
-```
-
-Ou clique duas vezes em `scripts\install-release-vm.cmd` no Windows Explorer.
-
-O script baixa a imagem do GitHub, converte para VDI e cria a VM automaticamente.
-
-### PowerShell
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1
-```
-
-Com parâmetros personalizados:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -RAM 4096 -CPUs 4
-```
-
-### Sem clonar o repositório
+Execute no PowerShell:
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
-iex (iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.ps1' -UseBasicParsing).Content
+iex (iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/cli/install.ps1' -UseBasicParsing).Content
+```
+
+Após a instalação, `ea11ctl` fica disponível em qualquer terminal do Windows.
+
+### 2. Instalar a VM
+
+```powershell
+ea11ctl vm install
+```
+
+O comando baixa a imagem do GitHub, converte para o formato do VirtualBox e cria a VM automaticamente (~5-10 min na primeira vez).
+
+---
+
+## Comandos essenciais
+
+| Comando | O que faz |
+|---|---|
+| `ea11ctl vm install` | Instala a VM a partir da última release |
+| `ea11ctl vm start` | Inicia a VM |
+| `ea11ctl vm stop` | Desliga a VM de forma segura |
+| `ea11ctl vm status` | Mostra o estado atual da VM |
+| `ea11ctl vm ssh` | Abre uma sessão SSH na VM |
+| `ea11ctl self-update` | Atualiza a CLI para a versão mais recente |
+
+Para ver todos os comandos disponíveis:
+
+```powershell
+ea11ctl help
+```
+
+Para ver a ajuda de um comando específico, use `-h`:
+
+```powershell
+ea11ctl vm install -h
 ```
 
 ---
 
 ## Acesso à VM
 
-Após a instalação, conecte via SSH:
+Após iniciar a VM, conecte via SSH:
+
+```powershell
+ea11ctl vm ssh
+```
+
+Ou diretamente:
 
 ```bash
 ssh -p 2222 a11ydevs@localhost
@@ -66,11 +87,9 @@ ssh -p 2222 a11ydevs@localhost
 
 ## Documentação
 
-### Para usuários
-
 | Guia | Descrição |
 |---|---|
-| [Instalação detalhada](docs/user/install.md) | Opções de instalação, CLI e solução de problemas |
+| [Instalação detalhada](docs/user/install.md) | Outras formas de instalação e solução de problemas |
 | [Personalização](docs/user/customize.md) | Configurar Emacs, shell e seus arquivos |
 | [Upgrade](docs/user/upgrade.md) | Atualizar a VM sem perder dados |
 
