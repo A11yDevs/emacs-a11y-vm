@@ -125,17 +125,20 @@ source "qemu" "debian-a11y" {
   # Com boot_command, o GRUB do CD é invocado apenas na primeira inicialização;
   # após a instalação, o GRUB instalado no disco assume o controle.
   #
-  # Sequência: aguarda o menu GRUB aparecer → pressiona 'c' (linha de comando)
-  # → digita os comandos linux/initrd/boot → prossegue a instalação desassistida.
-  boot_wait = "5s"
+  # Sequência robusta para runners CI:
+  # 1) aguarda GRUB aparecer, 2) envia ESC para interromper auto-boot,
+  # 3) abre linha de comando com 'c', 4) envia linux/initrd/boot.
+  # O duplo ESC e os waits reduzem falhas intermitentes de sincronização VNC.
+  boot_wait = "12s"
   boot_command = [
     "<wait10>",
+    "<esc><wait2><esc><wait2>",
     "c",
-    "<wait2>",
+    "<wait5>",
     "linux /install.amd/vmlinuz auto=true priority=critical url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg net.ifnames=0 biosdevname=0 hostname=${var.vm_name} domain=local --- quiet<enter>",
-    "<wait2>",
+    "<wait3>",
     "initrd /install.amd/initrd.gz<enter>",
-    "<wait2>",
+    "<wait3>",
     "boot<enter>"
   ]
 

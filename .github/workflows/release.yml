@@ -195,10 +195,10 @@ jobs:
             output/debian-a11ydevs.qcow2
 
       # ------------------------------------------------------------------
-      # 9. Guardar log do Packer em caso de falha
+      # 9. Guardar log do Packer em caso de falha/cancelamento
       # ------------------------------------------------------------------
-      - name: Upload do log do Packer (em caso de falha)
-        if: failure()
+      - name: Upload do log do Packer (falha ou cancelamento)
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: packer-log
