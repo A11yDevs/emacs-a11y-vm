@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.17'
+$EA11CTL_FALLBACK_VERSION = '0.1.18'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -548,12 +548,20 @@ function Test-IsMacOSHost {
 }
 
 function Get-QemuAccelerationArgs {
+    param([string]$Mode = 'auto')
+
+    $normalizedMode = $Mode.ToLowerInvariant()
+
+    if ($normalizedMode -eq 'tcg') {
+        return @('-accel', 'tcg,thread=multi', '-cpu', 'qemu64')
+    }
+
     if (Test-IsMacOSHost) {
         return @('-accel', 'hvf', '-accel', 'tcg,thread=multi', '-cpu', 'host,-svm')
     }
 
     if (Test-IsWindowsHost) {
-        return @('-accel', 'whpx', '-accel', 'tcg,thread=multi', '-cpu', 'max')
+        return @('-accel', 'whpx', '-accel', 'tcg,thread=multi', '-cpu', 'qemu64')
     }
 
     if (Test-Path '/dev/kvm') {
@@ -768,7 +776,8 @@ function Invoke-QemuVMStart {
         '-monitor', 'none'
     )
 
-    $qemuArgs += Get-QemuAccelerationArgs
+    $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default 'auto'
+    $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
 
     if ($headless) {
         $qemuArgs += @('-nographic', '-serial', 'stdio')
@@ -804,6 +813,53 @@ function Invoke-QemuVMStart {
 
     Start-Sleep -Seconds 2
     $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
+
+    if ((-not $alive) -and (Test-IsWindowsHost) -and ($accelMode -eq 'auto')) {
+        $lastError = ''
+        if (Test-Path $stderrLog) {
+            $lastError = (Get-Content -Path $stderrLog -Tail 80 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+        }
+
+        if ($lastError -match 'WHPX|Unexpected VP exit code|APX|MPX') {
+            Write-EA11Warn 'WHPX falhou no host atual. Retentando automaticamente com aceleracao TCG (modo compatibilidade)...'
+
+            $qemuArgs = @(
+                '-m', "$memory",
+                '-smp', "$cpus",
+                '-drive', "file=$systemDisk,format=qcow2,if=virtio",
+                '-drive', "file=$userDataDisk,format=qcow2,if=virtio",
+                '-netdev', "user,id=net0,hostfwd=tcp::$sshPort-:22",
+                '-device', 'virtio-net,netdev=net0',
+                '-serial', 'none',
+                '-monitor', 'none'
+            )
+
+            $qemuArgs += Get-QemuAccelerationArgs -Mode 'tcg'
+
+            if ($headless) {
+                $qemuArgs += @('-nographic', '-serial', 'stdio')
+            }
+            else {
+                if (Test-IsMacOSHost) {
+                    $qemuArgs += @('-vga', 'virtio', '-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
+                }
+                elseif (Test-IsWindowsHost) {
+                    $qemuArgs += @('-vga', 'virtio', '-display', 'sdl')
+                }
+                else {
+                    $qemuArgs += @('-vga', 'virtio')
+                }
+
+                $qemuArgs += Get-QemuAudioArgs
+            }
+
+            $startParams.ArgumentList = $qemuArgs
+            $proc = Start-Process @startParams
+            Start-Sleep -Seconds 2
+            $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
+        }
+    }
+
     if (-not $alive) {
         $lastError = ''
         if (Test-Path $stderrLog) {
