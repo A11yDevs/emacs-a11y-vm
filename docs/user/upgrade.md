@@ -19,7 +19,7 @@ Se `/home` não aparece em disco separado, entre em contato com o suporte do pro
 
 ## Processo de upgrade
 
-Use o mesmo comando `vm` da CLI, escolhendo o backend com `-b|--backend`.
+Use o mesmo comando `vm` da CLI, escolhendo o backend com `-b` (ou `--backend`).
 
 ### 1. Backup recomendado
 

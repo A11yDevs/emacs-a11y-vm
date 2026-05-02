@@ -56,10 +56,10 @@ O comando baixa a imagem do GitHub, converte para o formato do VirtualBox e cria
 
 ### Backends da CLI
 
-O comando `vm` é único e aceita seleção de backend por opção:
+O comando `vm` é único e aceita seleção de backend, preferencialmente com a opção curta `-b`:
 
-- `--backend virtualbox` ou `-b virtualbox`
-- `--backend qemu` ou `-b qemu`
+- `-b virtualbox` (equivalente: `--backend virtualbox`)
+- `-b qemu` (equivalente: `--backend qemu`)
 
 Exemplos:
 
