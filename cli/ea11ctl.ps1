@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.15'
+$EA11CTL_FALLBACK_VERSION = '0.1.16'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -531,6 +531,46 @@ function Ensure-QemuImg {
     Ensure-CommandWithCandidates -Command 'qemu-img' -Candidates $candidates -Hint "Instale o QEMU e garanta qemu-img no PATH."
 }
 
+function Get-QemuAccelerationArgs {
+    if ($IsMacOS) {
+        return @('-accel', 'hvf', '-accel', 'tcg,thread=multi', '-cpu', 'host,-svm')
+    }
+
+    if ($IsWindows) {
+        return @('-accel', 'whpx', '-accel', 'tcg,thread=multi', '-cpu', 'max')
+    }
+
+    if (Test-Path '/dev/kvm') {
+        return @('-enable-kvm', '-cpu', 'host')
+    }
+
+    return @('-accel', 'tcg,thread=multi', '-cpu', 'max')
+}
+
+function Get-QemuAudioArgs {
+    if ($IsMacOS) {
+        return @(
+            '-audiodev', 'coreaudio,id=audio0,out.frequency=44100,out.mixing-engine=on,in.mixing-engine=off',
+            '-device', 'ich9-intel-hda',
+            '-device', 'hda-output,audiodev=audio0'
+        )
+    }
+
+    if ($IsWindows) {
+        return @(
+            '-audiodev', 'dsound,id=audio0',
+            '-device', 'ich9-intel-hda',
+            '-device', 'hda-output,audiodev=audio0'
+        )
+    }
+
+    return @(
+        '-audiodev', 'pa,id=audio0',
+        '-device', 'ich9-intel-hda',
+        '-device', 'hda-output,audiodev=audio0'
+    )
+}
+
 function Resolve-QemuSystemDiskPath {
     $stateDir = Get-EA11StateDirectory
     $defaultDisk = Join-Path $stateDir 'debian-a11ydevs.qcow2'
@@ -707,28 +747,32 @@ function Invoke-QemuVMStart {
         '-drive', "file=$systemDisk,format=qcow2,if=virtio",
         '-drive', "file=$userDataDisk,format=qcow2,if=virtio",
         '-netdev', "user,id=net0,hostfwd=tcp::$sshPort-:22",
-        '-device', 'virtio-net,netdev=net0'
+        '-device', 'virtio-net,netdev=net0',
+        '-serial', 'none',
+        '-monitor', 'none'
     )
 
-    if ($IsMacOS) {
-        $qemuArgs += @('-accel', 'hvf', '-cpu', 'host,-svm')
-    }
+    $qemuArgs += Get-QemuAccelerationArgs
 
     if ($headless) {
         $qemuArgs += @('-nographic', '-serial', 'stdio')
     }
-    elseif ($IsMacOS) {
-        $qemuArgs += @(
-            '-vga', 'virtio',
-            '-display', 'cocoa,zoom-to-fit=on,full-screen=on',
-            '-k', 'en-us',
-            '-audiodev', 'coreaudio,id=audio0,out.frequency=44100,out.mixing-engine=on,in.mixing-engine=off',
-            '-device', 'virtio-sound-pci,audiodev=audio0'
-        )
+    else {
+        if ($IsMacOS) {
+            $qemuArgs += @('-vga', 'virtio', '-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
+        }
+        elseif ($IsWindows) {
+            $qemuArgs += @('-vga', 'virtio', '-display', 'sdl')
+        }
+        else {
+            $qemuArgs += @('-vga', 'virtio')
+        }
+
+        $qemuArgs += Get-QemuAudioArgs
     }
 
     Write-EA11Info "Iniciando VM QEMU '$vmName'..."
-    $proc = Start-Process -FilePath 'qemu-system-x86_64' -ArgumentList $qemuArgs -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    $proc = Start-Process -FilePath 'qemu-system-x86_64' -ArgumentList $qemuArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
 
     Start-Sleep -Seconds 2
     $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
