@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.14'
+$EA11CTL_FALLBACK_VERSION = '0.1.15'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -281,6 +281,37 @@ function Assert-Command {
     }
 }
 
+function Ensure-CommandWithCandidates {
+    param(
+        [string]$Command,
+        [string[]]$Candidates,
+        [string]$Hint
+    )
+
+    if (Get-Command $Command -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    foreach ($candidate in $Candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+
+        if (Test-Path $candidate) {
+            $dir = Split-Path -Path $candidate -Parent
+            if (-not [string]::IsNullOrWhiteSpace($dir)) {
+                $env:PATH = "$dir;$env:PATH"
+            }
+
+            break
+        }
+    }
+
+    if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
+        throw "Comando '$Command' nao encontrado no PATH. $Hint"
+    }
+}
+
 function Get-OptionValue {
     param(
         [string[]]$Tokens,
@@ -473,11 +504,31 @@ function Get-ProcessByIdSafe {
 }
 
 function Ensure-QemuSystem {
-    Assert-Command 'qemu-system-x86_64'
+    $candidates = @(
+        "$env:ProgramFiles\qemu\qemu-system-x86_64.exe",
+        "${env:ProgramFiles(x86)}\qemu\qemu-system-x86_64.exe",
+        "$env:ChocolateyInstall\bin\qemu-system-x86_64.exe",
+        "$env:USERPROFILE\scoop\apps\qemu\current\qemu-system-x86_64.exe",
+        '/opt/homebrew/bin/qemu-system-x86_64',
+        '/usr/local/bin/qemu-system-x86_64',
+        '/usr/bin/qemu-system-x86_64'
+    )
+
+    Ensure-CommandWithCandidates -Command 'qemu-system-x86_64' -Candidates $candidates -Hint "Instale o QEMU e garanta qemu-system-x86_64 no PATH."
 }
 
 function Ensure-QemuImg {
-    Assert-Command 'qemu-img'
+    $candidates = @(
+        "$env:ProgramFiles\qemu\qemu-img.exe",
+        "${env:ProgramFiles(x86)}\qemu\qemu-img.exe",
+        "$env:ChocolateyInstall\bin\qemu-img.exe",
+        "$env:USERPROFILE\scoop\apps\qemu\current\qemu-img.exe",
+        '/opt/homebrew/bin/qemu-img',
+        '/usr/local/bin/qemu-img',
+        '/usr/bin/qemu-img'
+    )
+
+    Ensure-CommandWithCandidates -Command 'qemu-img' -Candidates $candidates -Hint "Instale o QEMU e garanta qemu-img no PATH."
 }
 
 function Resolve-QemuSystemDiskPath {
