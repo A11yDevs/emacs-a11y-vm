@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.20'
+$EA11CTL_FALLBACK_VERSION = '0.1.21'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -505,6 +505,8 @@ function Get-ProcessByIdSafe {
 
 function Ensure-QemuSystem {
     $candidates = @(
+        "$env:ProgramFiles\qemu\qemu-system-x86_64w.exe",
+        "${env:ProgramFiles(x86)}\qemu\qemu-system-x86_64w.exe",
         "$env:ProgramFiles\qemu\qemu-system-x86_64.exe",
         "${env:ProgramFiles(x86)}\qemu\qemu-system-x86_64.exe",
         "$env:ChocolateyInstall\bin\qemu-system-x86_64.exe",
@@ -515,6 +517,37 @@ function Ensure-QemuSystem {
     )
 
     Ensure-CommandWithCandidates -Command 'qemu-system-x86_64' -Candidates $candidates -Hint "Instale o QEMU e garanta qemu-system-x86_64 no PATH."
+}
+
+function Resolve-QemuSystemExecutable {
+    param([bool]$Headless)
+
+    if ((Test-IsWindowsHost) -and (-not $Headless)) {
+        $guiCandidates = @(
+            "$env:ProgramFiles\qemu\qemu-system-x86_64w.exe",
+            "${env:ProgramFiles(x86)}\qemu\qemu-system-x86_64w.exe",
+            "$env:ChocolateyInstall\bin\qemu-system-x86_64w.exe",
+            "$env:USERPROFILE\scoop\apps\qemu\current\qemu-system-x86_64w.exe"
+        )
+
+        $cmd = Get-Command 'qemu-system-x86_64w.exe' -ErrorAction SilentlyContinue
+        if ($cmd) {
+            return $cmd.Source
+        }
+
+        foreach ($candidate in $guiCandidates) {
+            if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
+                return $candidate
+            }
+        }
+    }
+
+    $normalCmd = Get-Command 'qemu-system-x86_64' -ErrorAction SilentlyContinue
+    if ($normalCmd) {
+        return $normalCmd.Source
+    }
+
+    return 'qemu-system-x86_64'
 }
 
 function Ensure-QemuImg {
@@ -575,23 +608,23 @@ function Get-QemuAudioArgs {
     if (Test-IsMacOSHost) {
         return @(
             '-audiodev', 'coreaudio,id=audio0,out.frequency=44100,out.mixing-engine=on,in.mixing-engine=off',
-            '-device', 'ich9-intel-hda',
-            '-device', 'hda-output,audiodev=audio0'
+            '-device', 'intel-hda',
+            '-device', 'hda-duplex,audiodev=audio0'
         )
     }
 
     if (Test-IsWindowsHost) {
         return @(
             '-audiodev', 'dsound,id=audio0',
-            '-device', 'ich9-intel-hda',
-            '-device', 'hda-output,audiodev=audio0'
+            '-device', 'intel-hda',
+            '-device', 'hda-duplex,audiodev=audio0'
         )
     }
 
     return @(
         '-audiodev', 'pa,id=audio0',
-        '-device', 'ich9-intel-hda',
-        '-device', 'hda-output,audiodev=audio0'
+        '-device', 'intel-hda',
+        '-device', 'hda-duplex,audiodev=audio0'
     )
 }
 
@@ -797,8 +830,9 @@ function Invoke-QemuVMStart {
     }
 
     Write-EA11Info "Iniciando VM QEMU '$vmName'..."
+    $qemuExecutable = Resolve-QemuSystemExecutable -Headless:$headless
     $startParams = @{
-        FilePath = 'qemu-system-x86_64'
+        FilePath = $qemuExecutable
         ArgumentList = $qemuArgs
         PassThru = $true
         RedirectStandardOutput = $stdoutLog
