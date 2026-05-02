@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.26'
+$EA11CTL_FALLBACK_VERSION = '0.1.27'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -684,6 +684,56 @@ function Test-QemuVirtfsSupport {
     }
 }
 
+function Test-QemuUserNetSmbSupport {
+    param([string]$QemuExecutable)
+
+    try {
+        $helpOutput = & $QemuExecutable -help 2>&1
+    }
+    catch {
+        return $false
+    }
+
+    if (-not $helpOutput) {
+        return $false
+    }
+
+    $text = ($helpOutput | Out-String)
+    return ($text -match '(?i)smb=')
+}
+
+function New-QemuBaseArgs {
+    param(
+        [int]$Memory,
+        [int]$Cpus,
+        [string]$SystemDisk,
+        [string]$UserDataDisk,
+        [string]$NetdevValue,
+        [hashtable]$HostHomeShare,
+        [string]$HostHomeShareMode
+    )
+
+    $args = @(
+        '-m', "$Memory",
+        '-smp', "$Cpus",
+        '-drive', "file=$SystemDisk,format=qcow2,if=virtio",
+        '-drive', "file=$UserDataDisk,format=qcow2,if=virtio",
+        '-netdev', $NetdevValue,
+        '-device', 'virtio-net,netdev=net0',
+        '-serial', 'none',
+        '-monitor', 'none'
+    )
+
+    if (($HostHomeShareMode -eq '9p') -and $HostHomeShare) {
+        $args += @(
+            '-virtfs',
+            "local,path=$($HostHomeShare.HostPath),mount_tag=$($HostHomeShare.MountTag),security_model=none,id=$($HostHomeShare.MountTag)"
+        )
+    }
+
+    return $args
+}
+
 function Ensure-QemuImg {
     $candidates = @(
         "$env:ProgramFiles\qemu\qemu-img.exe",
@@ -966,30 +1016,30 @@ function Invoke-QemuVMStart {
     $stdoutLog = Join-Path $logsDir "$vmName-stdout.log"
     $stderrLog = Join-Path $logsDir "$vmName-stderr.log"
 
-    $qemuArgs = @(
-        '-m', "$memory",
-        '-smp', "$cpus",
-        '-drive', "file=$systemDisk,format=qcow2,if=virtio",
-        '-drive', "file=$userDataDisk,format=qcow2,if=virtio",
-        '-netdev', "user,id=net0,hostfwd=tcp::$sshPort-:22",
-        '-device', 'virtio-net,netdev=net0',
-        '-serial', 'none',
-        '-monitor', 'none'
-    )
-
     $hostHomeShare = $null
+    $hostHomeShareMode = $null
+    $qemuSmbShare = $null
+    $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22"
+
     if (-not $disableHostHomeShare) {
         $hostHomeShare = Get-QemuHostHomeShareConfig
         if ($hostHomeShare) {
             if (Test-QemuVirtfsSupport -QemuExecutable $qemuExecutable) {
-                $qemuArgs += @(
-                    '-virtfs',
-                    "local,path=$($hostHomeShare.HostPath),mount_tag=$($hostHomeShare.MountTag),security_model=none,id=$($hostHomeShare.MountTag)"
-                )
+                $hostHomeShareMode = '9p'
                 Write-EA11Info "Compartilhando host home via 9p: $($hostHomeShare.HostPath) -> $($hostHomeShare.GuestMountPoint)"
             }
+            elseif (Test-QemuUserNetSmbSupport -QemuExecutable $qemuExecutable) {
+                $hostHomeShareMode = 'smb'
+                $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22,smb=$($hostHomeShare.HostPath)"
+                $qemuSmbShare = @{
+                    Server = '10.0.2.4'
+                    Share = 'qemu'
+                    GuestMountPoint = '/home/hosthome'
+                }
+                Write-EA11Warn 'virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> /home/hosthome).'
+            }
             else {
-                Write-EA11Warn 'Este binario QEMU nao suporta virtfs/9p. VM iniciada sem compartilhamento automatico de /Users.'
+                Write-EA11Warn 'Este binario QEMU nao suporta virtfs/9p nem SMB usernet. VM iniciada sem compartilhamento automatico da home do host.'
                 $hostHomeShare = $null
             }
         }
@@ -997,6 +1047,8 @@ function Invoke-QemuVMStart {
             Write-EA11Warn 'Nao foi possivel resolver pasta home do host para compartilhamento 9p automatico.'
         }
     }
+
+    $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode
 
     $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default 'auto'
     $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
@@ -1045,16 +1097,7 @@ function Invoke-QemuVMStart {
         if ($lastError -match 'WHPX|Unexpected VP exit code|APX|MPX') {
             Write-EA11Warn 'WHPX falhou no host atual. Retentando automaticamente com aceleracao TCG (modo compatibilidade)...'
 
-            $qemuArgs = @(
-                '-m', "$memory",
-                '-smp', "$cpus",
-                '-drive', "file=$systemDisk,format=qcow2,if=virtio",
-                '-drive', "file=$userDataDisk,format=qcow2,if=virtio",
-                '-netdev', "user,id=net0,hostfwd=tcp::$sshPort-:22",
-                '-device', 'virtio-net,netdev=net0',
-                '-serial', 'none',
-                '-monitor', 'none'
-            )
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode
 
             $qemuArgs += Get-QemuAccelerationArgs -Mode 'tcg'
 
@@ -1095,16 +1138,7 @@ function Invoke-QemuVMStart {
             }
             Write-EA11Warn "Backend de audio automatico falhou. Retentando com '$fallbackAudio'..."
 
-            $qemuArgs = @(
-                '-m', "$memory",
-                '-smp', "$cpus",
-                '-drive', "file=$systemDisk,format=qcow2,if=virtio",
-                '-drive', "file=$userDataDisk,format=qcow2,if=virtio",
-                '-netdev', "user,id=net0,hostfwd=tcp::$sshPort-:22",
-                '-device', 'virtio-net,netdev=net0',
-                '-serial', 'none',
-                '-monitor', 'none'
-            )
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode
 
             $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
 
@@ -1153,6 +1187,9 @@ function Invoke-QemuVMStart {
         stderrLog = $stderrLog
         hostHomeSharePath = if ($hostHomeShare) { $hostHomeShare.HostPath } else { $null }
         hostHomeShareTag = if ($hostHomeShare) { $hostHomeShare.MountTag } else { $null }
+        hostHomeShareMode = if ($hostHomeShareMode) { $hostHomeShareMode } else { $null }
+        hostHomeSmbServer = if ($qemuSmbShare) { $qemuSmbShare.Server } else { $null }
+        hostHomeSmbShare = if ($qemuSmbShare) { $qemuSmbShare.Share } else { $null }
         hostHomeGuestMountPoint = if ($hostHomeShare) { $hostHomeShare.GuestMountPoint } else { $null }
         startedAt = (Get-Date).ToString('o')
         lastStatus = 'running'
@@ -1164,8 +1201,11 @@ function Invoke-QemuVMStart {
     Write-Host "SSH: localhost:$sshPort"
     Write-Host "Sistema: $systemDisk"
     Write-Host "Dados (/home): $userDataDisk"
-    if ($hostHomeShare) {
+    if (($hostHomeShareMode -eq '9p') -and $hostHomeShare) {
         Write-Host "Host home (9p): $($hostHomeShare.HostPath) -> $($hostHomeShare.GuestMountPoint)"
+    }
+    elseif (($hostHomeShareMode -eq 'smb') -and $hostHomeShare -and $qemuSmbShare) {
+        Write-Host "Host home (SMB): $($hostHomeShare.HostPath) -> //$($qemuSmbShare.Server)/$($qemuSmbShare.Share) -> $($qemuSmbShare.GuestMountPoint)"
     }
 }
 
@@ -1279,6 +1319,13 @@ function Invoke-QemuVMStatus {
     Write-Host "SSH: localhost:$($state.sshPort)"
     Write-Host "Sistema: $($state.systemDisk)"
     Write-Host "Dados (/home): $($state.userDataDisk)"
+    if ($state.hostHomeShareMode -eq '9p' -and $state.hostHomeSharePath -and $state.hostHomeGuestMountPoint) {
+        Write-Host "Host home (9p): $($state.hostHomeSharePath) -> $($state.hostHomeGuestMountPoint)"
+    }
+    elseif ($state.hostHomeShareMode -eq 'smb' -and $state.hostHomeSmbServer -and $state.hostHomeSmbShare) {
+        $guestMount = if ($state.hostHomeGuestMountPoint) { [string]$state.hostHomeGuestMountPoint } else { '/home/hosthome' }
+        Write-Host "Host home (SMB): $($state.hostHomeSharePath) -> //$($state.hostHomeSmbServer)/$($state.hostHomeSmbShare) -> $guestMount"
+    }
     Write-Host "Estado: $(Get-QemuStateFilePath -VMName $vmName)"
 }
 

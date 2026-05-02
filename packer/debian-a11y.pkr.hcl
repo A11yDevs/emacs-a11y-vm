@@ -355,8 +355,8 @@ build {
     inline = [
       "echo '=== Instalando dependências para Guest Additions ==='",
       "sudo apt-get update",
-      "sudo apt-get install -y build-essential linux-headers-$(uname -r) dkms curl alsa-utils",
-      "echo 'Dependências instaladas: build-essential, linux-headers, dkms, curl, alsa-utils'"
+      "sudo apt-get install -y build-essential linux-headers-$(uname -r) dkms curl alsa-utils cifs-utils",
+      "echo 'Dependências instaladas: build-essential, linux-headers, dkms, curl, alsa-utils, cifs-utils'"
     ]
   }
 

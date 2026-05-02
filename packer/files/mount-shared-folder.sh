@@ -3,6 +3,7 @@
 # Suporta:
 # - VirtualBox Shared Folders (vboxsf)
 # - QEMU 9p/virtfs com tag hosthome_<usuario>
+# - QEMU usernet SMB fallback (//10.0.2.4/qemu -> /home/hosthome)
 #
 # Executado pelo systemd no boot.
 #
@@ -66,6 +67,46 @@ mount_qemu_9p() {
     done
 
     echo "QEMU 9p: $mounted montagem(ns), $failed falha(s)"
+}
+
+mount_qemu_smb_fallback() {
+    local smb_server="10.0.2.4"
+    local smb_share="qemu"
+    local mount_point="/home/hosthome"
+    local mounted=0
+
+    if ! command -v mount.cifs &>/dev/null; then
+        echo "AVISO: mount.cifs nao encontrado (instale cifs-utils para SMB fallback no QEMU)"
+        return
+    fi
+
+    if mountpoint -q "$mount_point"; then
+        echo "QEMU SMB fallback ja montado em $mount_point"
+        return
+    fi
+
+    mkdir -p "$mount_point"
+    chown "$USER_UID:$USER_GID" "$mount_point" 2>/dev/null || true
+
+    # Alguns ambientes aceitam SMB moderno; outros so montam com versao antiga.
+    local options=(
+        "guest,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,noperm,vers=3.0"
+        "guest,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,noperm,vers=2.1"
+        "guest,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,noperm,vers=2.0"
+        "guest,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,noperm,vers=1.0"
+    )
+
+    for opt in "${options[@]}"; do
+        if mount -t cifs "//$smb_server/$smb_share" "$mount_point" -o "$opt"; then
+            echo "QEMU SMB fallback montado: //$smb_server/$smb_share -> $mount_point"
+            mounted=1
+            break
+        fi
+    done
+
+    if [[ $mounted -eq 0 ]]; then
+        echo "AVISO: SMB fallback do QEMU indisponivel (//$smb_server/$smb_share)."
+    fi
 }
 
 # --- Montagem VirtualBox Shared Folders -------------------------------------
@@ -158,4 +199,5 @@ mount_virtualbox_shares() {
 }
 
 mount_qemu_9p
+mount_qemu_smb_fallback
 mount_virtualbox_shares
