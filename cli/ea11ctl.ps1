@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.23'
+$EA11CTL_FALLBACK_VERSION = '0.1.24'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -550,6 +550,50 @@ function Resolve-QemuSystemExecutable {
     return 'qemu-system-x86_64'
 }
 
+function Resolve-HostUserName {
+    if (-not [string]::IsNullOrWhiteSpace($env:USER)) {
+        return $env:USER
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERNAME)) {
+        return $env:USERNAME
+    }
+
+    return $null
+}
+
+function Get-QemuHostHomeShareConfig {
+    $hostUser = Resolve-HostUserName
+    if ([string]::IsNullOrWhiteSpace($hostUser)) {
+        return $null
+    }
+
+    $candidatePaths = @(
+        "/Users/$hostUser",
+        "/home/$hostUser"
+    )
+
+    $hostPath = $null
+    foreach ($candidate in $candidatePaths) {
+        if (Test-Path $candidate) {
+            $hostPath = $candidate
+            break
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($hostPath)) {
+        return $null
+    }
+
+    $safeUser = ($hostUser -replace '[^a-zA-Z0-9_-]', '_')
+    return @{
+        HostUser = $hostUser
+        HostPath = $hostPath
+        MountTag = "hosthome_$safeUser"
+        GuestMountPoint = "/home/$hostUser"
+    }
+}
+
 function Get-QemuAvailableAudioDrivers {
     param([string]$QemuExecutable)
 
@@ -861,6 +905,7 @@ function Invoke-QemuVMStart {
     $userDataSize = Get-IntOptionValue -Tokens $Tokens -Names @('--user-data-size') -Default 10 -OptionName '--user-data-size'
     $headless = Has-Flag -Tokens $Tokens -Flags @('--headless', '-h')
     $audioBackend = Get-OptionValue -Tokens $Tokens -Names @('--audio-backend') -Default 'auto'
+    $disableHostHomeShare = Has-Flag -Tokens $Tokens -Flags @('--no-host-home-share')
     $qemuExecutable = Resolve-QemuSystemExecutable -Headless:$headless
     $supportedAudioDrivers = Get-QemuAvailableAudioDrivers -QemuExecutable $qemuExecutable
 
@@ -888,6 +933,21 @@ function Invoke-QemuVMStart {
         '-serial', 'none',
         '-monitor', 'none'
     )
+
+    $hostHomeShare = $null
+    if (-not $disableHostHomeShare) {
+        $hostHomeShare = Get-QemuHostHomeShareConfig
+        if ($hostHomeShare) {
+            $qemuArgs += @(
+                '-virtfs',
+                "local,path=$($hostHomeShare.HostPath),mount_tag=$($hostHomeShare.MountTag),security_model=none,id=$($hostHomeShare.MountTag)"
+            )
+            Write-EA11Info "Compartilhando host home via 9p: $($hostHomeShare.HostPath) -> $($hostHomeShare.GuestMountPoint)"
+        }
+        else {
+            Write-EA11Warn 'Nao foi possivel resolver pasta home do host para compartilhamento 9p automatico.'
+        }
+    }
 
     $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default 'auto'
     $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
@@ -1042,6 +1102,9 @@ function Invoke-QemuVMStart {
         homeMount = '/home'
         stdoutLog = $stdoutLog
         stderrLog = $stderrLog
+        hostHomeSharePath = if ($hostHomeShare) { $hostHomeShare.HostPath } else { $null }
+        hostHomeShareTag = if ($hostHomeShare) { $hostHomeShare.MountTag } else { $null }
+        hostHomeGuestMountPoint = if ($hostHomeShare) { $hostHomeShare.GuestMountPoint } else { $null }
         startedAt = (Get-Date).ToString('o')
         lastStatus = 'running'
     }
@@ -1052,6 +1115,9 @@ function Invoke-QemuVMStart {
     Write-Host "SSH: localhost:$sshPort"
     Write-Host "Sistema: $systemDisk"
     Write-Host "Dados (/home): $userDataDisk"
+    if ($hostHomeShare) {
+        Write-Host "Host home (9p): $($hostHomeShare.HostPath) -> $($hostHomeShare.GuestMountPoint)"
+    }
 }
 
 function Invoke-QemuVMStop {

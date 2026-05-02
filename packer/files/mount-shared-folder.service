@@ -1,8 +1,7 @@
 [Unit]
-Description=Mount VirtualBox Shared Folders
+Description=Mount Host Shared Folders (VirtualBox/QEMU)
 Documentation=https://github.com/A11yDevs/emacs-a11y-vm
-After=vboxadd.service vboxadd-service.service
-ConditionPathExists=/sbin/mount.vboxsf
+After=local-fs.target
 
 [Service]
 Type=oneshot
