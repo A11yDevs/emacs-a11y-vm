@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.8'
+$EA11CTL_FALLBACK_VERSION = '0.1.9'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -74,6 +74,18 @@ function Get-RemoteCliVersion {
     return $content.Content.Trim()
 }
 
+function Get-RemoteBranchHeadSha {
+    $apiUrl = "https://api.github.com/repos/$EA11CTL_OWNER/$EA11CTL_REPO/commits/$EA11CTL_BRANCH"
+    $response = Invoke-WebRequest -Uri $apiUrl -UseBasicParsing
+    $json = $response.Content | ConvertFrom-Json
+
+    if (-not $json -or -not $json.sha) {
+        throw 'Resposta invalida da API do GitHub ao resolver SHA da branch.'
+    }
+
+    return ([string]$json.sha).Trim()
+}
+
 function Invoke-VersionCommand {
     param([string[]]$Tokens)
 
@@ -122,8 +134,18 @@ function Invoke-SelfUpdate {
 
     # Atualiza os arquivos diretamente no diretorio de instalacao,
     # sem depender do install.ps1 (evita quebra por mudanca de assinatura entre versoes).
+    # Usa SHA do commit da branch para evitar inconsistencias de cache no raw/main.
     $installDir = $PSScriptRoot
-    $baseRaw = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli"
+    $resolvedRef = $EA11CTL_BRANCH
+    try {
+        $resolvedRef = Get-RemoteBranchHeadSha
+        Write-EA11Info "Ref remoto resolvido para commit $resolvedRef"
+    }
+    catch {
+        Write-EA11Warn "Nao foi possivel resolver SHA da branch; usando ref '$EA11CTL_BRANCH'."
+    }
+
+    $baseRaw = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$resolvedRef/cli"
     $files = @('ea11ctl.ps1', 'ea11ctl.cmd', 'VERSION')
 
     foreach ($file in $files) {
