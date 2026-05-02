@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.28'
+$EA11CTL_FALLBACK_VERSION = '0.1.29'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -1053,7 +1053,12 @@ function Invoke-QemuVMStart {
         }
     }
 
-    $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser (if ($hostHomeShare) { $hostHomeShare.HostUser } else { $null })
+    $hostUserForGuest = $null
+    if ($hostHomeShare) {
+        $hostUserForGuest = $hostHomeShare.HostUser
+    }
+
+    $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
 
     $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default 'auto'
     $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
@@ -1102,7 +1107,7 @@ function Invoke-QemuVMStart {
         if ($lastError -match 'WHPX|Unexpected VP exit code|APX|MPX') {
             Write-EA11Warn 'WHPX falhou no host atual. Retentando automaticamente com aceleracao TCG (modo compatibilidade)...'
 
-            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser (if ($hostHomeShare) { $hostHomeShare.HostUser } else { $null })
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
 
             $qemuArgs += Get-QemuAccelerationArgs -Mode 'tcg'
 
@@ -1143,7 +1148,7 @@ function Invoke-QemuVMStart {
             }
             Write-EA11Warn "Backend de audio automatico falhou. Retentando com '$fallbackAudio'..."
 
-            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser (if ($hostHomeShare) { $hostHomeShare.HostUser } else { $null })
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
 
             $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
 
