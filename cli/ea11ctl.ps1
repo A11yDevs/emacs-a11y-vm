@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.9'
+$EA11CTL_FALLBACK_VERSION = '0.1.10'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -228,7 +228,7 @@ function Get-IntOptionValue {
     $raw = Get-OptionValue -Tokens $Tokens -Names $Names -Default ([string]$Default)
     $value = 0
     if (-not [int]::TryParse($raw, [ref]$value)) {
-        throw "Valor invalido para $OptionName: $raw"
+        throw ("Valor invalido para {0}: {1}" -f $OptionName, $raw)
     }
 
     return $value
