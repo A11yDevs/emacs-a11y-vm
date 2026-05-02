@@ -2,7 +2,7 @@
 
 Máquina virtual Debian com Emacs e síntese de voz, pronta para uso.
 
-A VM é textual, sem interface gráfica, com fala habilitada desde o boot via espeakup. O acesso é feito por SSH do host.
+A VM é textual, sem interface gráfica, com fala habilitada desde o boot via espeakup. 
 
 ---
 
@@ -10,6 +10,10 @@ A VM é textual, sem interface gráfica, com fala habilitada desde o boot via es
 
 - Windows 10 ou 11
 - [VirtualBox](https://www.virtualbox.org/wiki/Downloads) instalado
+
+Para uso com backend QEMU:
+
+- macOS com QEMU instalado (`qemu-system-x86_64` e `qemu-img` no PATH)
 
 ---
 
@@ -43,11 +47,34 @@ O comando baixa a imagem do GitHub, converte para o formato do VirtualBox e cria
 | Comando | O que faz |
 |---|---|
 | `ea11ctl vm install` | Instala a VM a partir da última release |
-| `ea11ctl vm start` | Inicia a VM |
-| `ea11ctl vm stop` | Desliga a VM de forma segura |
-| `ea11ctl vm status` | Mostra o estado atual da VM |
-| `ea11ctl vm ssh` | Abre uma sessão SSH na VM |
+| `ea11ctl vm start` | Inicia a VM (backend padrão: `virtualbox`) |
+| `ea11ctl vm start -b qemu` | Inicia a VM no QEMU |
+| `ea11ctl vm stop -b qemu` | Desliga a VM QEMU |
+| `ea11ctl vm status -b qemu` | Mostra o estado atual no backend QEMU |
+| `ea11ctl vm ssh -b qemu` | Abre sessão SSH na VM QEMU |
 | `ea11ctl self-update` | Atualiza a CLI para a versão mais recente |
+
+### Backends da CLI
+
+O comando `vm` é único e aceita seleção de backend por opção:
+
+- `--backend virtualbox` ou `-b virtualbox`
+- `--backend qemu` ou `-b qemu`
+
+Exemplos:
+
+```powershell
+ea11ctl vm start -b virtualbox
+ea11ctl vm start -b qemu
+ea11ctl vm status -b qemu
+ea11ctl vm ssh -b qemu
+```
+
+No backend QEMU, os arquivos da VM ficam em `~/.emacs-a11y-vm`:
+
+- `debian-a11ydevs.qcow2` (imagem de sistema)
+- `<nome-da-vm>-home.qcow2` (disco de dados persistente, montado em `/home`)
+- `qemu/<nome-da-vm>.json` (estado da VM)
 
 Para ver todos os comandos disponíveis:
 
@@ -69,6 +96,12 @@ Após iniciar a VM, conecte via SSH:
 
 ```powershell
 ea11ctl vm ssh
+```
+
+Para backend QEMU:
+
+```powershell
+ea11ctl vm ssh -b qemu
 ```
 
 Ou diretamente:

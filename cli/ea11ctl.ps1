@@ -34,21 +34,26 @@ Uso:
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
   ea11ctl vm|vm install|-i [args-do-install-release-vm.ps1]
-  ea11ctl vm list|-l
-  ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
-  ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
-  ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS]
-  ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N]
-  ea11ctl vm status|-q [-n|--name VM]
-  ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
+    ea11ctl vm list|-l [--backend virtualbox|qemu]
+    ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--backend virtualbox|qemu]
+    ea11ctl vm stop|-S [-n|--name VM] [-f|--force] [--backend virtualbox|qemu]
+    ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS] [--backend virtualbox|qemu]
+    ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N] [--backend virtualbox|qemu]
+    ea11ctl vm status|-q [-n|--name VM] [--backend virtualbox|qemu]
+    ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [--backend virtualbox|qemu] [-- extra-args]
   ea11ctl vm share-folder|-F add [-n|--name VM] -p|--path CAMINHO [--name NOME] [-r|--readonly]
   ea11ctl vm share-folder|-F remove [-n|--name VM] --name NOME
   ea11ctl vm share-folder|-F list [-n|--name VM]
 
 Defaults:
+    Backend: virtualbox
   VM: debian-a11y
   SSH user: a11ydevs
   SSH port: 2222
+
+QEMU:
+    Imagem de sistema: ~/.emacs-a11y-vm/debian-a11ydevs.qcow2
+    Disco de dados: ~/.emacs-a11y-vm/<vm>-home.qcow2 (montado em /home na VM)
 "@
 }
 
@@ -173,6 +178,227 @@ function Has-Flag {
     return $false
 }
 
+function Has-OptionName {
+    param(
+        [string[]]$Tokens,
+        [string[]]$Names
+    )
+
+    foreach ($token in $Tokens) {
+        foreach ($name in $Names) {
+            if ($token -eq $name) {
+                return $true
+            }
+        }
+    }
+
+    return $false
+}
+
+function Get-IntOptionValue {
+    param(
+        [string[]]$Tokens,
+        [string[]]$Names,
+        [int]$Default,
+        [string]$OptionName
+    )
+
+    $raw = Get-OptionValue -Tokens $Tokens -Names $Names -Default ([string]$Default)
+    $value = 0
+    if (-not [int]::TryParse($raw, [ref]$value)) {
+        throw "Valor invalido para $OptionName: $raw"
+    }
+
+    return $value
+}
+
+function Resolve-VMBackend {
+    param(
+        [string[]]$Tokens,
+        [string]$DefaultBackend = 'virtualbox'
+    )
+
+    $backend = $DefaultBackend
+    $cleanTokens = New-Object System.Collections.Generic.List[string]
+
+    for ($i = 0; $i -lt $Tokens.Length; $i++) {
+        $token = $Tokens[$i]
+
+        if ($token -in @('--backend', '-b')) {
+            if (($i + 1) -ge $Tokens.Length) {
+                throw "Use --backend com um valor (virtualbox ou qemu)."
+            }
+
+            $backend = $Tokens[$i + 1]
+            $i++
+            continue
+        }
+
+        if ($token -eq '--qemu') {
+            $backend = 'qemu'
+            continue
+        }
+
+        if ($token -eq '--virtualbox') {
+            $backend = 'virtualbox'
+            continue
+        }
+
+        [void]$cleanTokens.Add($token)
+    }
+
+    $normalized = $backend.ToLowerInvariant()
+    switch ($normalized) {
+        'virtualbox' { }
+        'vbox' { $normalized = 'virtualbox' }
+        'qemu' { }
+        default { throw "Backend desconhecido: $backend (use virtualbox ou qemu)." }
+    }
+
+    return @{
+        Backend = $normalized
+        Tokens = $cleanTokens.ToArray()
+    }
+}
+
+function Get-HomeDirectoryPath {
+    if (-not [string]::IsNullOrWhiteSpace($env:HOME)) {
+        return $env:HOME
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        return $env:USERPROFILE
+    }
+
+    throw "Nao foi possivel detectar o diretorio HOME do usuario."
+}
+
+function Get-EA11StateDirectory {
+    $base = Join-Path (Get-HomeDirectoryPath) '.emacs-a11y-vm'
+    if (-not (Test-Path $base)) {
+        New-Item -ItemType Directory -Path $base -Force | Out-Null
+    }
+
+    return $base
+}
+
+function Get-QemuStateDirectory {
+    $stateDir = Join-Path (Get-EA11StateDirectory) 'qemu'
+    if (-not (Test-Path $stateDir)) {
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+    }
+
+    return $stateDir
+}
+
+function Get-QemuStateFilePath {
+    param([string]$VMName)
+
+    return (Join-Path (Get-QemuStateDirectory) "$VMName.json")
+}
+
+function Load-QemuState {
+    param([string]$VMName)
+
+    $filePath = Get-QemuStateFilePath -VMName $VMName
+    if (-not (Test-Path $filePath)) {
+        return $null
+    }
+
+    $raw = Get-Content -Path $filePath -Raw -ErrorAction SilentlyContinue
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $null
+    }
+
+    return ($raw | ConvertFrom-Json)
+}
+
+function Save-QemuState {
+    param(
+        [string]$VMName,
+        [hashtable]$State
+    )
+
+    $filePath = Get-QemuStateFilePath -VMName $VMName
+    $State | ConvertTo-Json -Depth 5 | Set-Content -Path $filePath -Encoding utf8
+}
+
+function Get-ProcessByIdSafe {
+    param([int]$ProcessId)
+
+    try {
+        return (Get-Process -Id $ProcessId -ErrorAction Stop)
+    }
+    catch {
+        return $null
+    }
+}
+
+function Ensure-QemuSystem {
+    Assert-Command 'qemu-system-x86_64'
+}
+
+function Ensure-QemuImg {
+    Assert-Command 'qemu-img'
+}
+
+function Resolve-QemuSystemDiskPath {
+    $stateDir = Get-EA11StateDirectory
+    $defaultDisk = Join-Path $stateDir 'debian-a11ydevs.qcow2'
+    if (Test-Path $defaultDisk) {
+        return $defaultDisk
+    }
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    $repoRoot = Get-RepoRoot
+    if ($repoRoot) {
+        [void]$candidates.Add((Join-Path (Join-Path $repoRoot 'output') 'debian-a11ydevs.qcow2'))
+        [void]$candidates.Add((Join-Path (Join-Path $repoRoot 'output-hvf-build') 'debian-a11ydevs.qcow2'))
+    }
+
+    $cwd = (Get-Location).Path
+    [void]$candidates.Add((Join-Path (Join-Path $cwd 'output') 'debian-a11ydevs.qcow2'))
+    [void]$candidates.Add((Join-Path (Join-Path $cwd 'output-hvf-build') 'debian-a11ydevs.qcow2'))
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            Write-EA11Info "Copiando imagem de sistema para consistencia em $defaultDisk"
+            Copy-Item -Path $candidate -Destination $defaultDisk -Force
+            return $defaultDisk
+        }
+    }
+
+    throw "Imagem de sistema QEMU nao encontrada. Coloque debian-a11ydevs.qcow2 em $stateDir"
+}
+
+function Ensure-QemuUserDataDisk {
+    param(
+        [string]$VMName,
+        [int]$SizeGB = 10
+    )
+
+    $stateDir = Get-EA11StateDirectory
+    $diskPath = Join-Path $stateDir "$VMName-home.qcow2"
+    if (Test-Path $diskPath) {
+        return $diskPath
+    }
+
+    Ensure-QemuImg
+    Write-EA11Info "Criando disco de dados do usuario ($SizeGB`G): $diskPath"
+    & qemu-img create -f qcow2 $diskPath "$SizeGB`G" | Out-Null
+
+    return $diskPath
+}
+
+function Get-QemuLogsDirectory {
+    $logsDir = Join-Path (Get-QemuStateDirectory) 'logs'
+    if (-not (Test-Path $logsDir)) {
+        New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+    }
+
+    return $logsDir
+}
+
 function Get-RepoRoot {
     $candidate = Resolve-Path (Join-Path $PSScriptRoot "..")
     if (Test-Path (Join-Path $candidate "scripts/install-release-vm.ps1")) {
@@ -232,6 +458,288 @@ function Ensure-VBoxManage {
     }
 
     Assert-Command "VBoxManage"
+}
+
+function Invoke-QemuVMList {
+    $stateDir = Get-QemuStateDirectory
+    $files = Get-ChildItem -Path $stateDir -Filter '*.json' -File -ErrorAction SilentlyContinue
+
+    if (-not $files) {
+        Write-EA11Info 'Nenhuma VM QEMU registrada em ~/.emacs-a11y-vm.'
+        return
+    }
+
+    foreach ($file in $files) {
+        $state = Get-Content -Path $file.FullName -Raw | ConvertFrom-Json
+        $pid = 0
+        if ($state.pid) {
+            $pid = [int]$state.pid
+        }
+
+        $running = $false
+        if ($pid -gt 0) {
+            $running = $null -ne (Get-ProcessByIdSafe -ProcessId $pid)
+        }
+
+        $status = if ($running) { 'running' } else { 'stopped' }
+        Write-Host "$($state.name) (qemu) - $status - ssh:$($state.sshPort)"
+    }
+}
+
+function Invoke-QemuVMStart {
+    param([string[]]$Tokens)
+
+    Ensure-QemuSystem
+
+    $vmName = Get-VMName -Tokens $Tokens
+    $sshPort = Get-IntOptionValue -Tokens $Tokens -Names @('--port', '--ssh-port', '-p') -Default 2222 -OptionName '--ssh-port'
+    $memory = Get-IntOptionValue -Tokens $Tokens -Names @('--memory', '-m') -Default 1536 -OptionName '--memory'
+    $cpus = Get-IntOptionValue -Tokens $Tokens -Names @('--cpus') -Default 1 -OptionName '--cpus'
+    $userDataSize = Get-IntOptionValue -Tokens $Tokens -Names @('--user-data-size') -Default 10 -OptionName '--user-data-size'
+    $headless = Has-Flag -Tokens $Tokens -Flags @('--headless', '-h')
+
+    $existing = Load-QemuState -VMName $vmName
+    if ($existing -and $existing.pid) {
+        $existingPid = [int]$existing.pid
+        if ($existingPid -gt 0 -and (Get-ProcessByIdSafe -ProcessId $existingPid)) {
+            throw "VM QEMU '$vmName' ja esta em execucao (PID $existingPid)."
+        }
+    }
+
+    $systemDisk = Resolve-QemuSystemDiskPath
+    $userDataDisk = Ensure-QemuUserDataDisk -VMName $vmName -SizeGB $userDataSize
+    $logsDir = Get-QemuLogsDirectory
+    $stdoutLog = Join-Path $logsDir "$vmName-stdout.log"
+    $stderrLog = Join-Path $logsDir "$vmName-stderr.log"
+
+    $qemuArgs = @(
+        '-m', "$memory",
+        '-smp', "$cpus",
+        '-drive', "file=$systemDisk,format=qcow2,if=virtio",
+        '-drive', "file=$userDataDisk,format=qcow2,if=virtio",
+        '-netdev', "user,id=net0,hostfwd=tcp::$sshPort-:22",
+        '-device', 'virtio-net,netdev=net0'
+    )
+
+    if ($IsMacOS) {
+        $qemuArgs += @('-accel', 'hvf', '-cpu', 'host,-svm')
+    }
+
+    if ($headless) {
+        $qemuArgs += @('-nographic', '-serial', 'stdio')
+    }
+    elseif ($IsMacOS) {
+        $qemuArgs += @(
+            '-vga', 'virtio',
+            '-display', 'cocoa,zoom-to-fit=on,full-screen=on',
+            '-k', 'en-us',
+            '-audiodev', 'coreaudio,id=audio0,out.frequency=44100,out.mixing-engine=on,in.mixing-engine=off',
+            '-device', 'virtio-sound-pci,audiodev=audio0'
+        )
+    }
+
+    Write-EA11Info "Iniciando VM QEMU '$vmName'..."
+    $proc = Start-Process -FilePath 'qemu-system-x86_64' -ArgumentList $qemuArgs -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+
+    Start-Sleep -Seconds 2
+    $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
+    if (-not $alive) {
+        $lastError = ''
+        if (Test-Path $stderrLog) {
+            $lastError = (Get-Content -Path $stderrLog -Tail 20 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+        }
+        throw "Falha ao iniciar QEMU para '$vmName'. Log: $stderrLog`n$lastError"
+    }
+
+    Save-QemuState -VMName $vmName -State @{
+        name = $vmName
+        backend = 'qemu'
+        pid = $proc.Id
+        sshPort = $sshPort
+        sshUser = 'a11ydevs'
+        systemDisk = $systemDisk
+        userDataDisk = $userDataDisk
+        homeMount = '/home'
+        stdoutLog = $stdoutLog
+        stderrLog = $stderrLog
+        startedAt = (Get-Date).ToString('o')
+        lastStatus = 'running'
+    }
+
+    Write-Host "VM: $vmName"
+    Write-Host "Backend: qemu"
+    Write-Host "PID: $($proc.Id)"
+    Write-Host "SSH: localhost:$sshPort"
+    Write-Host "Sistema: $systemDisk"
+    Write-Host "Dados (/home): $userDataDisk"
+}
+
+function Invoke-QemuVMStop {
+    param([string[]]$Tokens)
+
+    $vmName = Get-VMName -Tokens $Tokens
+    $force = Has-Flag -Tokens $Tokens -Flags @('--force', '-f')
+    $timeout = Get-IntOptionValue -Tokens $Tokens -Names @('--timeout', '-t') -Default 30 -OptionName '--timeout'
+
+    $state = Load-QemuState -VMName $vmName
+    if (-not $state) {
+        Write-EA11Warn "VM QEMU '$vmName' nao possui estado registrado em ~/.emacs-a11y-vm."
+        return
+    }
+
+    $pid = 0
+    if ($state.pid) {
+        $pid = [int]$state.pid
+    }
+
+    if ($pid -le 0) {
+        Write-EA11Warn "Estado da VM QEMU '$vmName' nao possui PID ativo."
+        return
+    }
+
+    $proc = Get-ProcessByIdSafe -ProcessId $pid
+    if (-not $proc) {
+        Write-EA11Warn "Processo da VM QEMU '$vmName' (PID $pid) nao esta mais em execucao."
+        Save-QemuState -VMName $vmName -State @{
+            name = $vmName
+            backend = 'qemu'
+            pid = $null
+            sshPort = $state.sshPort
+            sshUser = $state.sshUser
+            systemDisk = $state.systemDisk
+            userDataDisk = $state.userDataDisk
+            homeMount = '/home'
+            stdoutLog = $state.stdoutLog
+            stderrLog = $state.stderrLog
+            startedAt = $state.startedAt
+            stoppedAt = (Get-Date).ToString('o')
+            lastStatus = 'stopped'
+        }
+        return
+    }
+
+    if ($force) {
+        Write-EA11Warn "Forcando encerramento da VM QEMU '$vmName' (PID $pid)..."
+        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Write-EA11Info "Encerrando VM QEMU '$vmName' de forma graciosa (PID $pid)..."
+        Stop-Process -Id $pid -ErrorAction SilentlyContinue
+
+        $start = Get-Date
+        do {
+            Start-Sleep -Seconds 1
+            $stillRunning = $null -ne (Get-ProcessByIdSafe -ProcessId $pid)
+            $elapsed = ((Get-Date) - $start).TotalSeconds
+        } while ($stillRunning -and ($elapsed -lt $timeout))
+
+        if ($stillRunning) {
+            Write-EA11Warn "VM QEMU '$vmName' nao encerrou em $timeout s. Aplicando force kill."
+            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Save-QemuState -VMName $vmName -State @{
+        name = $vmName
+        backend = 'qemu'
+        pid = $null
+        sshPort = $state.sshPort
+        sshUser = $state.sshUser
+        systemDisk = $state.systemDisk
+        userDataDisk = $state.userDataDisk
+        homeMount = '/home'
+        stdoutLog = $state.stdoutLog
+        stderrLog = $state.stderrLog
+        startedAt = $state.startedAt
+        stoppedAt = (Get-Date).ToString('o')
+        lastStatus = 'stopped'
+    }
+}
+
+function Invoke-QemuVMStatus {
+    param([string[]]$Tokens)
+
+    $vmName = Get-VMName -Tokens $Tokens
+    $state = Load-QemuState -VMName $vmName
+    if (-not $state) {
+        Write-EA11Warn "VM QEMU '$vmName' nao registrada em ~/.emacs-a11y-vm."
+        return
+    }
+
+    $pid = 0
+    if ($state.pid) {
+        $pid = [int]$state.pid
+    }
+
+    $running = $false
+    if ($pid -gt 0) {
+        $running = $null -ne (Get-ProcessByIdSafe -ProcessId $pid)
+    }
+
+    $status = if ($running) { 'running' } else { 'stopped' }
+    Write-Host "VM: $vmName"
+    Write-Host 'Backend: qemu'
+    Write-Host "State: $status"
+    Write-Host "PID: $pid"
+    Write-Host "SSH: localhost:$($state.sshPort)"
+    Write-Host "Sistema: $($state.systemDisk)"
+    Write-Host "Dados (/home): $($state.userDataDisk)"
+    Write-Host "Estado: $(Get-QemuStateFilePath -VMName $vmName)"
+}
+
+function Invoke-QemuVMSSH {
+    param([string[]]$Tokens)
+
+    Assert-Command 'ssh'
+
+    $vmName = Get-VMName -Tokens $Tokens
+    $state = Load-QemuState -VMName $vmName
+
+    $user = Get-OptionValue -Tokens $Tokens -Names @('--user', '-u') -Default 'a11ydevs'
+    $portFromState = '2222'
+    if ($state -and $state.sshPort) {
+        $portFromState = [string]$state.sshPort
+    }
+
+    $port = if (Has-OptionName -Tokens $Tokens -Names @('--port', '-p')) {
+        Get-OptionValue -Tokens $Tokens -Names @('--port', '-p') -Default $portFromState
+    }
+    else {
+        $portFromState
+    }
+
+    $extraStart = [Array]::IndexOf($Tokens, '--')
+    $extra = @()
+    if ($extraStart -ge 0 -and ($extraStart + 1) -lt $Tokens.Length) {
+        $extra = $Tokens[($extraStart + 1)..($Tokens.Length - 1)]
+    }
+
+    Write-EA11Info "Abrindo SSH para $user@localhost:$port"
+    & ssh -p $port "$user@localhost" @extra
+}
+
+function Invoke-QemuVMDiagnose {
+    param([string[]]$Tokens)
+
+    $vmName = Get-VMName -Tokens $Tokens
+    $state = Load-QemuState -VMName $vmName
+    if (-not $state) {
+        Write-EA11Warn "VM QEMU '$vmName' nao registrada."
+        return
+    }
+
+    Invoke-QemuVMStatus -Tokens $Tokens
+
+    $lines = Get-IntOptionValue -Tokens $Tokens -Names @('--lines', '-L') -Default 80 -OptionName '--lines'
+    if ($state.stderrLog -and (Test-Path $state.stderrLog)) {
+        Write-Host ''
+        Write-Host '--- Ultimas linhas do log de erro do QEMU ---' -ForegroundColor Cyan
+        Get-Content -Path $state.stderrLog -Tail $lines -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+        Write-Host '--- Fim ---' -ForegroundColor Cyan
+    }
+    else {
+        Write-EA11Warn 'Log de erro do QEMU nao encontrado.'
+    }
 }
 
 function Invoke-VMList {
@@ -573,28 +1081,94 @@ function Invoke-VMShareFolder {
 }
 
 function Invoke-VMCommand {
-    param([string[]]$Tokens)
+    param(
+        [string[]]$Tokens,
+        [string]$DefaultBackend = 'virtualbox'
+    )
 
-    if ($Tokens.Length -eq 0) {
+    $resolved = Resolve-VMBackend -Tokens $Tokens -DefaultBackend $DefaultBackend
+    $backend = $resolved.Backend
+    $cleanTokens = $resolved.Tokens
+
+    if ($cleanTokens.Length -eq 0) {
         throw "Uso: ea11ctl vm <install|list|start|stop|close|diagnose|status|ssh|share-folder>"
     }
 
-    $sub = $Tokens[0]
+    $sub = $cleanTokens[0]
     $rest = @()
-    if ($Tokens.Length -gt 1) {
-        $rest = $Tokens[1..($Tokens.Length - 1)]
+    if ($cleanTokens.Length -gt 1) {
+        $rest = $cleanTokens[1..($cleanTokens.Length - 1)]
     }
 
     switch ($sub) {
-        { $_ -in @('install', '-i') }      { Invoke-VMInstall -InstallArgs $rest }
-        { $_ -in @('list', '-l') }          { Invoke-VMList }
-        { $_ -in @('start', '-s') }         { Invoke-VMStart -Tokens $rest }
-        { $_ -in @('stop', '-S') }          { Invoke-VMStop -Tokens $rest }
-        { $_ -in @('close', '-c') }         { Invoke-VMClose -Tokens $rest }
-        { $_ -in @('diagnose', '-d') }      { Invoke-VMDiagnose -Tokens $rest }
-        { $_ -in @('status', '-q') }        { Invoke-VMStatus -Tokens $rest }
-        { $_ -in @('ssh', '-x') }           { Invoke-VMSSH -Tokens $rest }
-        { $_ -in @('share-folder', '-F') }  { Invoke-VMShareFolder -Tokens $rest }
+        { $_ -in @('install', '-i') } {
+            if ($backend -eq 'qemu') {
+                throw 'Comando vm install ainda nao suporta backend qemu. Use vm start --backend qemu para bootstrap automatico da imagem padrao.'
+            }
+            Invoke-VMInstall -InstallArgs $rest
+        }
+        { $_ -in @('list', '-l') } {
+            if ($backend -eq 'qemu') {
+                Invoke-QemuVMList
+            }
+            else {
+                Invoke-VMList
+            }
+        }
+        { $_ -in @('start', '-s') } {
+            if ($backend -eq 'qemu') {
+                Invoke-QemuVMStart -Tokens $rest
+            }
+            else {
+                Invoke-VMStart -Tokens $rest
+            }
+        }
+        { $_ -in @('stop', '-S') } {
+            if ($backend -eq 'qemu') {
+                Invoke-QemuVMStop -Tokens $rest
+            }
+            else {
+                Invoke-VMStop -Tokens $rest
+            }
+        }
+        { $_ -in @('close', '-c') } {
+            if ($backend -eq 'qemu') {
+                Invoke-QemuVMStop -Tokens $rest
+            }
+            else {
+                Invoke-VMClose -Tokens $rest
+            }
+        }
+        { $_ -in @('diagnose', '-d') } {
+            if ($backend -eq 'qemu') {
+                Invoke-QemuVMDiagnose -Tokens $rest
+            }
+            else {
+                Invoke-VMDiagnose -Tokens $rest
+            }
+        }
+        { $_ -in @('status', '-q') } {
+            if ($backend -eq 'qemu') {
+                Invoke-QemuVMStatus -Tokens $rest
+            }
+            else {
+                Invoke-VMStatus -Tokens $rest
+            }
+        }
+        { $_ -in @('ssh', '-x') } {
+            if ($backend -eq 'qemu') {
+                Invoke-QemuVMSSH -Tokens $rest
+            }
+            else {
+                Invoke-VMSSH -Tokens $rest
+            }
+        }
+        { $_ -in @('share-folder', '-F') } {
+            if ($backend -eq 'qemu') {
+                throw 'Comando vm share-folder nao se aplica ao backend qemu.'
+            }
+            Invoke-VMShareFolder -Tokens $rest
+        }
         default { throw "Subcomando vm desconhecido: $sub" }
     }
 }

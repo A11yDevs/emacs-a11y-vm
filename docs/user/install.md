@@ -107,3 +107,31 @@ iex (iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/cli/inst
 ```
 
 Após instalar, você pode usar `ea11ctl` em qualquer diretório.
+
+### Gerenciamento por backend
+
+A CLI usa um único comando `vm` para todos os backends, com seleção via `--backend` ou `-b`.
+
+Exemplos:
+
+```powershell
+# VirtualBox (padrão)
+ea11ctl vm start
+
+# VirtualBox explícito
+ea11ctl vm start -b virtualbox
+
+# QEMU
+ea11ctl vm start -b qemu
+ea11ctl vm status -b qemu
+ea11ctl vm ssh -b qemu
+ea11ctl vm stop -b qemu
+```
+
+No backend QEMU, o ea11ctl usa `~/.emacs-a11y-vm` para manter consistência:
+
+- `debian-a11ydevs.qcow2`: imagem de sistema padrão
+- `<vm>-home.qcow2`: disco de dados do usuário (persistente, montado em `/home`)
+- `qemu/<vm>.json`: estado da VM
+
+Se a imagem de sistema não existir em `~/.emacs-a11y-vm`, a CLI tenta localizar `debian-a11ydevs.qcow2` no projeto e copiar para lá automaticamente.
