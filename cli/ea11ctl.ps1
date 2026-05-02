@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.13'
+$EA11CTL_FALLBACK_VERSION = '0.1.14'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -107,6 +107,44 @@ function Get-CacheBustValue {
     return [int64]([DateTime]::UtcNow - [DateTime]'1970-01-01').TotalSeconds
 }
 
+function Download-FileWithFallback {
+    param(
+        [string]$Owner,
+        [string]$Repo,
+        [string]$Ref,
+        [string]$File,
+        [string]$Destination,
+        [int64]$CacheBust
+    )
+
+    $attempts = @(
+        @{ Uri = "https://raw.githubusercontent.com/$Owner/$Repo/$Ref/cli/$File?cb=$CacheBust"; Headers = (Get-GitHubRawHeaders); Label = 'raw+cb+headers' },
+        @{ Uri = "https://raw.githubusercontent.com/$Owner/$Repo/$Ref/cli/$File"; Headers = (Get-GitHubRawHeaders); Label = 'raw+headers' },
+        @{ Uri = "https://raw.githubusercontent.com/$Owner/$Repo/$Ref/cli/$File"; Headers = $null; Label = 'raw-sem-headers' },
+        @{ Uri = "https://github.com/$Owner/$Repo/raw/$Ref/cli/$File"; Headers = $null; Label = 'github-raw-fallback' }
+    )
+
+    $lastErrorMessage = ''
+    foreach ($attempt in $attempts) {
+        try {
+            Write-EA11Info "Download tentativa ($($attempt.Label)): $File"
+            if ($null -ne $attempt.Headers) {
+                Invoke-WebRequest -Uri $attempt.Uri -Headers $attempt.Headers -OutFile $Destination -UseBasicParsing
+            }
+            else {
+                Invoke-WebRequest -Uri $attempt.Uri -OutFile $Destination -UseBasicParsing
+            }
+
+            return
+        }
+        catch {
+            $lastErrorMessage = $_.Exception.Message
+        }
+    }
+
+    throw "Falha ao baixar '$File' para ref '$Ref'. Ultimo erro: $lastErrorMessage"
+}
+
 function Get-RemoteBranchHeadSha {
     $apiUrl = "https://api.github.com/repos/$EA11CTL_OWNER/$EA11CTL_REPO/commits/$EA11CTL_BRANCH"
     $response = Invoke-WebRequest -Uri $apiUrl -Headers (Get-GitHubApiHeaders) -UseBasicParsing
@@ -202,9 +240,8 @@ function Invoke-SelfUpdate {
 
                 foreach ($file in $files) {
                     $dest = Join-Path $tmpDir $file
-                    $uri = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$ref/cli/$file?cb=$cacheBust"
                     Write-EA11Info "Baixando $file..."
-                    Invoke-WebRequest -Uri $uri -Headers (Get-GitHubRawHeaders) -OutFile $dest -UseBasicParsing
+                    Download-FileWithFallback -Owner $EA11CTL_OWNER -Repo $EA11CTL_REPO -Ref $ref -File $file -Destination $dest -CacheBust $cacheBust
                 }
 
                 $downloadedVersion = (Get-Content -Path (Join-Path $tmpDir 'VERSION') -Raw -ErrorAction Stop).Trim()
