@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.24'
+$EA11CTL_FALLBACK_VERSION = '0.1.25'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -641,6 +641,24 @@ function Get-QemuAvailableAudioDrivers {
     return $drivers.ToArray()
 }
 
+function Test-QemuVirtfsSupport {
+    param([string]$QemuExecutable)
+
+    try {
+        $helpOutput = & $QemuExecutable -help 2>&1
+    }
+    catch {
+        return $false
+    }
+
+    if (-not $helpOutput) {
+        return $false
+    }
+
+    $text = ($helpOutput | Out-String)
+    return ($text -match '(?i)\-virtfs|virtfs')
+}
+
 function Ensure-QemuImg {
     $candidates = @(
         "$env:ProgramFiles\qemu\qemu-img.exe",
@@ -938,11 +956,17 @@ function Invoke-QemuVMStart {
     if (-not $disableHostHomeShare) {
         $hostHomeShare = Get-QemuHostHomeShareConfig
         if ($hostHomeShare) {
-            $qemuArgs += @(
-                '-virtfs',
-                "local,path=$($hostHomeShare.HostPath),mount_tag=$($hostHomeShare.MountTag),security_model=none,id=$($hostHomeShare.MountTag)"
-            )
-            Write-EA11Info "Compartilhando host home via 9p: $($hostHomeShare.HostPath) -> $($hostHomeShare.GuestMountPoint)"
+            if (Test-QemuVirtfsSupport -QemuExecutable $qemuExecutable) {
+                $qemuArgs += @(
+                    '-virtfs',
+                    "local,path=$($hostHomeShare.HostPath),mount_tag=$($hostHomeShare.MountTag),security_model=none,id=$($hostHomeShare.MountTag)"
+                )
+                Write-EA11Info "Compartilhando host home via 9p: $($hostHomeShare.HostPath) -> $($hostHomeShare.GuestMountPoint)"
+            }
+            else {
+                Write-EA11Warn 'Este binario QEMU nao suporta virtfs/9p. VM iniciada sem compartilhamento automatico de /Users.'
+                $hostHomeShare = $null
+            }
         }
         else {
             Write-EA11Warn 'Nao foi possivel resolver pasta home do host para compartilhamento 9p automatico.'
