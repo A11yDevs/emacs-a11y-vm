@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.31'
+$EA11CTL_FALLBACK_VERSION = '0.1.32'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -760,7 +760,11 @@ function New-QemuBaseArgs {
         [string]$NetdevValue,
         [hashtable]$HostHomeShare,
         [string]$HostHomeShareMode,
-        [string]$HostUser
+        [string]$HostUser,
+        [string]$HostSmbServer,
+        [string]$HostSmbShare,
+        [string]$HostSmbUser,
+        [string]$HostSmbPassword
     )
 
     $args = @(
@@ -783,6 +787,19 @@ function New-QemuBaseArgs {
 
     if (-not [string]::IsNullOrWhiteSpace($HostUser)) {
         $args += @('-fw_cfg', "name=opt/ea11/host_user,string=$HostUser")
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($HostSmbServer)) {
+        $args += @('-fw_cfg', "name=opt/ea11/smb_server,string=$HostSmbServer")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($HostSmbShare)) {
+        $args += @('-fw_cfg', "name=opt/ea11/smb_share,string=$HostSmbShare")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($HostSmbUser)) {
+        $args += @('-fw_cfg', "name=opt/ea11/smb_user,string=$HostSmbUser")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($HostSmbPassword)) {
+        $args += @('-fw_cfg', "name=opt/ea11/smb_password,string=$HostSmbPassword")
     }
 
     return $args
@@ -1053,6 +1070,10 @@ function Invoke-QemuVMStart {
     $headless = Has-Flag -Tokens $Tokens -Flags @('--headless', '-h')
     $audioBackend = Get-OptionValue -Tokens $Tokens -Names @('--audio-backend') -Default 'auto'
     $disableHostHomeShare = Has-Flag -Tokens $Tokens -Flags @('--no-host-home-share')
+    $smbServer = Get-OptionValue -Tokens $Tokens -Names @('--smb-server') -Default $null
+    $smbShare = Get-OptionValue -Tokens $Tokens -Names @('--smb-share') -Default $null
+    $smbUser = Get-OptionValue -Tokens $Tokens -Names @('--smb-user') -Default $null
+    $smbPassword = Get-OptionValue -Tokens $Tokens -Names @('--smb-password') -Default $null
     $qemuExecutable = Resolve-QemuSystemExecutable -Headless:$headless
     $supportedAudioDrivers = Get-QemuAvailableAudioDrivers -QemuExecutable $qemuExecutable
 
@@ -1122,7 +1143,7 @@ function Invoke-QemuVMStart {
         $hostUserForGuest = $hostHomeShare.HostUser
     }
 
-    $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
+    $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest -HostSmbServer $smbServer -HostSmbShare $smbShare -HostSmbUser $smbUser -HostSmbPassword $smbPassword
 
     $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default 'auto'
     $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode

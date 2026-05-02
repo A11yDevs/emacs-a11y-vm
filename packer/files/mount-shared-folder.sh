@@ -4,6 +4,7 @@
 # - VirtualBox Shared Folders (vboxsf)
 # - QEMU 9p/virtfs com tag hosthome_<usuario>
 # - QEMU usernet SMB fallback (//10.0.2.4/qemu -> /home/hosthome)
+# - SMB do host Windows (credenciais via fw_cfg do QEMU)
 #
 # Executado pelo systemd no boot.
 #
@@ -213,6 +214,76 @@ mount_virtualbox_shares() {
     echo "VirtualBox shares: $mounted montagem(ns), $failed falha(s)"
 }
 
+# --- Montagem SMB do host Windows (via fw_cfg) --------------------------------
+
+mount_host_smb() {
+    if ! command -v mount.cifs &>/dev/null; then
+        return
+    fi
+
+    local smb_server=""
+    local smb_share=""
+    local smb_user=""
+    local smb_password=""
+
+    # Ler credenciais SMB do host via fw_cfg (enviadas pelo CLI)
+    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_server/raw ]]; then
+        smb_server="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_server/raw 2>/dev/null || true)"
+    fi
+    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_share/raw ]]; then
+        smb_share="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_share/raw 2>/dev/null || true)"
+    fi
+    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_user/raw ]]; then
+        smb_user="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_user/raw 2>/dev/null || true)"
+    fi
+    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_password/raw ]]; then
+        smb_password="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_password/raw 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$smb_server" ]] || [[ -z "$smb_share" ]]; then
+        return
+    fi
+
+    local mount_point="/home/hosthome"
+    if [[ -n "$smb_user" ]]; then
+        mount_point="/home/$smb_user"
+    fi
+
+    if mountpoint -q "$mount_point"; then
+        echo "SMB do host ja montado em $mount_point"
+        return
+    fi
+
+    mkdir -p "$mount_point"
+    chown "$USER_UID:$USER_GID" "$mount_point" 2>/dev/null || true
+
+    local options=()
+    if [[ -n "$smb_user" ]] && [[ -n "$smb_password" ]]; then
+        options=("username=$smb_user,password=$smb_password,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,vers=3.0")
+    else
+        options=("guest,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,noperm,vers=3.0")
+    fi
+
+    # Tentar com a credencial; se falhar, tentar com fallbacks de versão
+    if mount -t cifs "//\$smb_server/$smb_share" "$mount_point" -o "${options[0]}"; then
+        echo "SMB do host montado: //$smb_server/$smb_share -> $mount_point"
+        return
+    fi
+
+    # Fallback: tentar versoes mais antigas
+    local fallback_options=("vers=2.1" "vers=2.0" "vers=1.0")
+    for fallback_opt in "${fallback_options[@]}"; do
+        local opt_string="${options[0]%%vers=*}$fallback_opt"
+        if mount -t cifs "//\$smb_server/$smb_share" "$mount_point" -o "$opt_string" 2>/dev/null; then
+            echo "SMB do host montado (fallback $fallback_opt): //$smb_server/$smb_share -> $mount_point"
+            return
+        fi
+    done
+
+    echo "AVISO: Falha ao montar SMB do host ($smb_server/$smb_share)"
+}
+
 mount_qemu_9p
 mount_qemu_smb_fallback
+mount_host_smb
 mount_virtualbox_shares
