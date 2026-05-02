@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.29'
+$EA11CTL_FALLBACK_VERSION = '0.1.30'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -684,22 +684,71 @@ function Test-QemuVirtfsSupport {
     }
 }
 
-function Test-QemuUserNetSmbSupport {
+function Get-QemuUserNetSmbSupportInfo {
     param([string]$QemuExecutable)
+
+    $result = @{
+        Supported = $false
+        Reason = 'unknown'
+    }
 
     try {
         $helpOutput = & $QemuExecutable -help 2>&1
     }
     catch {
-        return $false
+        $result.Reason = 'qemu-help-failed'
+        return $result
     }
 
     if (-not $helpOutput) {
-        return $false
+        $result.Reason = 'qemu-help-empty'
+        return $result
     }
 
     $text = ($helpOutput | Out-String)
-    return ($text -match '(?i)smb=')
+    $helpHintsSmb = ($text -match '(?i)smb=|\-nic\s+user')
+
+    # O help pode nao refletir corretamente alguns builds; validar em runtime.
+    try {
+        $probeOut = & $QemuExecutable -S -machine none -nodefaults -nographic -netdev 'user,id=ea11probe,smb=.' 2>&1
+        $probeText = ($probeOut | Out-String)
+
+        if ($probeText -match '(?i)invalid\s+parameter.*smb|unexpected.*smb|unknown\s+parameter.*smb|there is no option group .*smb') {
+            $result.Reason = 'unsupported'
+            return $result
+        }
+
+        if ($probeText -match '(?i)could not find .*smbd|smbd.*not found|failed to start smb') {
+            $result.Reason = 'missing-host-smb-helper'
+            return $result
+        }
+
+        $result.Supported = $true
+        $result.Reason = 'supported'
+        return $result
+    }
+    catch {
+        $errText = $_.Exception.Message
+
+        if ($errText -match '(?i)invalid\s+parameter.*smb|unexpected.*smb|unknown\s+parameter.*smb|there is no option group .*smb') {
+            $result.Reason = 'unsupported'
+            return $result
+        }
+
+        if ($errText -match '(?i)could not find .*smbd|smbd.*not found|failed to start smb') {
+            $result.Reason = 'missing-host-smb-helper'
+            return $result
+        }
+
+        if ($helpHintsSmb) {
+            $result.Supported = $true
+            $result.Reason = 'supported-by-help'
+            return $result
+        }
+
+        $result.Reason = 'unsupported'
+        return $result
+    }
 }
 
 function New-QemuBaseArgs {
@@ -1024,6 +1073,7 @@ function Invoke-QemuVMStart {
     $hostHomeShare = $null
     $hostHomeShareMode = $null
     $qemuSmbShare = $null
+    $smbSupportInfo = $null
     $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22"
 
     if (-not $disableHostHomeShare) {
@@ -1033,7 +1083,11 @@ function Invoke-QemuVMStart {
                 $hostHomeShareMode = '9p'
                 Write-EA11Info "Compartilhando host home via 9p: $($hostHomeShare.HostPath) -> $($hostHomeShare.GuestMountPoint)"
             }
-            elseif (Test-QemuUserNetSmbSupport -QemuExecutable $qemuExecutable) {
+            else {
+                $smbSupportInfo = Get-QemuUserNetSmbSupportInfo -QemuExecutable $qemuExecutable
+            }
+
+            if (($hostHomeShareMode -ne '9p') -and $smbSupportInfo -and $smbSupportInfo.Supported) {
                 $hostHomeShareMode = 'smb'
                 $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22,smb=$($hostHomeShare.HostPath)"
                 $qemuSmbShare = @{
@@ -1043,8 +1097,13 @@ function Invoke-QemuVMStart {
                 }
                 Write-EA11Warn "virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
             }
-            else {
-                Write-EA11Warn 'Este binario QEMU nao suporta virtfs/9p nem SMB usernet. VM iniciada sem compartilhamento automatico da home do host.'
+            elseif ($hostHomeShareMode -ne '9p') {
+                if ($smbSupportInfo -and ($smbSupportInfo.Reason -eq 'missing-host-smb-helper')) {
+                    Write-EA11Warn 'QEMU ate possui parametro SMB usernet, mas o helper SMB do host nao esta disponivel (ex.: smbd). VM iniciada sem compartilhamento automatico da home do host.'
+                }
+                else {
+                    Write-EA11Warn 'Este binario QEMU nao suporta virtfs/9p nem SMB usernet em runtime. VM iniciada sem compartilhamento automatico da home do host.'
+                }
                 $hostHomeShare = $null
             }
         }
