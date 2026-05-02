@@ -72,8 +72,23 @@ mount_qemu_9p() {
 mount_qemu_smb_fallback() {
     local smb_server="10.0.2.4"
     local smb_share="qemu"
+    local host_user=""
     local mount_point="/home/hosthome"
     local mounted=0
+
+    # Host user enviado pelo CLI via QEMU fw_cfg: opt/ea11/host_user
+    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/host_user/raw ]]; then
+        host_user="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/host_user/raw 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$host_user" && -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/host_user ]]; then
+        host_user="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/host_user 2>/dev/null || true)"
+    fi
+
+    host_user="$(echo "$host_user" | tr -cd '[:alnum:]_-')"
+    if [[ -n "$host_user" ]]; then
+        mount_point="/home/$host_user"
+    fi
 
     if ! command -v mount.cifs &>/dev/null; then
         echo "AVISO: mount.cifs nao encontrado (instale cifs-utils para SMB fallback no QEMU)"

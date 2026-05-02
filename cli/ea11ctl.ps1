@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.27'
+$EA11CTL_FALLBACK_VERSION = '0.1.28'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -710,7 +710,8 @@ function New-QemuBaseArgs {
         [string]$UserDataDisk,
         [string]$NetdevValue,
         [hashtable]$HostHomeShare,
-        [string]$HostHomeShareMode
+        [string]$HostHomeShareMode,
+        [string]$HostUser
     )
 
     $args = @(
@@ -729,6 +730,10 @@ function New-QemuBaseArgs {
             '-virtfs',
             "local,path=$($HostHomeShare.HostPath),mount_tag=$($HostHomeShare.MountTag),security_model=none,id=$($HostHomeShare.MountTag)"
         )
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($HostUser)) {
+        $args += @('-fw_cfg', "name=opt/ea11/host_user,string=$HostUser")
     }
 
     return $args
@@ -1034,9 +1039,9 @@ function Invoke-QemuVMStart {
                 $qemuSmbShare = @{
                     Server = '10.0.2.4'
                     Share = 'qemu'
-                    GuestMountPoint = '/home/hosthome'
+                    GuestMountPoint = $hostHomeShare.GuestMountPoint
                 }
-                Write-EA11Warn 'virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> /home/hosthome).'
+                Write-EA11Warn "virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
             }
             else {
                 Write-EA11Warn 'Este binario QEMU nao suporta virtfs/9p nem SMB usernet. VM iniciada sem compartilhamento automatico da home do host.'
@@ -1048,7 +1053,7 @@ function Invoke-QemuVMStart {
         }
     }
 
-    $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode
+    $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser (if ($hostHomeShare) { $hostHomeShare.HostUser } else { $null })
 
     $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default 'auto'
     $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
@@ -1097,7 +1102,7 @@ function Invoke-QemuVMStart {
         if ($lastError -match 'WHPX|Unexpected VP exit code|APX|MPX') {
             Write-EA11Warn 'WHPX falhou no host atual. Retentando automaticamente com aceleracao TCG (modo compatibilidade)...'
 
-            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser (if ($hostHomeShare) { $hostHomeShare.HostUser } else { $null })
 
             $qemuArgs += Get-QemuAccelerationArgs -Mode 'tcg'
 
@@ -1138,7 +1143,7 @@ function Invoke-QemuVMStart {
             }
             Write-EA11Warn "Backend de audio automatico falhou. Retentando com '$fallbackAudio'..."
 
-            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser (if ($hostHomeShare) { $hostHomeShare.HostUser } else { $null })
 
             $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
 
