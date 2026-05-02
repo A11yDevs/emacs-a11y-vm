@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.22'
+$EA11CTL_FALLBACK_VERSION = '0.1.23'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -550,6 +550,53 @@ function Resolve-QemuSystemExecutable {
     return 'qemu-system-x86_64'
 }
 
+function Get-QemuAvailableAudioDrivers {
+    param([string]$QemuExecutable)
+
+    try {
+        $output = & $QemuExecutable -audiodev help 2>&1
+    }
+    catch {
+        return @()
+    }
+
+    if (-not $output) {
+        return @()
+    }
+
+    $drivers = New-Object System.Collections.Generic.List[string]
+    $capture = $false
+
+    foreach ($line in $output) {
+        $text = [string]$line
+        if ($text -match 'Available audio drivers') {
+            $capture = $true
+            continue
+        }
+
+        if (-not $capture) {
+            continue
+        }
+
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            continue
+        }
+
+        foreach ($token in ($text -split '\s+')) {
+            if ([string]::IsNullOrWhiteSpace($token)) {
+                continue
+            }
+
+            $normalized = $token.Trim().ToLowerInvariant()
+            if (-not $drivers.Contains($normalized)) {
+                [void]$drivers.Add($normalized)
+            }
+        }
+    }
+
+    return $drivers.ToArray()
+}
+
 function Ensure-QemuImg {
     $candidates = @(
         "$env:ProgramFiles\qemu\qemu-img.exe",
@@ -605,7 +652,10 @@ function Get-QemuAccelerationArgs {
 }
 
 function Get-QemuAudioArgs {
-    param([string]$Backend = 'auto')
+    param(
+        [string]$Backend = 'auto',
+        [string[]]$SupportedDrivers = @()
+    )
 
     $normalizedBackend = $Backend.ToLowerInvariant()
 
@@ -618,13 +668,28 @@ function Get-QemuAudioArgs {
     }
 
     if (Test-IsWindowsHost) {
-        $driver = 'wasapi'
-        if ($normalizedBackend -eq 'dsound') {
-            $driver = 'dsound'
+        $supported = @($SupportedDrivers | ForEach-Object { ([string]$_).ToLowerInvariant() })
+
+        $driver = 'dsound'
+        if ($normalizedBackend -eq 'auto') {
+            $preferred = @('wasapi', 'dsound', 'sdl')
+            if ($supported.Count -gt 0) {
+                foreach ($candidate in $preferred) {
+                    if ($supported -contains $candidate) {
+                        $driver = $candidate
+                        break
+                    }
+                }
+            }
         }
-        elseif ($normalizedBackend -eq 'sdl') {
-            $driver = 'sdl'
+        else {
+            $driver = $normalizedBackend
+            if (($supported.Count -gt 0) -and (-not ($supported -contains $driver))) {
+                throw "Backend de audio '$driver' nao suportado por este QEMU. Disponiveis: $($supported -join ', ')"
+            }
         }
+
+        Write-EA11Info "Backend de audio selecionado (Windows): $driver"
 
         return @(
             '-audiodev', "$driver,id=audio0",
@@ -796,6 +861,8 @@ function Invoke-QemuVMStart {
     $userDataSize = Get-IntOptionValue -Tokens $Tokens -Names @('--user-data-size') -Default 10 -OptionName '--user-data-size'
     $headless = Has-Flag -Tokens $Tokens -Flags @('--headless', '-h')
     $audioBackend = Get-OptionValue -Tokens $Tokens -Names @('--audio-backend') -Default 'auto'
+    $qemuExecutable = Resolve-QemuSystemExecutable -Headless:$headless
+    $supportedAudioDrivers = Get-QemuAvailableAudioDrivers -QemuExecutable $qemuExecutable
 
     $existing = Load-QemuState -VMName $vmName
     if ($existing -and $existing.pid) {
@@ -839,11 +906,10 @@ function Invoke-QemuVMStart {
             $qemuArgs += @('-vga', 'virtio')
         }
 
-        $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend
+        $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
     }
 
     Write-EA11Info "Iniciando VM QEMU '$vmName'..."
-    $qemuExecutable = Resolve-QemuSystemExecutable -Headless:$headless
     $startParams = @{
         FilePath = $qemuExecutable
         ArgumentList = $qemuArgs
@@ -913,8 +979,12 @@ function Invoke-QemuVMStart {
             $lastError = (Get-Content -Path $stderrLog -Tail 120 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
         }
 
-        if ($lastError -match 'audiodev|wasapi|audio') {
-            Write-EA11Warn 'Backend de audio WASAPI falhou. Retentando automaticamente com DSound...'
+        if ($lastError -match 'audiodev|wasapi|dsound|audio') {
+            $fallbackAudio = 'dsound'
+            if (($supportedAudioDrivers -contains 'sdl') -and (-not ($supportedAudioDrivers -contains 'dsound'))) {
+                $fallbackAudio = 'sdl'
+            }
+            Write-EA11Warn "Backend de audio automatico falhou. Retentando com '$fallbackAudio'..."
 
             $qemuArgs = @(
                 '-m', "$memory",
@@ -943,7 +1013,7 @@ function Invoke-QemuVMStart {
                     $qemuArgs += @('-vga', 'virtio')
                 }
 
-                $qemuArgs += Get-QemuAudioArgs -Backend 'dsound'
+                $qemuArgs += Get-QemuAudioArgs -Backend $fallbackAudio -SupportedDrivers $supportedAudioDrivers
             }
 
             $startParams.ArgumentList = $qemuArgs
