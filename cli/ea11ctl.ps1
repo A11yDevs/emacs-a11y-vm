@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.10'
+$EA11CTL_FALLBACK_VERSION = '0.1.11'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -70,13 +70,22 @@ function Get-LocalCliVersion {
 
 function Get-RemoteCliVersion {
     $remoteVersionUrl = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli/VERSION"
-    $content = Invoke-WebRequest -Uri $remoteVersionUrl -UseBasicParsing
+    $content = Invoke-WebRequest -Uri $remoteVersionUrl -Headers (Get-GitHubHttpHeaders) -UseBasicParsing
     return $content.Content.Trim()
+}
+
+function Get-GitHubHttpHeaders {
+    return @{
+        'User-Agent' = "ea11ctl/$($EA11CTL_FALLBACK_VERSION)"
+        'Accept' = 'application/vnd.github+json'
+        'X-GitHub-Api-Version' = '2022-11-28'
+        'Cache-Control' = 'no-cache'
+    }
 }
 
 function Get-RemoteBranchHeadSha {
     $apiUrl = "https://api.github.com/repos/$EA11CTL_OWNER/$EA11CTL_REPO/commits/$EA11CTL_BRANCH"
-    $response = Invoke-WebRequest -Uri $apiUrl -UseBasicParsing
+    $response = Invoke-WebRequest -Uri $apiUrl -Headers (Get-GitHubHttpHeaders) -UseBasicParsing
     $json = $response.Content | ConvertFrom-Json
 
     if (-not $json -or -not $json.sha) {
@@ -145,13 +154,59 @@ function Invoke-SelfUpdate {
         Write-EA11Warn "Nao foi possivel resolver SHA da branch; usando ref '$EA11CTL_BRANCH'."
     }
 
-    $baseRaw = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$resolvedRef/cli"
     $files = @('ea11ctl.ps1', 'ea11ctl.cmd', 'VERSION')
 
-    foreach ($file in $files) {
-        $dest = Join-Path $installDir $file
-        Write-EA11Info "Baixando $file..."
-        Invoke-WebRequest -Uri "$baseRaw/$file" -OutFile $dest -UseBasicParsing
+    $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $refsToTry = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($resolvedRef)) {
+        [void]$refsToTry.Add($resolvedRef)
+    }
+    if ($resolvedRef -ne $EA11CTL_BRANCH) {
+        [void]$refsToTry.Add($EA11CTL_BRANCH)
+    }
+
+    $tmpDir = Join-Path $env:TEMP ("ea11ctl-update-" + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+
+    $downloadOk = $false
+    $lastErrorMessage = ''
+
+    try {
+        foreach ($ref in $refsToTry) {
+            try {
+                Write-EA11Info "Tentando download dos arquivos via ref '$ref'..."
+
+                foreach ($file in $files) {
+                    $dest = Join-Path $tmpDir $file
+                    $uri = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$ref/cli/$file?cb=$cacheBust"
+                    Write-EA11Info "Baixando $file..."
+                    Invoke-WebRequest -Uri $uri -Headers (Get-GitHubHttpHeaders) -OutFile $dest -UseBasicParsing
+                }
+
+                $downloadedVersion = (Get-Content -Path (Join-Path $tmpDir 'VERSION') -Raw -ErrorAction Stop).Trim()
+                if ([string]::IsNullOrWhiteSpace($downloadedVersion)) {
+                    throw 'Arquivo VERSION baixado vazio.'
+                }
+
+                $downloadOk = $true
+                break
+            }
+            catch {
+                $lastErrorMessage = $_.Exception.Message
+                Write-EA11Warn "Falha no download via ref '$ref': $lastErrorMessage"
+            }
+        }
+
+        if (-not $downloadOk) {
+            throw "Nao foi possivel baixar arquivos de update. Ultimo erro: $lastErrorMessage"
+        }
+
+        foreach ($file in $files) {
+            Copy-Item -Path (Join-Path $tmpDir $file) -Destination (Join-Path $installDir $file) -Force
+        }
+    }
+    finally {
+        Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     $newVersion = (Get-Content -Path (Join-Path $installDir 'VERSION') -Raw -ErrorAction SilentlyContinue).Trim()
