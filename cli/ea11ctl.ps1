@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.18'
+$EA11CTL_FALLBACK_VERSION = '0.1.19'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -724,14 +724,14 @@ function Invoke-QemuVMList {
 
     foreach ($file in $files) {
         $state = Get-Content -Path $file.FullName -Raw | ConvertFrom-Json
-        $pid = 0
+        $vmPid = 0
         if ($state.pid) {
-            $pid = [int]$state.pid
+            $vmPid = [int]$state.pid
         }
 
         $running = $false
-        if ($pid -gt 0) {
-            $running = $null -ne (Get-ProcessByIdSafe -ProcessId $pid)
+        if ($vmPid -gt 0) {
+            $running = $null -ne (Get-ProcessByIdSafe -ProcessId $vmPid)
         }
 
         $status = if ($running) { 'running' } else { 'stopped' }
@@ -904,19 +904,19 @@ function Invoke-QemuVMStop {
         return
     }
 
-    $pid = 0
+    $vmPid = 0
     if ($state.pid) {
-        $pid = [int]$state.pid
+        $vmPid = [int]$state.pid
     }
 
-    if ($pid -le 0) {
+    if ($vmPid -le 0) {
         Write-EA11Warn "Estado da VM QEMU '$vmName' nao possui PID ativo."
         return
     }
 
-    $proc = Get-ProcessByIdSafe -ProcessId $pid
+    $proc = Get-ProcessByIdSafe -ProcessId $vmPid
     if (-not $proc) {
-        Write-EA11Warn "Processo da VM QEMU '$vmName' (PID $pid) nao esta mais em execucao."
+        Write-EA11Warn "Processo da VM QEMU '$vmName' (PID $vmPid) nao esta mais em execucao."
         Save-QemuState -VMName $vmName -State @{
             name = $vmName
             backend = 'qemu'
@@ -936,23 +936,23 @@ function Invoke-QemuVMStop {
     }
 
     if ($force) {
-        Write-EA11Warn "Forcando encerramento da VM QEMU '$vmName' (PID $pid)..."
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        Write-EA11Warn "Forcando encerramento da VM QEMU '$vmName' (PID $vmPid)..."
+        Stop-Process -Id $vmPid -Force -ErrorAction SilentlyContinue
     }
     else {
-        Write-EA11Info "Encerrando VM QEMU '$vmName' de forma graciosa (PID $pid)..."
-        Stop-Process -Id $pid -ErrorAction SilentlyContinue
+        Write-EA11Info "Encerrando VM QEMU '$vmName' de forma graciosa (PID $vmPid)..."
+        Stop-Process -Id $vmPid -ErrorAction SilentlyContinue
 
         $start = Get-Date
         do {
             Start-Sleep -Seconds 1
-            $stillRunning = $null -ne (Get-ProcessByIdSafe -ProcessId $pid)
+            $stillRunning = $null -ne (Get-ProcessByIdSafe -ProcessId $vmPid)
             $elapsed = ((Get-Date) - $start).TotalSeconds
         } while ($stillRunning -and ($elapsed -lt $timeout))
 
         if ($stillRunning) {
             Write-EA11Warn "VM QEMU '$vmName' nao encerrou em $timeout s. Aplicando force kill."
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            Stop-Process -Id $vmPid -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -983,21 +983,21 @@ function Invoke-QemuVMStatus {
         return
     }
 
-    $pid = 0
+    $vmPid = 0
     if ($state.pid) {
-        $pid = [int]$state.pid
+        $vmPid = [int]$state.pid
     }
 
     $running = $false
-    if ($pid -gt 0) {
-        $running = $null -ne (Get-ProcessByIdSafe -ProcessId $pid)
+    if ($vmPid -gt 0) {
+        $running = $null -ne (Get-ProcessByIdSafe -ProcessId $vmPid)
     }
 
     $status = if ($running) { 'running' } else { 'stopped' }
     Write-Host "VM: $vmName"
     Write-Host 'Backend: qemu'
     Write-Host "State: $status"
-    Write-Host "PID: $pid"
+    Write-Host "PID: $vmPid"
     Write-Host "SSH: localhost:$($state.sshPort)"
     Write-Host "Sistema: $($state.systemDisk)"
     Write-Host "Dados (/home): $($state.userDataDisk)"
