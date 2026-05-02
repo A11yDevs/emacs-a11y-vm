@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.19'
+$EA11CTL_FALLBACK_VERSION = '0.1.20'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -805,7 +805,7 @@ function Invoke-QemuVMStart {
         RedirectStandardError = $stderrLog
     }
 
-    if (Test-IsWindowsHost) {
+    if ((Test-IsWindowsHost) -and $headless) {
         $startParams.WindowStyle = 'Hidden'
     }
 
