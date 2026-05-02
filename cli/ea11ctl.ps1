@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.30'
+$EA11CTL_FALLBACK_VERSION = '0.1.31'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -1087,7 +1087,7 @@ function Invoke-QemuVMStart {
                 $smbSupportInfo = Get-QemuUserNetSmbSupportInfo -QemuExecutable $qemuExecutable
             }
 
-            if (($hostHomeShareMode -ne '9p') -and $smbSupportInfo -and $smbSupportInfo.Supported) {
+            if (($hostHomeShareMode -ne '9p') -and $smbSupportInfo -and ($smbSupportInfo.Supported -or ($smbSupportInfo.Reason -ne 'unsupported'))) {
                 $hostHomeShareMode = 'smb'
                 $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22,smb=$($hostHomeShare.HostPath)"
                 $qemuSmbShare = @{
@@ -1095,7 +1095,12 @@ function Invoke-QemuVMStart {
                     Share = 'qemu'
                     GuestMountPoint = $hostHomeShare.GuestMountPoint
                 }
-                Write-EA11Warn "virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
+                if ($smbSupportInfo.Reason -eq 'missing-host-smb-helper') {
+                    Write-EA11Warn 'virtfs/9p indisponivel. SMB usernet sera tentado, mas o helper SMB do host aparenta ausente; se falhar, o start seguira sem share automaticamente.'
+                }
+                else {
+                    Write-EA11Warn "virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
+                }
             }
             elseif ($hostHomeShareMode -ne '9p') {
                 if ($smbSupportInfo -and ($smbSupportInfo.Reason -eq 'missing-host-smb-helper')) {
@@ -1156,6 +1161,48 @@ function Invoke-QemuVMStart {
 
     Start-Sleep -Seconds 2
     $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
+
+    if ((-not $alive) -and ($hostHomeShareMode -eq 'smb')) {
+        $lastError = ''
+        if (Test-Path $stderrLog) {
+            $lastError = (Get-Content -Path $stderrLog -Tail 120 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+        }
+
+        if ($lastError -match '(?i)\bsmb\b|smbd|could not find .*smbd|failed to start smb|invalid\s+parameter.*smb|unknown\s+parameter.*smb') {
+            Write-EA11Warn 'Fallback SMB falhou em runtime neste host/QEMU. Retentando start automaticamente sem compartilhamento de pasta do host.'
+
+            $hostHomeShareMode = $null
+            $hostHomeShare = $null
+            $qemuSmbShare = $null
+            $hostUserForGuest = $null
+            $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22"
+
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
+            $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
+
+            if ($headless) {
+                $qemuArgs += @('-nographic', '-serial', 'stdio')
+            }
+            else {
+                if (Test-IsMacOSHost) {
+                    $qemuArgs += @('-vga', 'virtio', '-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
+                }
+                elseif (Test-IsWindowsHost) {
+                    $qemuArgs += @('-vga', 'virtio', '-display', 'sdl')
+                }
+                else {
+                    $qemuArgs += @('-vga', 'virtio')
+                }
+
+                $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
+            }
+
+            $startParams.ArgumentList = $qemuArgs
+            $proc = Start-Process @startParams
+            Start-Sleep -Seconds 2
+            $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
+        }
+    }
 
     if ((-not $alive) -and (Test-IsWindowsHost) -and ($accelMode -eq 'auto')) {
         $lastError = ''
