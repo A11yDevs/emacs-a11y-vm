@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.16'
+$EA11CTL_FALLBACK_VERSION = '0.1.17'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -531,12 +531,28 @@ function Ensure-QemuImg {
     Ensure-CommandWithCandidates -Command 'qemu-img' -Candidates $candidates -Hint "Instale o QEMU e garanta qemu-img no PATH."
 }
 
+function Test-IsWindowsHost {
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        return [bool]$IsWindows
+    }
+
+    return ($env:OS -eq 'Windows_NT')
+}
+
+function Test-IsMacOSHost {
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        return [bool]$IsMacOS
+    }
+
+    return $false
+}
+
 function Get-QemuAccelerationArgs {
-    if ($IsMacOS) {
+    if (Test-IsMacOSHost) {
         return @('-accel', 'hvf', '-accel', 'tcg,thread=multi', '-cpu', 'host,-svm')
     }
 
-    if ($IsWindows) {
+    if (Test-IsWindowsHost) {
         return @('-accel', 'whpx', '-accel', 'tcg,thread=multi', '-cpu', 'max')
     }
 
@@ -548,7 +564,7 @@ function Get-QemuAccelerationArgs {
 }
 
 function Get-QemuAudioArgs {
-    if ($IsMacOS) {
+    if (Test-IsMacOSHost) {
         return @(
             '-audiodev', 'coreaudio,id=audio0,out.frequency=44100,out.mixing-engine=on,in.mixing-engine=off',
             '-device', 'ich9-intel-hda',
@@ -556,7 +572,7 @@ function Get-QemuAudioArgs {
         )
     }
 
-    if ($IsWindows) {
+    if (Test-IsWindowsHost) {
         return @(
             '-audiodev', 'dsound,id=audio0',
             '-device', 'ich9-intel-hda',
@@ -758,10 +774,10 @@ function Invoke-QemuVMStart {
         $qemuArgs += @('-nographic', '-serial', 'stdio')
     }
     else {
-        if ($IsMacOS) {
+        if (Test-IsMacOSHost) {
             $qemuArgs += @('-vga', 'virtio', '-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
         }
-        elseif ($IsWindows) {
+        elseif (Test-IsWindowsHost) {
             $qemuArgs += @('-vga', 'virtio', '-display', 'sdl')
         }
         else {
@@ -772,7 +788,19 @@ function Invoke-QemuVMStart {
     }
 
     Write-EA11Info "Iniciando VM QEMU '$vmName'..."
-    $proc = Start-Process -FilePath 'qemu-system-x86_64' -ArgumentList $qemuArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    $startParams = @{
+        FilePath = 'qemu-system-x86_64'
+        ArgumentList = $qemuArgs
+        PassThru = $true
+        RedirectStandardOutput = $stdoutLog
+        RedirectStandardError = $stderrLog
+    }
+
+    if (Test-IsWindowsHost) {
+        $startParams.WindowStyle = 'Hidden'
+    }
+
+    $proc = Start-Process @startParams
 
     Start-Sleep -Seconds 2
     $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
