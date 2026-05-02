@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param(
+    [switch]$NoForceReinstall,
+    # Mantido por compatibilidade; a partir de v0.1.13 a reinstalacao forcada e padrao.
     [switch]$Force,
     # Parâmetros legados (ignorados a partir de v0.1.6 — owner/repo/branch são constantes)
     [string]$Owner,
@@ -82,10 +84,31 @@ $files = @(
     @{ Name = 'VERSION'; Url = "$baseRaw/VERSION" }
 )
 
+$forceReinstall = $true
+if ($NoForceReinstall) {
+    $forceReinstall = $false
+}
+
+if ($Force) {
+    $forceReinstall = $true
+}
+
+if ($forceReinstall) {
+    Write-Info 'Modo padrao: reinstalacao forcada habilitada.'
+}
+else {
+    Write-Info 'Reinstalacao forcada desabilitada por --NoForceReinstall.'
+}
+
 foreach ($file in $files) {
     $dest = Join-Path $installDir $file.Name
 
-    if ((Test-Path $dest) -and -not $Force) {
+    if ((Test-Path $dest) -and $forceReinstall) {
+        Write-Info "Removendo arquivo existente: $($file.Name)"
+        Remove-Item -Path $dest -Force -ErrorAction SilentlyContinue
+    }
+
+    if (Test-Path $dest) {
         Write-Info "Atualizando $($file.Name)"
     }
     else {
