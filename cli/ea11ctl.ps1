@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.21'
+$EA11CTL_FALLBACK_VERSION = '0.1.22'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -605,6 +605,10 @@ function Get-QemuAccelerationArgs {
 }
 
 function Get-QemuAudioArgs {
+    param([string]$Backend = 'auto')
+
+    $normalizedBackend = $Backend.ToLowerInvariant()
+
     if (Test-IsMacOSHost) {
         return @(
             '-audiodev', 'coreaudio,id=audio0,out.frequency=44100,out.mixing-engine=on,in.mixing-engine=off',
@@ -614,8 +618,16 @@ function Get-QemuAudioArgs {
     }
 
     if (Test-IsWindowsHost) {
+        $driver = 'wasapi'
+        if ($normalizedBackend -eq 'dsound') {
+            $driver = 'dsound'
+        }
+        elseif ($normalizedBackend -eq 'sdl') {
+            $driver = 'sdl'
+        }
+
         return @(
-            '-audiodev', 'dsound,id=audio0',
+            '-audiodev', "$driver,id=audio0",
             '-device', 'intel-hda',
             '-device', 'hda-duplex,audiodev=audio0'
         )
@@ -783,6 +795,7 @@ function Invoke-QemuVMStart {
     $cpus = Get-IntOptionValue -Tokens $Tokens -Names @('--cpus') -Default 1 -OptionName '--cpus'
     $userDataSize = Get-IntOptionValue -Tokens $Tokens -Names @('--user-data-size') -Default 10 -OptionName '--user-data-size'
     $headless = Has-Flag -Tokens $Tokens -Flags @('--headless', '-h')
+    $audioBackend = Get-OptionValue -Tokens $Tokens -Names @('--audio-backend') -Default 'auto'
 
     $existing = Load-QemuState -VMName $vmName
     if ($existing -and $existing.pid) {
@@ -826,7 +839,7 @@ function Invoke-QemuVMStart {
             $qemuArgs += @('-vga', 'virtio')
         }
 
-        $qemuArgs += Get-QemuAudioArgs
+        $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend
     }
 
     Write-EA11Info "Iniciando VM QEMU '$vmName'..."
@@ -885,6 +898,52 @@ function Invoke-QemuVMStart {
                 }
 
                 $qemuArgs += Get-QemuAudioArgs
+            }
+
+            $startParams.ArgumentList = $qemuArgs
+            $proc = Start-Process @startParams
+            Start-Sleep -Seconds 2
+            $alive = Get-ProcessByIdSafe -ProcessId $proc.Id
+        }
+    }
+
+    if ((-not $alive) -and (Test-IsWindowsHost) -and ($audioBackend -eq 'auto')) {
+        $lastError = ''
+        if (Test-Path $stderrLog) {
+            $lastError = (Get-Content -Path $stderrLog -Tail 120 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+        }
+
+        if ($lastError -match 'audiodev|wasapi|audio') {
+            Write-EA11Warn 'Backend de audio WASAPI falhou. Retentando automaticamente com DSound...'
+
+            $qemuArgs = @(
+                '-m', "$memory",
+                '-smp', "$cpus",
+                '-drive', "file=$systemDisk,format=qcow2,if=virtio",
+                '-drive', "file=$userDataDisk,format=qcow2,if=virtio",
+                '-netdev', "user,id=net0,hostfwd=tcp::$sshPort-:22",
+                '-device', 'virtio-net,netdev=net0',
+                '-serial', 'none',
+                '-monitor', 'none'
+            )
+
+            $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
+
+            if ($headless) {
+                $qemuArgs += @('-nographic', '-serial', 'stdio')
+            }
+            else {
+                if (Test-IsMacOSHost) {
+                    $qemuArgs += @('-vga', 'virtio', '-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
+                }
+                elseif (Test-IsWindowsHost) {
+                    $qemuArgs += @('-vga', 'virtio', '-display', 'sdl')
+                }
+                else {
+                    $qemuArgs += @('-vga', 'virtio')
+                }
+
+                $qemuArgs += Get-QemuAudioArgs -Backend 'dsound'
             }
 
             $startParams.ArgumentList = $qemuArgs
