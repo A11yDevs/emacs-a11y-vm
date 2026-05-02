@@ -95,6 +95,18 @@ VBoxManage --version
 
 Se necessário, adicione `C:\Program Files\Oracle\VirtualBox` ao PATH do sistema.
 
+### Diagnóstico de áudio na VM
+
+As novas imagens incluem `alsa-utils` por padrão (comandos `aplay`, `amixer`, `speaker-test`).
+
+Após boot da VM, você pode validar rapidamente:
+
+```bash
+cat /proc/asound/cards
+aplay -l
+speaker-test -c 2 -t wav
+```
+
 ---
 
 ## CLI global: `ea11ctl`
@@ -110,7 +122,7 @@ Após instalar, você pode usar `ea11ctl` em qualquer diretório.
 
 ### Gerenciamento por backend
 
-A CLI usa um único comando `vm` para todos os backends, com seleção via `--backend` ou `-b`.
+A CLI usa um único comando `vm` para todos os backends, com seleção preferencial via `-b` (ou `--backend`).
 
 Exemplos:
 

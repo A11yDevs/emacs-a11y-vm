@@ -355,8 +355,8 @@ build {
     inline = [
       "echo '=== Instalando dependências para Guest Additions ==='",
       "sudo apt-get update",
-      "sudo apt-get install -y build-essential linux-headers-$(uname -r) dkms curl",
-      "echo 'Dependências instaladas: build-essential, linux-headers, dkms, curl'"
+      "sudo apt-get install -y build-essential linux-headers-$(uname -r) dkms curl alsa-utils",
+      "echo 'Dependências instaladas: build-essential, linux-headers, dkms, curl, alsa-utils'"
     ]
   }
 
@@ -441,7 +441,8 @@ build {
       "dpkg -l | grep -q emacs-a11y-config && echo 'emacs-a11y-config: OK' || echo 'emacs-a11y-config: AVISO'",
       "dpkg -l | grep -q emacs-a11y-launchers && echo 'emacs-a11y-launchers: OK' || echo 'emacs-a11y-launchers: AVISO'",
       "test -f /etc/apt/sources.list.d/emacspeak.list && echo 'Repositório emacspeak: OK' || echo 'Repositório emacspeak: AVISO'",
-      "test -f /etc/apt/sources.list.d/emacs-a11y.list && echo 'Repositório emacs-a11y: OK' || echo 'Repositório emacs-a11y: AVISO'"
+      "test -f /etc/apt/sources.list.d/emacs-a11y.list && echo 'Repositório emacs-a11y: OK' || echo 'Repositório emacs-a11y: AVISO'",
+      "command -v aplay >/dev/null 2>&1 && echo 'alsa-utils/aplay: OK' || echo 'alsa-utils/aplay: AVISO — não encontrado'"
     ]
   }
 }
