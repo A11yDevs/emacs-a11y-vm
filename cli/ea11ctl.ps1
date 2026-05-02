@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.11'
+$EA11CTL_FALLBACK_VERSION = '0.1.12'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -70,11 +70,11 @@ function Get-LocalCliVersion {
 
 function Get-RemoteCliVersion {
     $remoteVersionUrl = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli/VERSION"
-    $content = Invoke-WebRequest -Uri $remoteVersionUrl -Headers (Get-GitHubHttpHeaders) -UseBasicParsing
+    $content = Invoke-WebRequest -Uri $remoteVersionUrl -Headers (Get-GitHubRawHeaders) -UseBasicParsing
     return $content.Content.Trim()
 }
 
-function Get-GitHubHttpHeaders {
+function Get-GitHubApiHeaders {
     return @{
         'User-Agent' = "ea11ctl/$($EA11CTL_FALLBACK_VERSION)"
         'Accept' = 'application/vnd.github+json'
@@ -83,9 +83,33 @@ function Get-GitHubHttpHeaders {
     }
 }
 
+function Get-GitHubRawHeaders {
+    return @{
+        'User-Agent' = "ea11ctl/$($EA11CTL_FALLBACK_VERSION)"
+        'Cache-Control' = 'no-cache'
+    }
+}
+
+function Get-TempDirectoryPath {
+    if (-not [string]::IsNullOrWhiteSpace($env:TEMP)) {
+        return $env:TEMP
+    }
+
+    $tmp = [System.IO.Path]::GetTempPath()
+    if (-not [string]::IsNullOrWhiteSpace($tmp)) {
+        return $tmp
+    }
+
+    throw 'Nao foi possivel determinar diretorio temporario para update.'
+}
+
+function Get-CacheBustValue {
+    return [int64]([DateTime]::UtcNow - [DateTime]'1970-01-01').TotalSeconds
+}
+
 function Get-RemoteBranchHeadSha {
     $apiUrl = "https://api.github.com/repos/$EA11CTL_OWNER/$EA11CTL_REPO/commits/$EA11CTL_BRANCH"
-    $response = Invoke-WebRequest -Uri $apiUrl -Headers (Get-GitHubHttpHeaders) -UseBasicParsing
+    $response = Invoke-WebRequest -Uri $apiUrl -Headers (Get-GitHubApiHeaders) -UseBasicParsing
     $json = $response.Content | ConvertFrom-Json
 
     if (-not $json -or -not $json.sha) {
@@ -156,7 +180,7 @@ function Invoke-SelfUpdate {
 
     $files = @('ea11ctl.ps1', 'ea11ctl.cmd', 'VERSION')
 
-    $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $cacheBust = Get-CacheBustValue
     $refsToTry = New-Object System.Collections.Generic.List[string]
     if (-not [string]::IsNullOrWhiteSpace($resolvedRef)) {
         [void]$refsToTry.Add($resolvedRef)
@@ -165,7 +189,7 @@ function Invoke-SelfUpdate {
         [void]$refsToTry.Add($EA11CTL_BRANCH)
     }
 
-    $tmpDir = Join-Path $env:TEMP ("ea11ctl-update-" + [Guid]::NewGuid().ToString('N'))
+    $tmpDir = Join-Path (Get-TempDirectoryPath) ("ea11ctl-update-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 
     $downloadOk = $false
@@ -180,7 +204,7 @@ function Invoke-SelfUpdate {
                     $dest = Join-Path $tmpDir $file
                     $uri = "https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$ref/cli/$file?cb=$cacheBust"
                     Write-EA11Info "Baixando $file..."
-                    Invoke-WebRequest -Uri $uri -Headers (Get-GitHubHttpHeaders) -OutFile $dest -UseBasicParsing
+                    Invoke-WebRequest -Uri $uri -Headers (Get-GitHubRawHeaders) -OutFile $dest -UseBasicParsing
                 }
 
                 $downloadedVersion = (Get-Content -Path (Join-Path $tmpDir 'VERSION') -Raw -ErrorAction Stop).Trim()
