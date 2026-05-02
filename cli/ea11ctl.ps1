@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.25'
+$EA11CTL_FALLBACK_VERSION = '0.1.26'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -656,7 +656,32 @@ function Test-QemuVirtfsSupport {
     }
 
     $text = ($helpOutput | Out-String)
-    return ($text -match '(?i)\-virtfs|virtfs')
+    if (-not ($text -match '(?i)\-virtfs|virtfs')) {
+        return $false
+    }
+
+    # Alguns builds listam -virtfs no help, mas desabilitam o recurso em runtime.
+    # Fazemos um probe real com uma execucao minima para confirmar suporte efetivo.
+    try {
+        $probeOut = & $QemuExecutable -S -machine none -nodefaults -nographic -virtfs 'local,path=.,mount_tag=ea11probe,security_model=none,id=ea11probe' 2>&1
+        $probeText = ($probeOut | Out-String)
+
+        if ($probeText -match '(?i)virtfs support is disabled|there is no option group virtfs') {
+            return $false
+        }
+
+        # Se nao retornou mensagens de desabilitado, consideramos suportado.
+        return $true
+    }
+    catch {
+        $errText = $_.Exception.Message
+        if ($errText -match '(?i)virtfs support is disabled|there is no option group virtfs') {
+            return $false
+        }
+
+        # Erros nao relacionados ao virtfs nao invalidam necessariamente o suporte.
+        return $true
+    }
 }
 
 function Ensure-QemuImg {
