@@ -38,6 +38,7 @@ SYSTEM_IMAGE=${SYSTEM_IMAGE}
 DATA_DISK=${DATA_DISK}
 LOG_FILE=${LOG_FILE}
 STATE=${STATE}
+IMAGE_TAG=${IMAGE_TAG:-unknown}
 EOF
 }
 
@@ -73,6 +74,7 @@ qemu_apply_macos_desktop_args() {
         return 0
     fi
 
+    # Alinha defaults com scripts/run-qemu-macos para janela legivel no boot.
     fullscreen_mode="${EA11_QEMU_FULLSCREEN:-on}"
     vga_mode="${EA11_QEMU_VGA:-virtio}"
 
@@ -134,6 +136,20 @@ qemu_parse_ssh_port() {
 
 qemu_parse_ssh_user() {
     ea11_backend_option_value --user -u "$@" || printf '%s\n' "$EA11_DEFAULT_SSH_USER"
+}
+
+qemu_guest_release_version() {
+    local ssh_port="$1"
+    local ssh_user="$2"
+
+    ssh \
+        -o BatchMode=yes \
+        -o ConnectTimeout=3 \
+        -o StrictHostKeyChecking=accept-new \
+        -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+        -p "$ssh_port" \
+        "$ssh_user@localhost" \
+        "cat /etc/emacs-a11y-release 2>/dev/null || cat /etc/motd 2>/dev/null | head -n 1" 2>/dev/null | tr -d '[:space:]'
 }
 
 qemu_cmd_list() {
@@ -214,13 +230,14 @@ qemu_cmd_start() {
 
     nohup "${qemu_cmd[@]}" > "$log_file" 2>&1 < /dev/null &
     local qemu_pid=$!
-    sleep 1
+    sleep 3
 
     # Em alguns macOS/QEMU, HVF aborta no boot; faz fallback automatico para TCG.
     if ! qemu_is_running "$qemu_pid"; then
-        if [[ "$(uname -s)" == "Darwin" ]] && grep -qi 'hvf-all.c\|do_hv_vm_protect\|assertion failed' "$log_file"; then
+        if [[ "$(uname -s)" == "Darwin" ]] && printf '%s\n' "${accel_args[*]}" | grep -q 'hvf'; then
             ea11_backend_warn 'Falha no acelerador HVF detectada, tentando fallback com TCG.'
             accel_args=(-accel tcg)
+            cpu_args=(-cpu qemu64)
             qemu_cmd=(
                 qemu-system-x86_64
                 "${accel_args[@]}"
@@ -241,7 +258,7 @@ qemu_cmd_start() {
 
             nohup "${qemu_cmd[@]}" > "$log_file" 2>&1 < /dev/null &
             qemu_pid=$!
-            sleep 1
+            sleep 3
         fi
     fi
 
@@ -336,23 +353,30 @@ qemu_cmd_diagnose() {
 }
 
 qemu_cmd_install() {
-    local owner repo tag force_download vm_name ssh_port data_disk log_file
+    local owner repo tag resolved_tag force_download vm_name ssh_port data_disk log_file
+    local downloaded image_tag latest_tag
     owner=$(ea11_backend_release_owner "$@")
     repo=$(ea11_backend_release_repo "$@")
     tag=$(ea11_backend_release_tag "$@")
+    resolved_tag=$(ea11_backend_resolve_release_tag "$owner" "$repo" "$tag")
     vm_name=$(qemu_parse_vm_name "$@")
     ssh_port=$(qemu_parse_ssh_port "$@")
     data_disk="${EA11_HOME}/${vm_name}-home.qcow2"
     log_file=$(qemu_log_file "$vm_name")
     force_download=0
+    downloaded=0
     if ea11_backend_download_force "$@"; then
         force_download=1
     fi
 
     ea11_backend_require_command qemu-img
 
+    unset VM_NAME QEMU_PID SSH_PORT SYSTEM_IMAGE DATA_DISK LOG_FILE STATE IMAGE_TAG
+    qemu_load_state "$vm_name"
+
     if [[ -f "$EA11_DEFAULT_SYSTEM_IMAGE" && $force_download -eq 0 ]]; then
         ea11_backend_info "Imagem QEMU ja existe em $EA11_DEFAULT_SYSTEM_IMAGE"
+        image_tag="${IMAGE_TAG:-unknown}"
     else
         ea11_backend_download_release_asset \
             "$owner" \
@@ -360,9 +384,18 @@ qemu_cmd_install() {
             "$tag" \
             "$EA11_DEFAULT_RELEASE_ASSET" \
             "$EA11_DEFAULT_SYSTEM_IMAGE"
+        downloaded=1
+        image_tag="$resolved_tag"
     fi
 
     qemu-img info "$EA11_DEFAULT_SYSTEM_IMAGE" >/dev/null
+
+    if [[ $downloaded -eq 0 ]]; then
+        latest_tag=$(ea11_backend_resolve_release_tag "$owner" "$repo" latest)
+        if [[ "$image_tag" != "unknown" && "$latest_tag" != "latest" && "$image_tag" != "$latest_tag" ]]; then
+            ea11_backend_warn "Existe imagem mais nova: $latest_tag (local: $image_tag). Use --force-download para atualizar."
+        fi
+    fi
 
     VM_NAME="$vm_name"
     QEMU_PID=''
@@ -371,11 +404,78 @@ qemu_cmd_install() {
     DATA_DISK="$data_disk"
     LOG_FILE="$log_file"
     STATE='stopped'
+    IMAGE_TAG="$image_tag"
     qemu_save_state "$vm_name"
 
     ea11_backend_info "Imagem QEMU pronta em $EA11_DEFAULT_SYSTEM_IMAGE"
-    ea11_backend_info "VM QEMU '$vm_name' registrada (state=stopped)."
+    ea11_backend_info "VM QEMU '$vm_name' registrada (state=stopped, tag=${image_tag})."
     ea11_backend_info "Use: ea11ctl vm start -b qemu"
+}
+
+qemu_cmd_version() {
+    local vm_name owner repo latest_tag local_tag ssh_user guest_tag
+    vm_name=$(qemu_parse_vm_name "$@")
+    owner=$(ea11_backend_release_owner "$@")
+    repo=$(ea11_backend_release_repo "$@")
+    ssh_user=$(qemu_parse_ssh_user "$@")
+
+    unset VM_NAME QEMU_PID SSH_PORT SYSTEM_IMAGE DATA_DISK LOG_FILE STATE IMAGE_TAG
+    qemu_load_state "$vm_name"
+    latest_tag=$(ea11_backend_resolve_release_tag "$owner" "$repo" latest)
+    local_tag="${IMAGE_TAG:-unknown}"
+
+    if qemu_is_running "${QEMU_PID:-}"; then
+        guest_tag=$(qemu_guest_release_version "${SSH_PORT:-$EA11_DEFAULT_SSH_PORT}" "$ssh_user" || true)
+        if [[ -n "$guest_tag" ]]; then
+            local_tag="$guest_tag"
+        fi
+    fi
+
+    printf 'backend=qemu\nvm=%s\nlocal_tag=%s\nlatest_tag=%s\n' "$vm_name" "$local_tag" "$latest_tag"
+}
+
+qemu_cmd_check_update() {
+    local vm_name owner repo latest_tag local_tag ssh_user guest_tag
+    vm_name=$(qemu_parse_vm_name "$@")
+    owner=$(ea11_backend_release_owner "$@")
+    repo=$(ea11_backend_release_repo "$@")
+    ssh_user=$(qemu_parse_ssh_user "$@")
+
+    unset VM_NAME QEMU_PID SSH_PORT SYSTEM_IMAGE DATA_DISK LOG_FILE STATE IMAGE_TAG
+    qemu_load_state "$vm_name"
+    latest_tag=$(ea11_backend_resolve_release_tag "$owner" "$repo" latest)
+    local_tag="${IMAGE_TAG:-unknown}"
+
+    if qemu_is_running "${QEMU_PID:-}"; then
+        guest_tag=$(qemu_guest_release_version "${SSH_PORT:-$EA11_DEFAULT_SSH_PORT}" "$ssh_user" || true)
+        if [[ -n "$guest_tag" ]]; then
+            local_tag="$guest_tag"
+        fi
+    fi
+
+    printf 'backend=qemu\nvm=%s\nlocal_tag=%s\nlatest_tag=%s\n' "$vm_name" "$local_tag" "$latest_tag"
+
+    if [[ "$local_tag" == "unknown" ]]; then
+        printf 'update_status=unknown-local\n'
+        ea11_backend_warn 'Tag local da imagem nao registrada.'
+        ea11_backend_info 'Atualize para registrar a tag local: ea11ctl vm install -b qemu --force-download'
+        return 0
+    fi
+
+    if [[ "$latest_tag" == "latest" ]]; then
+        printf 'update_status=unknown-remote\n'
+        ea11_backend_warn 'Nao foi possivel consultar a release mais nova no GitHub agora.'
+        return 0
+    fi
+
+    if [[ "$local_tag" == "$latest_tag" ]]; then
+        printf 'update_status=up-to-date\n'
+        ea11_backend_info "VM QEMU ja esta na versao mais recente ($local_tag)."
+    else
+        printf 'update_status=update-available\n'
+        ea11_backend_warn "Nova release disponivel: $latest_tag (local: $local_tag)."
+        ea11_backend_info 'Atualize com: ea11ctl vm install -b qemu --force-download'
+    fi
 }
 
 main() {
@@ -384,6 +484,8 @@ main() {
 
     case "$command" in
         install) qemu_cmd_install "$@" ;;
+        version) qemu_cmd_version "$@" ;;
+        check-update) qemu_cmd_check_update "$@" ;;
         list) qemu_cmd_list "$@" ;;
         start) qemu_cmd_start "$@" ;;
         stop|close) qemu_cmd_stop "$@" ;;

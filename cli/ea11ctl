@@ -280,6 +280,33 @@ get_ea11_scripts_directory() {
     echo "$scripts_dir"
 }
 
+vm_backend_flag_present() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            -b|--backend|--qemu|--virtualbox)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+qemu_has_registered_vm() {
+    local qemu_state_dir
+    qemu_state_dir="$(get_ea11_state_directory)/qemu"
+
+    if [[ ! -d "$qemu_state_dir" ]]; then
+        return 1
+    fi
+
+    shopt -s nullglob
+    local files=("$qemu_state_dir"/*.env)
+    shopt -u nullglob
+
+    [[ ${#files[@]} -gt 0 ]]
+}
+
 sync_backend_scripts_from_repo() {
     local source_dir="$SCRIPT_DIR/backend-scripts"
     local target_dir
@@ -473,6 +500,24 @@ invoke_vm_command() {
         install|-i)
             invoke_vm_install "$@"
             ;;
+        version|-V)
+            local backend
+            if ! vm_backend_flag_present "$@" && qemu_has_registered_vm; then
+                backend='qemu'
+            else
+                backend=$(resolve_vm_backend "$@") || return 1
+            fi
+            run_backend_command "$backend" version "$@"
+            ;;
+        check-update|-U)
+            local backend
+            if ! vm_backend_flag_present "$@" && qemu_has_registered_vm; then
+                backend='qemu'
+            else
+                backend=$(resolve_vm_backend "$@") || return 1
+            fi
+            run_backend_command "$backend" check-update "$@"
+            ;;
         list|-l)
             invoke_vm_list "$@"
             ;;
@@ -517,7 +562,9 @@ Uso:
   ea11ctl help|-h|--help
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
-  ea11ctl vm install|-i [args-do-install-release-vm.sh]
+    ea11ctl vm install|-i [args-do-install-release-vm.sh]
+    ea11ctl vm version|-V [-n|--name VM] [--backend virtualbox|qemu]
+    ea11ctl vm check-update|-U [-n|--name VM] [--backend virtualbox|qemu]
   ea11ctl vm list|-l [--backend virtualbox|qemu]
   ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--backend virtualbox|qemu]
   ea11ctl vm stop|-S [-n|--name VM] [-f|--force] [--backend virtualbox|qemu]

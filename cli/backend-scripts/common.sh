@@ -168,3 +168,46 @@ ea11_backend_download_release_asset() {
 
     mv "$tmp_file" "$destination"
 }
+
+ea11_backend_release_latest_tag() {
+    local owner="$1"
+    local repo="$2"
+    local api_url
+    local body
+
+    api_url="https://api.github.com/repos/${owner}/${repo}/releases/latest"
+    body=""
+
+    if command -v curl >/dev/null 2>&1; then
+        body=$(curl -fsSL "$api_url" 2>/dev/null || true)
+    elif command -v wget >/dev/null 2>&1; then
+        body=$(wget -qO- "$api_url" 2>/dev/null || true)
+    fi
+
+    if [[ -n "$body" ]]; then
+        printf '%s\n' "$body" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+        return 0
+    fi
+
+    return 1
+}
+
+ea11_backend_resolve_release_tag() {
+    local owner="$1"
+    local repo="$2"
+    local tag="$3"
+
+    if [[ "$tag" != "latest" ]]; then
+        printf '%s\n' "$tag"
+        return 0
+    fi
+
+    local latest_tag
+    latest_tag=$(ea11_backend_release_latest_tag "$owner" "$repo" || true)
+    if [[ -n "$latest_tag" ]]; then
+        printf '%s\n' "$latest_tag"
+        return 0
+    fi
+
+    printf '%s\n' "latest"
+}

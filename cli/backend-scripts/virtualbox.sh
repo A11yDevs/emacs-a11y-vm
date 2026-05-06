@@ -247,6 +247,84 @@ vbox_cmd_install() {
     ea11_backend_info "SSH apos boot: ssh -p $ssh_port ${EA11_DEFAULT_SSH_USER}@localhost"
 }
 
+vbox_cmd_version() {
+    local vm_name owner repo latest_tag
+    vm_name=$(vbox_vm_name "$@")
+    owner=$(ea11_backend_release_owner "$@")
+    repo=$(ea11_backend_release_repo "$@")
+    latest_tag=$(ea11_backend_resolve_release_tag "$owner" "$repo" latest)
+
+    local local_tag="unknown"
+    local ssh_port ssh_user
+    ssh_port=$(vbox_ssh_port "$@")
+    ssh_user=$(vbox_ssh_user "$@")
+
+    if [[ "$(vbox_state "$vm_name" 2>/dev/null || true)" == "running" ]]; then
+        local_tag=$(ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=3 \
+            -o StrictHostKeyChecking=accept-new \
+            -p "$ssh_port" \
+            "$ssh_user@localhost" \
+            "cat /etc/emacs-a11y-release 2>/dev/null || cat /etc/motd 2>/dev/null | head -n 1" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ -z "$local_tag" ]]; then
+            local_tag="unknown"
+        fi
+    fi
+
+    printf 'backend=virtualbox\nvm=%s\nlocal_tag=%s\nlatest_tag=%s\n' "$vm_name" "$local_tag" "$latest_tag"
+}
+
+vbox_cmd_check_update() {
+    local vm_name owner repo latest_tag local_tag
+    vm_name=$(vbox_vm_name "$@")
+    owner=$(ea11_backend_release_owner "$@")
+    repo=$(ea11_backend_release_repo "$@")
+    latest_tag=$(ea11_backend_resolve_release_tag "$owner" "$repo" latest)
+    local_tag="unknown"
+
+    local ssh_port ssh_user
+    ssh_port=$(vbox_ssh_port "$@")
+    ssh_user=$(vbox_ssh_user "$@")
+
+    if [[ "$(vbox_state "$vm_name" 2>/dev/null || true)" == "running" ]]; then
+        local_tag=$(ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=3 \
+            -o StrictHostKeyChecking=accept-new \
+            -p "$ssh_port" \
+            "$ssh_user@localhost" \
+            "cat /etc/emacs-a11y-release 2>/dev/null || cat /etc/motd 2>/dev/null | head -n 1" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ -z "$local_tag" ]]; then
+            local_tag="unknown"
+        fi
+    fi
+
+    printf 'backend=virtualbox\nvm=%s\nlocal_tag=%s\nlatest_tag=%s\n' "$vm_name" "$local_tag" "$latest_tag"
+
+    if [[ "$local_tag" == "unknown" ]]; then
+        printf 'update_status=unknown-local\n'
+        ea11_backend_warn 'Tag local da VM VirtualBox nao disponivel. Inicie a VM e rode novamente para detectar versao interna.'
+        ea11_backend_info 'Atualizacao segura: ea11ctl vm install -b virtualbox --force-download --reinstall'
+        return 0
+    fi
+
+    if [[ "$latest_tag" == "latest" ]]; then
+        printf 'update_status=unknown-remote\n'
+        ea11_backend_warn 'Nao foi possivel consultar a release mais nova no GitHub agora.'
+        return 0
+    fi
+
+    if [[ "$local_tag" == "$latest_tag" ]]; then
+        printf 'update_status=up-to-date\n'
+        ea11_backend_info "VM VirtualBox ja esta na versao mais recente ($local_tag)."
+    else
+        printf 'update_status=update-available\n'
+        ea11_backend_warn "Nova release disponivel: $latest_tag (local: $local_tag)."
+        ea11_backend_info "Atualize com: ea11ctl vm install -b virtualbox --force-download --reinstall"
+    fi
+}
+
 vbox_cmd_list() {
     local cmd
     cmd=$(vboxmanage_cmd)
@@ -404,6 +482,8 @@ main() {
 
     case "$command" in
         install) vbox_cmd_install "$@" ;;
+        version) vbox_cmd_version "$@" ;;
+        check-update) vbox_cmd_check_update "$@" ;;
         list) vbox_cmd_list "$@" ;;
         start) vbox_cmd_start "$@" ;;
         stop) vbox_cmd_stop "$@" ;;
