@@ -1,0 +1,520 @@
+#!/bin/bash
+
+#################################################################################
+# ea11ctl - CLI do projeto emacs-a11y-vm para bash (macOS, Linux)
+# Version: compatível com a CLI de PowerShell
+#################################################################################
+
+set -euo pipefail
+
+# Constantes
+EA11CTL_FALLBACK_VERSION='0.1.32'
+EA11CTL_OWNER='A11yDevs'
+EA11CTL_REPO='emacs-a11y-vm'
+EA11CTL_BRANCH='main'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+#################################################################################
+# Funções de Logging
+#################################################################################
+
+ea11_info() {
+    printf '\033[36m[ea11ctl] %s\033[0m\n' "$*" >&2
+}
+
+ea11_warn() {
+    printf '\033[33m[ea11ctl] %s\033[0m\n' "$*" >&2
+}
+
+ea11_error() {
+    printf '\033[31m[ea11ctl] %s\033[0m\n' "$*" >&2
+}
+
+ea11_success() {
+    printf '\033[32m%s\033[0m\n' "$*" >&2
+}
+
+#################################################################################
+# Funções de Versão
+#################################################################################
+
+get_local_cli_version() {
+    local version_file="$SCRIPT_DIR/VERSION"
+    if [[ -f "$version_file" ]]; then
+        local version
+        version=$(tr -d '[:space:]' < "$version_file")
+        if [[ -n "$version" ]]; then
+            echo "$version"
+            return 0
+        fi
+    fi
+    echo "$EA11CTL_FALLBACK_VERSION"
+}
+
+get_remote_cli_version() {
+    local url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli/VERSION"
+    local result
+    result=$(curl -s --max-time 5 "$url" 2>/dev/null || echo '')
+    if [[ -n "$result" ]]; then
+        echo "$result" | tr -d '[:space:]'
+    else
+        echo ""
+    fi
+}
+
+get_github_api_version() {
+    local url="https://api.github.com/repos/$EA11CTL_OWNER/$EA11CTL_REPO/commits/$EA11CTL_BRANCH"
+    local result
+    result=$(curl -s --max-time 5 \
+        -H 'Accept: application/vnd.github+json' \
+        "$url" 2>/dev/null || echo '')
+    
+    if [[ -n "$result" ]]; then
+        echo "$result" | grep -o '"sha":"[^"]*' | head -1 | cut -d'"' -f4
+    else
+        echo ""
+    fi
+}
+
+invoke_version_command() {
+    local local_version
+    local_version=$(get_local_cli_version)
+    echo "ea11ctl v$local_version"
+    
+    if ! has_flag "$@" --check-update -c; then
+        return 0
+    fi
+    
+    local remote_version
+    remote_version=$(get_remote_cli_version) || true
+    
+    if [[ -z "$remote_version" ]]; then
+        ea11_warn "Não foi possível consultar versão remota"
+        return 0
+    fi
+    
+    if [[ "$remote_version" == "$local_version" ]]; then
+        ea11_info "Você já está na versão mais recente ($local_version)."
+    else
+        ea11_info "Nova versão disponível: $remote_version (local: $local_version)"
+        echo "Use: ea11ctl self-update" | sed 's/^/  /'
+    fi
+}
+
+#################################################################################
+# Funções de Atualização
+#################################################################################
+
+invoke_self_update() {
+    local force=0
+    if has_flag "$@" --force -f; then
+        force=1
+    fi
+    
+    local local_version
+    local_version=$(get_local_cli_version)
+    
+    if [[ $force -eq 0 ]]; then
+        local remote_version
+        remote_version=$(get_remote_cli_version) || true
+        
+        if [[ -z "$remote_version" ]]; then
+            ea11_warn "Não foi possível validar versão remota; prosseguindo com update."
+        elif [[ "$remote_version" == "$local_version" ]]; then
+            ea11_info "ea11ctl já está atualizado (v$local_version)."
+            return 0
+        else
+            ea11_info "Atualizando ea11ctl de v$local_version para v$remote_version..."
+        fi
+    fi
+    
+    # Resolvendo a referência remota (commit SHA)
+    local resolved_ref="$EA11CTL_BRANCH"
+    local commit_sha
+    commit_sha=$(get_github_api_version) || true
+    
+    if [[ -n "$commit_sha" ]]; then
+        resolved_ref="$commit_sha"
+        ea11_info "Ref remoto resolvido para commit $resolved_ref"
+    else
+        ea11_warn "Não foi possível resolver SHA da branch; usando ref '$EA11CTL_BRANCH'."
+    fi
+    
+    local install_dir="$SCRIPT_DIR"
+    local tmp_dir
+    tmp_dir=$(mktemp -d -t ea11ctl-update-XXXXXX)
+    trap "rm -rf '$tmp_dir'" EXIT
+    
+    local files=(ea11ctl ea11ctl.ps1 ea11ctl.cmd install.sh VERSION)
+    local cache_bust
+    cache_bust=$(date +%s)
+    
+    local download_ok=0
+    local last_error=""
+    
+    for ref in "$resolved_ref" "$EA11CTL_BRANCH"; do
+        ea11_info "Tentando download dos arquivos via ref '$ref'..."
+        download_ok=1
+        
+        for file in "${files[@]}"; do
+            local dest="$tmp_dir/$file"
+            local url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$ref/cli/$file?cb=$cache_bust"
+            
+            if ! curl -fsSL "$url" -o "$dest" 2>/dev/null; then
+                last_error="Falha ao baixar $file"
+                download_ok=0
+                break
+            fi
+        done
+        
+        if [[ $download_ok -eq 1 ]]; then
+            break
+        fi
+    done
+    
+    if [[ $download_ok -eq 0 ]]; then
+        ea11_error "Não foi possível baixar arquivos de update. Último erro: $last_error"
+        return 1
+    fi
+    
+    # Copiar os arquivos baixados
+    for file in "${files[@]}"; do
+        local src="$tmp_dir/$file"
+        local dest="$install_dir/$file"
+        if [[ -f "$src" ]]; then
+            cp "$src" "$dest"
+            [[ "$file" == "ea11ctl" ]] && chmod +x "$dest"
+        fi
+    done
+    
+    local new_version
+    new_version=$(get_local_cli_version)
+    ea11_success "ea11ctl atualizado para v$new_version"
+}
+
+#################################################################################
+# Funções Utilitárias
+#################################################################################
+
+has_flag() {
+    local flag
+    for arg in "$@"; do
+        for flag in "$@"; do
+            if [[ "$arg" == "$flag" ]]; then
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
+has_flag() {
+    local searching=1
+    for arg in "$@"; do
+        if [[ $searching -eq 1 ]]; then
+            if [[ "$arg" == "--"* ]] || [[ "$arg" == "-"* ]]; then
+                searching=0
+            fi
+            continue
+        fi
+        
+        for flag in "$@"; do
+            [[ "$flag" == "$arg" ]] && return 0
+        done
+    done
+    
+    for flag in "$@"; do
+        for arg in "$@"; do
+            [[ "$arg" == "$flag" ]] && return 0
+        done
+    done
+    
+    return 1
+}
+
+# Versão corrigida
+has_flag() {
+    local needle="$1"
+    shift
+    for arg in "$@"; do
+        [[ "$arg" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+get_option_value() {
+    local name="$1"
+    shift
+    local i=0
+    for arg in "$@"; do
+        if [[ "$arg" == "$name" ]] && (( i + 1 < $# )); then
+            echo "${@:i+2:1}"
+            return 0
+        fi
+        ((i++))
+    done
+    return 1
+}
+
+get_home_directory() {
+    if [[ -n "${HOME:-}" ]]; then
+        echo "$HOME"
+    else
+        echo ~
+    fi
+}
+
+get_ea11_state_directory() {
+    local base
+    base=$(get_home_directory)/.emacs-a11y-vm
+    mkdir -p "$base"
+    echo "$base"
+}
+
+#################################################################################
+# Funções de VM - Stub
+#################################################################################
+
+invoke_vm_install() {
+    ea11_info "Comando: vm install"
+    ea11_info "Delegando para install-release-vm.sh ou equivalente..."
+    # TODO: Implementar lógica específica
+}
+
+invoke_vm_list() {
+    local backend="${1:-virtualbox}"
+    ea11_info "Listando VMs (backend: $backend)"
+    
+    if [[ "$backend" == "qemu" ]]; then
+        # Listar VMs QEMU
+        local state_dir
+        state_dir=$(get_ea11_state_directory)/qemu
+        if [[ -d "$state_dir" ]]; then
+            find "$state_dir" -name "*.json" -type f | while read -r state_file; do
+                local vm_name
+                vm_name=$(basename "$state_file" .json)
+                echo "  - $vm_name"
+            done
+        fi
+    else
+        # Listar VMs VirtualBox
+        command -v vboxmanage &>/dev/null || {
+            ea11_error "VirtualBox não está instalado ou vboxmanage não está no PATH"
+            return 1
+        }
+        vboxmanage list vms | sed 's/^/  /'
+    fi
+}
+
+invoke_vm_start() {
+    local vm_name="${1:-debian-a11y}"
+    local backend="${2:-virtualbox}"
+    local headless=0
+    
+    ea11_info "Iniciando VM: $vm_name (backend: $backend)"
+    # TODO: Implementar lógica específica
+}
+
+invoke_vm_stop() {
+    local vm_name="${1:-debian-a11y}"
+    local backend="${2:-virtualbox}"
+    local force=0
+    
+    ea11_info "Parando VM: $vm_name (backend: $backend)"
+    # TODO: Implementar lógica específica
+}
+
+invoke_vm_status() {
+    local vm_name="${1:-debian-a11y}"
+    local backend="${2:-virtualbox}"
+    
+    ea11_info "Status da VM: $vm_name (backend: $backend)"
+    # TODO: Implementar lógica específica
+}
+
+invoke_vm_ssh() {
+    local vm_name="${1:-debian-a11y}"
+    local user="${2:-a11ydevs}"
+    local port="${3:-2222}"
+    local backend="${4:-virtualbox}"
+    
+    ea11_info "Conectando SSH: $user@localhost:$port"
+    ssh -p "$port" "$user@localhost"
+}
+
+invoke_vm_diagnose() {
+    local vm_name="${1:-debian-a11y}"
+    local backend="${2:-virtualbox}"
+    
+    ea11_info "Diagnosticando VM: $vm_name (backend: $backend)"
+    # TODO: Implementar lógica específica
+}
+
+invoke_vm_close() {
+    local vm_name="${1:-debian-a11y}"
+    local backend="${2:-virtualbox}"
+    
+    ea11_info "Fechando VM: $vm_name (backend: $backend)"
+    # TODO: Implementar lógica específica
+}
+
+invoke_share_folder_add() {
+    local vm_name="${1:-debian-a11y}"
+    local path="$2"
+    local name="${3:-shared}"
+    local readonly=0
+    
+    ea11_info "Adicionando pasta compartilhada"
+    # TODO: Implementar lógica específica
+}
+
+invoke_share_folder_remove() {
+    local vm_name="${1:-debian-a11y}"
+    local name="$2"
+    
+    ea11_info "Removendo pasta compartilhada: $name"
+    # TODO: Implementar lógica específica
+}
+
+invoke_share_folder_list() {
+    local vm_name="${1:-debian-a11y}"
+    
+    ea11_info "Listando pastas compartilhadas da VM: $vm_name"
+    # TODO: Implementar lógica específica
+}
+
+invoke_vm_share_folder() {
+    local action="${1:-list}"
+    shift || true
+    
+    case "$action" in
+        add)
+            invoke_share_folder_add "$@"
+            ;;
+        remove)
+            invoke_share_folder_remove "$@"
+            ;;
+        list)
+            invoke_share_folder_list "$@"
+            ;;
+        *)
+            ea11_error "Ação desconhecida de share-folder: $action"
+            return 1
+            ;;
+    esac
+}
+
+invoke_vm_command() {
+    local action="${1:-}"
+    shift || true
+    
+    case "$action" in
+        install|-i)
+            invoke_vm_install "$@"
+            ;;
+        list|-l)
+            invoke_vm_list "$@"
+            ;;
+        start|-s)
+            invoke_vm_start "$@"
+            ;;
+        stop|-S)
+            invoke_vm_stop "$@"
+            ;;
+        close|-c)
+            invoke_vm_close "$@"
+            ;;
+        status|-q)
+            invoke_vm_status "$@"
+            ;;
+        diagnose|-d)
+            invoke_vm_diagnose "$@"
+            ;;
+        ssh|-x)
+            invoke_vm_ssh "$@"
+            ;;
+        share-folder|-F)
+            invoke_vm_share_folder "$@"
+            ;;
+        *)
+            ea11_error "Subcomando vm desconhecido: $action"
+            show_help
+            return 1
+            ;;
+    esac
+}
+
+#################################################################################
+# Help
+#################################################################################
+
+show_help() {
+    cat << 'EOF'
+ea11ctl - CLI do projeto emacs-a11y-vm
+
+Uso:
+  ea11ctl help|-h|--help
+  ea11ctl version|--version [-c|--check-update]
+  ea11ctl self-update|update [-f|--force]
+  ea11ctl vm install|-i [args-do-install-release-vm.sh]
+  ea11ctl vm list|-l [--backend virtualbox|qemu]
+  ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--backend virtualbox|qemu]
+  ea11ctl vm stop|-S [-n|--name VM] [-f|--force] [--backend virtualbox|qemu]
+  ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS] [--backend virtualbox|qemu]
+  ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N] [--backend virtualbox|qemu]
+  ea11ctl vm status|-q [-n|--name VM] [--backend virtualbox|qemu]
+  ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [--backend virtualbox|qemu] [-- extra-args]
+  ea11ctl vm share-folder|-F add [-n|--name VM] -p|--path CAMINHO [--name NOME] [-r|--readonly]
+  ea11ctl vm share-folder|-F remove [-n|--name VM] --name NOME
+  ea11ctl vm share-folder|-F list [-n|--name VM]
+
+Defaults:
+    Backend: virtualbox
+  VM: debian-a11y
+  SSH user: a11ydevs
+  SSH port: 2222
+
+QEMU:
+    Imagem de sistema: ~/.emacs-a11y-vm/debian-a11ydevs.qcow2
+    Disco de dados: ~/.emacs-a11y-vm/<vm>-home.qcow2 (montado em /home na VM)
+EOF
+}
+
+#################################################################################
+# Main
+#################################################################################
+
+main() {
+    local command="${1:-}"
+    shift || true
+    
+    case "$command" in
+        help|-h|--help)
+            show_help
+            ;;
+        version|--version)
+            invoke_version_command "$@"
+            ;;
+        self-update|update)
+            invoke_self_update "$@"
+            ;;
+        vm)
+            invoke_vm_command "$@"
+            ;;
+        "")
+            show_help
+            exit 0
+            ;;
+        *)
+            ea11_error "Comando desconhecido: $command"
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+# Executar main com tratamento de erro
+if ! main "$@"; then
+    show_help
+    exit 1
+fi
