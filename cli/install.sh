@@ -9,6 +9,7 @@ set -euo pipefail
 readonly INSTALL_OWNER='A11yDevs'
 readonly INSTALL_REPO='emacs-a11y-vm'
 readonly INSTALL_BRANCH='main'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 #################################################################################
 # Funções de Logging
@@ -169,6 +170,26 @@ check_force_reinstall() {
     echo "$force_reinstall"
 }
 
+install_backend_scripts() {
+    local backend_dir="$HOME/.emacs-a11y-vm/scripts"
+    local local_backend_dir="$SCRIPT_DIR/backend-scripts"
+    local remote_backend_url="https://raw.githubusercontent.com/$INSTALL_OWNER/$INSTALL_REPO/$INSTALL_BRANCH/cli/backend-scripts"
+    local file
+
+    ensure_directory "$backend_dir"
+
+    for file in common.sh qemu.sh virtualbox.sh; do
+        if [[ -f "$local_backend_dir/$file" ]]; then
+            cp "$local_backend_dir/$file" "$backend_dir/$file"
+        else
+            download_file "$remote_backend_url/$file" "$backend_dir/$file" "$file"
+        fi
+    done
+
+    chmod +x "$backend_dir/qemu.sh" "$backend_dir/virtualbox.sh"
+    print_info "Scripts de backend instalados em: $backend_dir"
+}
+
 #################################################################################
 # Main
 #################################################################################
@@ -233,6 +254,8 @@ main() {
     chmod +x "$install_dir/ea11ctl"
     chmod +x "$install_dir/install.sh"
     print_info "Permissões de execução aplicadas"
+
+    install_backend_scripts
     
     # Adicionar ao PATH se necessário
     add_to_path_if_needed "$install_dir"

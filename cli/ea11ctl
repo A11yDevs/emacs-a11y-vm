@@ -186,6 +186,8 @@ invoke_self_update() {
             [[ "$file" == "ea11ctl" ]] && chmod +x "$dest"
         fi
     done
+
+    sync_backend_scripts_from_remote || true
     
     local new_version
     new_version=$(get_local_cli_version)
@@ -271,116 +273,175 @@ get_ea11_state_directory() {
     echo "$base"
 }
 
+get_ea11_scripts_directory() {
+    local scripts_dir
+    scripts_dir="$(get_ea11_state_directory)/scripts"
+    mkdir -p "$scripts_dir"
+    echo "$scripts_dir"
+}
+
+sync_backend_scripts_from_repo() {
+    local source_dir="$SCRIPT_DIR/backend-scripts"
+    local target_dir
+    target_dir=$(get_ea11_scripts_directory)
+    local file
+
+    if [[ ! -d "$source_dir" ]]; then
+        return 0
+    fi
+
+    for file in common.sh qemu.sh virtualbox.sh; do
+        if [[ -f "$source_dir/$file" ]]; then
+            cp "$source_dir/$file" "$target_dir/$file"
+        fi
+    done
+
+    chmod +x "$target_dir/qemu.sh" "$target_dir/virtualbox.sh" 2>/dev/null || true
+}
+
+sync_backend_scripts_from_remote() {
+    local target_dir
+    target_dir=$(get_ea11_scripts_directory)
+    local base_url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli/backend-scripts"
+    local file
+
+    for file in common.sh qemu.sh virtualbox.sh; do
+        if ! curl -fsSL "$base_url/$file" -o "$target_dir/$file" 2>/dev/null; then
+            ea11_warn "Nao foi possivel atualizar backend script: $file"
+            return 1
+        fi
+    done
+
+    chmod +x "$target_dir/qemu.sh" "$target_dir/virtualbox.sh" 2>/dev/null || true
+}
+
+resolve_vm_backend() {
+    local backend='virtualbox'
+    local current
+    while [[ $# -gt 0 ]]; do
+        current="$1"
+        shift
+        case "$current" in
+            -b|--backend)
+                if [[ $# -eq 0 ]]; then
+                    ea11_error 'Use --backend com um valor (virtualbox ou qemu).'
+                    return 1
+                fi
+                backend="$1"
+                shift
+                ;;
+            --qemu)
+                backend='qemu'
+                ;;
+            --virtualbox)
+                backend='virtualbox'
+                ;;
+        esac
+    done
+
+    case "$backend" in
+        virtualbox|qemu)
+            echo "$backend"
+            ;;
+        *)
+            ea11_error "Backend desconhecido: $backend"
+            return 1
+            ;;
+    esac
+}
+
+resolve_backend_script_path() {
+    local backend="$1"
+    local target_dir
+    target_dir=$(get_ea11_scripts_directory)
+
+    if [[ -f "$target_dir/$backend.sh" ]]; then
+        echo "$target_dir/$backend.sh"
+        return 0
+    fi
+
+    sync_backend_scripts_from_repo
+    if [[ -f "$target_dir/$backend.sh" ]]; then
+        echo "$target_dir/$backend.sh"
+        return 0
+    fi
+
+    ea11_error "Script de backend nao encontrado para '$backend' em $target_dir. Reinstale a CLI ou execute o instalador novamente."
+    return 1
+}
+
+run_backend_command() {
+    local backend="$1"
+    local command="$2"
+    shift 2
+
+    local script_path
+    script_path=$(resolve_backend_script_path "$backend") || return 1
+    bash "$script_path" "$command" "$@"
+}
+
 #################################################################################
-# Funções de VM - Stub
+# Funcoes de VM
 #################################################################################
 
 invoke_vm_install() {
-    ea11_info "Comando: vm install"
-    ea11_info "Delegando para install-release-vm.sh ou equivalente..."
-    # TODO: Implementar lógica específica
+    local backend
+    backend=$(resolve_vm_backend "$@") || return 1
+    run_backend_command "$backend" install "$@"
 }
 
 invoke_vm_list() {
-    local backend="${1:-virtualbox}"
-    ea11_info "Listando VMs (backend: $backend)"
-    
-    if [[ "$backend" == "qemu" ]]; then
-        # Listar VMs QEMU
-        local state_dir
-        state_dir=$(get_ea11_state_directory)/qemu
-        if [[ -d "$state_dir" ]]; then
-            find "$state_dir" -name "*.json" -type f | while read -r state_file; do
-                local vm_name
-                vm_name=$(basename "$state_file" .json)
-                echo "  - $vm_name"
-            done
-        fi
-    else
-        # Listar VMs VirtualBox
-        command -v vboxmanage &>/dev/null || {
-            ea11_error "VirtualBox não está instalado ou vboxmanage não está no PATH"
-            return 1
-        }
-        vboxmanage list vms | sed 's/^/  /'
-    fi
+    local backend
+    backend=$(resolve_vm_backend "$@") || return 1
+    run_backend_command "$backend" list "$@"
 }
 
 invoke_vm_start() {
-    local vm_name="${1:-debian-a11y}"
-    local backend="${2:-virtualbox}"
-    local headless=0
-    
-    ea11_info "Iniciando VM: $vm_name (backend: $backend)"
-    # TODO: Implementar lógica específica
+    local backend
+    backend=$(resolve_vm_backend "$@") || return 1
+    run_backend_command "$backend" start "$@"
 }
 
 invoke_vm_stop() {
-    local vm_name="${1:-debian-a11y}"
-    local backend="${2:-virtualbox}"
-    local force=0
-    
-    ea11_info "Parando VM: $vm_name (backend: $backend)"
-    # TODO: Implementar lógica específica
+    local backend
+    backend=$(resolve_vm_backend "$@") || return 1
+    run_backend_command "$backend" stop "$@"
 }
 
 invoke_vm_status() {
-    local vm_name="${1:-debian-a11y}"
-    local backend="${2:-virtualbox}"
-    
-    ea11_info "Status da VM: $vm_name (backend: $backend)"
-    # TODO: Implementar lógica específica
+    local backend
+    backend=$(resolve_vm_backend "$@") || return 1
+    run_backend_command "$backend" status "$@"
 }
 
 invoke_vm_ssh() {
-    local vm_name="${1:-debian-a11y}"
-    local user="${2:-a11ydevs}"
-    local port="${3:-2222}"
-    local backend="${4:-virtualbox}"
-    
-    ea11_info "Conectando SSH: $user@localhost:$port"
-    ssh -p "$port" "$user@localhost"
+    local backend
+    backend=$(resolve_vm_backend "$@") || return 1
+    run_backend_command "$backend" ssh "$@"
 }
 
 invoke_vm_diagnose() {
-    local vm_name="${1:-debian-a11y}"
-    local backend="${2:-virtualbox}"
-    
-    ea11_info "Diagnosticando VM: $vm_name (backend: $backend)"
-    # TODO: Implementar lógica específica
+    local backend
+    backend=$(resolve_vm_backend "$@") || return 1
+    run_backend_command "$backend" diagnose "$@"
 }
 
 invoke_vm_close() {
-    local vm_name="${1:-debian-a11y}"
-    local backend="${2:-virtualbox}"
-    
-    ea11_info "Fechando VM: $vm_name (backend: $backend)"
-    # TODO: Implementar lógica específica
+    local backend
+    backend=$(resolve_vm_backend "$@") || return 1
+    run_backend_command "$backend" close "$@"
 }
 
 invoke_share_folder_add() {
-    local vm_name="${1:-debian-a11y}"
-    local path="$2"
-    local name="${3:-shared}"
-    local readonly=0
-    
-    ea11_info "Adicionando pasta compartilhada"
-    # TODO: Implementar lógica específica
+    run_backend_command virtualbox share-folder add "$@"
 }
 
 invoke_share_folder_remove() {
-    local vm_name="${1:-debian-a11y}"
-    local name="$2"
-    
-    ea11_info "Removendo pasta compartilhada: $name"
-    # TODO: Implementar lógica específica
+    run_backend_command virtualbox share-folder remove "$@"
 }
 
 invoke_share_folder_list() {
-    local vm_name="${1:-debian-a11y}"
-    
-    ea11_info "Listando pastas compartilhadas da VM: $vm_name"
-    # TODO: Implementar lógica específica
+    run_backend_command virtualbox share-folder list "$@"
 }
 
 invoke_vm_share_folder() {
@@ -515,6 +576,5 @@ main() {
 
 # Executar main com tratamento de erro
 if ! main "$@"; then
-    show_help
     exit 1
 fi

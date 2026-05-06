@@ -8,5 +8,19 @@
 # Ctrl+Alt+R - Alternativa ao F12 (mnemônico: R de Restart)
 "\e[27;7;82~": "restart-speech\n"
 
+# F9 - Diminuir fonte do console virtual
+"\e[20~": "font-down\n"
+
+# F10 - Aumentar fonte do console virtual
+"\e[21~": "font-up\n"
+
+# Ctrl++ / Ctrl+= - Aumentar fonte (varia por teclado/terminal)
+"\C-+": "font-up\n"
+"\C-=": "font-up\n"
+
+# Ctrl+- - Diminuir fonte (em muitos terminais chega como Ctrl+_)
+"\C--": "font-down\n"
+"\C-_": "font-down\n"
+
 # Incluir configurações padrão do sistema
 $include /etc/inputrc
