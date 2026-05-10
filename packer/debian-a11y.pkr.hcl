@@ -184,6 +184,12 @@ build {
       inline = [
         "echo '=== Forçando nome de interface de rede para eth0 e mantendo speakup ==='",
         "sudo sed -i 's/^GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX=\"console=tty0 speakup.synth=soft net.ifnames=0 biosdevname=0\"/' /etc/default/grub",
+        "echo '=== Ajustando console para fonte Terminus 16x32 ==='",
+        "sudo sed -i 's/^FONTFACE=.*/FONTFACE=\"Terminus\"/; s/^FONTSIZE=.*/FONTSIZE=\"16x32\"/' /etc/default/console-setup",
+        "sudo setupcon || true",
+        "echo '=== Definindo resolução de console menor para fullscreen ==='",
+        "sudo mkdir -p /etc/default/grub.d",
+        "printf '%s\n' 'GRUB_GFXMODE=1280x800' 'GRUB_GFXPAYLOAD_LINUX=keep' | sudo tee /etc/default/grub.d/40-a11y-video.cfg >/dev/null",
         "sudo update-grub"
       ]
     }
