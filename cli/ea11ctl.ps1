@@ -1028,11 +1028,22 @@ function New-QemuBaseArgs {
         [string]$HostSmbPassword
     )
 
+    $systemDiskArg = $SystemDisk
+    $userDataDiskArg = $UserDataDisk
+    if (-not [string]::IsNullOrWhiteSpace($systemDiskArg)) {
+        $escapedSystemDisk = $systemDiskArg.Replace('"', '\"')
+        $systemDiskArg = '"' + $escapedSystemDisk + '"'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($userDataDiskArg)) {
+        $escapedUserDataDisk = $userDataDiskArg.Replace('"', '\"')
+        $userDataDiskArg = '"' + $escapedUserDataDisk + '"'
+    }
+
     $args = @(
         '-m', "$Memory",
         '-smp', "$Cpus",
-        '-drive', "file=$SystemDisk,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
-        '-drive', "file=$UserDataDisk,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
+        '-drive', "file=$systemDiskArg,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
+        '-drive', "file=$userDataDiskArg,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
         '-netdev', $NetdevValue,
         '-device', "$NetDevice,netdev=net0",
         '-serial', 'none',
@@ -1044,9 +1055,14 @@ function New-QemuBaseArgs {
     }
 
     if (($HostHomeShareMode -eq '9p') -and $HostHomeShare) {
+        $hostHomePathArg = [string]$HostHomeShare.HostPath
+        if (-not [string]::IsNullOrWhiteSpace($hostHomePathArg)) {
+            $escapedHostHomePath = $hostHomePathArg.Replace('"', '\"')
+            $hostHomePathArg = '"' + $escapedHostHomePath + '"'
+        }
         $args += @(
             '-virtfs',
-            "local,path=$($HostHomeShare.HostPath),mount_tag=$($HostHomeShare.MountTag),security_model=none,id=$($HostHomeShare.MountTag)"
+            "local,path=$hostHomePathArg,mount_tag=$($HostHomeShare.MountTag),security_model=none,id=$($HostHomeShare.MountTag)"
         )
     }
 
@@ -1449,7 +1465,8 @@ function Invoke-QemuVMStart {
 
             if (($hostHomeShareMode -ne '9p') -and $smbSupportInfo -and ($smbSupportInfo.Supported -or ($smbSupportInfo.Reason -ne 'unsupported'))) {
                 $hostHomeShareMode = 'smb'
-                $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22,smb=$($hostHomeShare.HostPath)"
+                $escapedSmbPath = ([string]$hostHomeShare.HostPath).Replace('"', '\"')
+                $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22,smb=\"$escapedSmbPath\""
                 $qemuSmbShare = @{
                     Server = '10.0.2.4'
                     Share = 'qemu'
