@@ -34,18 +34,19 @@ Uso:
   ea11ctl help|-h|--help
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
-    ea11ctl uninstall [--purge-state] [--yes] [--force-repo-path]
-    ea11ctl vm|vm install|-i
-      ea11ctl vm list|-l
-      ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
-      ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
-      ea11ctl vm close|-c [-n|--name VM]
-      ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
-    ea11ctl vm config [show|path|reset]
-    ea11ctl vm optimize
-      ea11ctl vm diagnose|-d [-n|--name VM] [-L|--lines N]
-      ea11ctl vm status|-q [-n|--name VM]
-      ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
+  ea11ctl uninstall [--purge-state] [--yes] [--force-repo-path]
+  ea11ctl vm install|-i
+  ea11ctl host install|-i (Instalação nativa em Debian/Ubuntu)
+  ea11ctl vm list|-l
+  ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
+  ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
+  ea11ctl vm close|-c [-n|--name VM]
+  ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
+  ea11ctl vm config [show|path|reset]
+  ea11ctl vm optimize
+  ea11ctl vm diagnose|-d [-n|--name VM] [-L|--lines N]
+  ea11ctl vm status|-q [-n|--name VM]
+  ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
 
 Defaults:
   VM: debian-a11y
@@ -2197,7 +2198,53 @@ function Invoke-VMShareFolder {
     }
 }
 
-function Invoke-VMCommand {
+function Invoke-HostInstall {
+    param([string[]]$InstallArgs)
+    
+    # Host install é apenas disponível em sistemas Linux/macOS nativo
+    # Windows deve usar VM, pois não há pacotes Debian/Ubuntu nativos
+    throw @"
+Erro: 'host install' nao eh suportado no Windows.
+
+No Windows, use apenas:
+  ea11ctl vm install (baixa a imagem VM Debian pre-configurada)
+  ea11ctl vm start    (inicia a VM com Emacs + espeakup)
+
+A instalacao nativa (host install) eh suportada apenas em:
+  - Linux com Debian 11+/Ubuntu 20.04+
+  - macOS (com bash shell nativo)
+
+Se desejar testar host install no Windows, considere usar WSL2:
+  1. Instale Windows Subsystem for Linux (WSL2)
+  2. Instale Debian ou Ubuntu dentro do WSL
+  3. Execute: ea11ctl host install
+
+Mais informacoes: https://learn.microsoft.com/pt-br/windows/wsl/
+"@
+}
+
+function Invoke-HostCommand {
+    param([string[]]$Tokens)
+    
+    if ($Tokens.Length -eq 0) {
+        throw "Uso: ea11ctl host <install>"
+    }
+    
+    $sub = $Tokens[0]
+    $rest = @()
+    if ($Tokens.Length -gt 1) {
+        $rest = $Tokens[1..($Tokens.Length - 1)]
+    }
+    
+    switch ($sub) {
+        { $_ -in @('install', '-i') } {
+            Invoke-HostInstall -InstallArgs $rest
+        }
+        default {
+            throw "Subcomando host desconhecido: $sub"
+        }
+    }
+}
     param([string[]]$Tokens)
 
     Assert-NoBackendOption -Tokens $Tokens
@@ -2273,6 +2320,7 @@ try {
         'update' { Invoke-SelfUpdate -Tokens $rest }
         'uninstall' { Invoke-Uninstall -Tokens $rest }
         'vm' { Invoke-VMCommand -Tokens $rest }
+        'host' { Invoke-HostCommand -Tokens $rest }
         default {
             throw "Comando desconhecido: $root"
         }

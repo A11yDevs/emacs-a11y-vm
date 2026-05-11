@@ -363,13 +363,13 @@ sync_backend_scripts_from_repo() {
         return 0
     fi
 
-    for file in common.sh qemu.sh; do
+    for file in common.sh qemu.sh host.sh; do
         if [[ -f "$source_dir/$file" ]]; then
             cp "$source_dir/$file" "$target_dir/$file"
         fi
     done
 
-    chmod +x "$target_dir/qemu.sh" 2>/dev/null || true
+    chmod +x "$target_dir/qemu.sh" "$target_dir/host.sh" 2>/dev/null || true
 }
 
 sync_backend_scripts_from_remote() {
@@ -378,14 +378,14 @@ sync_backend_scripts_from_remote() {
     local base_url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli/backend-scripts"
     local file
 
-    for file in common.sh qemu.sh; do
+    for file in common.sh qemu.sh host.sh; do
         if ! curl -fsSL "$base_url/$file" -o "$target_dir/$file" 2>/dev/null; then
             ea11_warn "Nao foi possivel atualizar backend script: $file"
             return 1
         fi
     done
 
-    chmod +x "$target_dir/qemu.sh" 2>/dev/null || true
+    chmod +x "$target_dir/qemu.sh" "$target_dir/host.sh" 2>/dev/null || true
 }
 
 resolve_backend_script_path() {
@@ -486,6 +486,17 @@ invoke_vm_optimize() {
     run_backend_command optimize "$@"
 }
 
+#################################################################################
+# Funcoes de Host (Debian/Ubuntu nativa)
+#################################################################################
+
+invoke_host_install() {
+    local backend='host'
+    local script_path
+    script_path=$(resolve_backend_script_path "$backend") || return 1
+    bash "$script_path" install "$@"
+}
+
 invoke_vm_command() {
     local action="${1:-}"
     shift || true
@@ -540,6 +551,22 @@ invoke_vm_command() {
             ;;
         *)
             ea11_error "Subcomando vm desconhecido: $action"
+            show_help
+            return 1
+            ;;
+    esac
+}
+
+invoke_host_command_main() {
+    local action="${1:-}"
+    shift || true
+    
+    case "$action" in
+        install|-i)
+            invoke_host_install "$@"
+            ;;
+        *)
+            ea11_error "Subcomando host desconhecido: $action"
             show_help
             return 1
             ;;
@@ -609,8 +636,9 @@ Uso:
   ea11ctl help|-h|--help
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
-    ea11ctl uninstall [--purge-state] [--yes] [--force-repo-path]
-    ea11ctl vm install|-i [args-do-install-release-vm.sh]
+  ea11ctl uninstall [--purge-state] [--yes] [--force-repo-path]
+  ea11ctl vm install|-i [args-do-install-release-vm.sh]
+  ea11ctl host install|-i (Instalação nativa em Debian/Ubuntu)
                 ea11ctl vm version|-V [-n|--name VM]
                 ea11ctl vm check-update|-U [-n|--name VM]
         ea11ctl vm list|-l
@@ -663,6 +691,9 @@ main() {
             ;;
         vm)
             invoke_vm_command "$@"
+            ;;
+        host)
+            invoke_host_command_main "$@"
             ;;
         "")
             show_help
