@@ -5,48 +5,41 @@ Este guia mostra como instalar a VM emacs-a11y no Windows usando uma release pro
 ## Pré-requisitos
 
 - **Windows** (10 ou 11)
-- **VirtualBox** instalado — [download em virtualbox.org](https://www.virtualbox.org/wiki/Downloads)
+- **QEMU** instalado (`qemu-system-x86_64` e `qemu-img` no PATH)
 - Conexão com a internet
 
 ---
 
 ## Instalação
 
-### Opção 1: Arquivo .cmd (mais fácil)
-
-Baixe o repositório e clique duas vezes em `scripts\install-release-vm.cmd`.
-
-O script cuida de tudo automaticamente:
-
-1. Baixa a imagem da VM do GitHub
-2. Converte para o formato do VirtualBox (~5-10 min na primeira vez)
-3. Cria a VM e configura a rede
-
-### Opção 2: PowerShell (linha de comando)
+### Opção 1: PowerShell (linha de comando)
 
 ```powershell
-PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1
+ea11ctl vm install
+ea11ctl vm start
 ```
 
 Com parâmetros personalizados (mais memória, mais CPUs):
 
 ```powershell
-PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -RAM 4096 -CPUs 4
+ea11ctl vm start --memory 2048 --cpus 2
 ```
 
 Para ver todas as opções:
 
 ```powershell
-PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -Help
+ea11ctl help
 ```
 
-### Opção 3: Sem clonar o repositório
+### Opção 2: Sem clonar o repositório
 
 Execute diretamente via URL:
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
-iex (iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.ps1' -UseBasicParsing).Content
+iex (iwr 'https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/cli/install.ps1' -UseBasicParsing).Content
+ea11ctl vm install
+ea11ctl vm start
 ```
 
 ---
@@ -68,7 +61,7 @@ ssh -p 2222 a11ydevs@localhost
 
 ### "O script não está assinado digitalmente"
 
-Use o arquivo `.cmd` (Opção 1) ou execute com `-ExecutionPolicy Bypass` (Opção 2).
+Use `-ExecutionPolicy Bypass` ao instalar a CLI por URL.
 
 Se preferir uma solução permanente:
 
@@ -82,18 +75,18 @@ Execute o PowerShell como Administrador ou navegue para uma pasta com permissão
 
 ```powershell
 cd $env:USERPROFILE\Downloads
-PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -OutputDir "$env:USERPROFILE\Downloads\emacs-a11y-vm"
+ea11ctl vm install
+ea11ctl vm start
 ```
 
-### VBoxManage não encontrado
+### QEMU não encontrado
 
-Verifique se o VirtualBox está instalado corretamente:
+Verifique se o QEMU está instalado corretamente:
 
 ```powershell
-VBoxManage --version
+qemu-system-x86_64 --version
+qemu-img --version
 ```
-
-Se necessário, adicione `C:\Program Files\Oracle\VirtualBox` ao PATH do sistema.
 
 ### Diagnóstico de áudio na VM
 
@@ -122,22 +115,15 @@ Após instalar, você pode usar `ea11ctl` em qualquer diretório.
 
 ### Gerenciamento por backend
 
-A CLI usa um único comando `vm` para todos os backends, com seleção preferencial via `-b` (ou `--backend`).
+A CLI usa backend QEMU como padrão.
 
 Exemplos:
 
 ```powershell
-# VirtualBox (padrão)
 ea11ctl vm start
-
-# VirtualBox explícito
-ea11ctl vm start -b virtualbox
-
-# QEMU
-ea11ctl vm start -b qemu
-ea11ctl vm status -b qemu
-ea11ctl vm ssh -b qemu
-ea11ctl vm stop -b qemu
+ea11ctl vm status
+ea11ctl vm ssh
+ea11ctl vm stop
 ```
 
 No backend QEMU, o ea11ctl usa `~/.emacs-a11y-vm` para manter consistência:

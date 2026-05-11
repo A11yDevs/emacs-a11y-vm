@@ -1,5 +1,5 @@
 [Unit]
-Description=Mount Host Shared Folders (VirtualBox/QEMU)
+Description=Mount Host Shared Folders (QEMU)
 Documentation=https://github.com/A11yDevs/emacs-a11y-vm
 After=local-fs.target
 

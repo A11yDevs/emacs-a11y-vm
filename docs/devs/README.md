@@ -11,6 +11,7 @@ Esta pasta contém documentação técnica para quem contribui com o projeto ema
 | [generate-vm.md](generate-vm.md) | Gerar a VM localmente com scripts |
 | [manual-install.md](manual-install.md) | Instalação manual do Debian (passo a passo) |
 | [releases.md](releases.md) | Pipeline de CI/CD e publicação de releases |
+| [ai-usage.md](ai-usage.md) | Declaração de uso de IA (Copilot, agentes e modelos) |
 
 ## Início rápido para contribuidores
 

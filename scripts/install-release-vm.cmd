@@ -12,10 +12,13 @@ REM ============================================================================
 
 echo.
 echo ====================================================
-echo   Instalador de VM Debian A11y via GitHub Release
+echo   [DEPRECATED] Instalador legado VirtualBox/VDI
 echo ====================================================
 echo.
-echo Iniciando instalacao...
+echo Use o fluxo QEMU-only com ea11ctl:
+echo   1) instale a CLI: cli\install.ps1
+echo   2) execute: ea11ctl vm install
+echo   3) execute: ea11ctl vm start
 echo.
 
 REM Define o diretório do script

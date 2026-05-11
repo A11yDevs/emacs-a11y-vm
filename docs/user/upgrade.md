@@ -19,7 +19,7 @@ Se `/home` não aparece em disco separado, entre em contato com o suporte do pro
 
 ## Processo de upgrade
 
-Use o mesmo comando `vm` da CLI, escolhendo o backend com `-b` (ou `--backend`).
+Use o comando `vm` da CLI (backend QEMU).
 
 ### 1. Backup recomendado
 
@@ -41,29 +41,11 @@ sudo shutdown -h now
 
 Ou pelo host, usando a CLI:
 
-```powershell
-# VirtualBox
-ea11ctl vm stop -b virtualbox
-
-# QEMU
-ea11ctl vm stop -b qemu
+```bash
+ea11ctl vm stop
 ```
 
-### 3. Atualizar conforme o backend
-
-#### VirtualBox (`-b virtualbox`)
-
-O script detecta automaticamente o disco de dados e o preserva.
-
-```powershell
-# Windows — instala a última release
-PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1
-
-# Ou uma versão específica
-PowerShell -ExecutionPolicy Bypass -File .\scripts\install-release-vm.ps1 -Tag v2.0.0
-```
-
-#### QEMU (`-b qemu`)
+### 3. Atualizar no QEMU
 
 No backend QEMU, a imagem de sistema fica em `~/.emacs-a11y-vm/debian-a11ydevs.qcow2`.
 O disco de dados (`~/.emacs-a11y-vm/<vm>-home.qcow2`) permanece intacto e continua sendo montado em `/home`.
@@ -72,13 +54,13 @@ Passos recomendados:
 
 ```bash
 # 1) Garantir VM parada
-ea11ctl vm stop -b qemu
+ea11ctl vm stop
 
 # 2) Substituir a imagem de sistema pela versão nova
 cp /caminho/para/debian-a11ydevs.qcow2 ~/.emacs-a11y-vm/debian-a11ydevs.qcow2
 
 # 3) Iniciar novamente
-ea11ctl vm start -b qemu
+ea11ctl vm start
 ```
 
 ### 4. Verificar após o upgrade (todos os backends)
@@ -98,10 +80,10 @@ df -h /home
 ls -la ~/.emacs.d/init.el
 ```
 
-Se estiver usando QEMU, você também pode validar no host:
+Você também pode validar no host:
 
 ```bash
-ea11ctl vm status -b qemu
+ea11ctl vm status
 ```
 
 ---

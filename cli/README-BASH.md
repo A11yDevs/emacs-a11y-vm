@@ -90,24 +90,16 @@ ea11ctl update --force           # Força atualização
 #### Listar VMs
 
 ```bash
-# VirtualBox (padrão)
 ea11ctl vm list
-
-# QEMU
-ea11ctl vm list --backend qemu
 ```
 
 #### Iniciar VM
 
 ```bash
-# VirtualBox
 ea11ctl vm start
 
 # Com nome específico
 ea11ctl vm start -n debian-a11y
-
-# QEMU
-ea11ctl vm start --backend qemu
 
 # Modo headless (sem GUI)
 ea11ctl vm start --headless
@@ -154,14 +146,17 @@ ea11ctl vm ssh -- -v
 #### Pastas Compartilhadas
 
 ```bash
-# Adicionar pasta
-ea11ctl vm share-folder add -p /caminho/local -n shared_folder
+# Ver configuração atual
+ea11ctl vm host-share list
 
-# Remover pasta
-ea11ctl vm share-folder remove --name shared_folder
+# Unix/macOS: compartilhar via SSH
+ea11ctl vm host-share set --mode ssh --ssh-user "$USER" --ssh-path "$HOME"
 
-# Listar pastas
-ea11ctl vm share-folder list
+# Windows host (via Bash): compartilhar via CIFS
+ea11ctl vm host-share set --mode cifs --smb-server 10.0.2.2 --smb-share Users --smb-user "$USER" --smb-password '<senha>'
+
+# Limpar configuração
+ea11ctl vm host-share clear
 ```
 
 #### Instalar VM Release
@@ -177,7 +172,7 @@ ea11ctl vm install -n debian-a11y --no-gui
 
 | Opção | Valor Padrão |
 |-------|--------------|
-| Backend | virtualbox |
+| Backend | qemu |
 | VM | debian-a11y |
 | Usuário SSH | a11ydevs |
 | Porta SSH | 2222 |
@@ -199,13 +194,13 @@ A CLI cria e utiliza os seguintes diretórios:
 ### macOS
 - bash 4.0+ (incluso no sistema)
 - curl ou wget
-- VirtualBox (para backend virtualbox) ou QEMU (para backend qemu)
+- QEMU
 - OpenSSH (incluso no sistema)
 
 ### Linux
 - bash 4.0+
 - curl ou wget
-- VirtualBox ou QEMU (conforme backend)
+- QEMU
 - OpenSSH
 - qemu-system-x86_64 (para QEMU)
 
@@ -215,7 +210,6 @@ A CLI cria e utiliza os seguintes diretórios:
 ```bash
 # Usando Homebrew
 brew install qemu              # Para QEMU
-brew cask install virtualbox   # Para VirtualBox
 ```
 
 #### Debian/Ubuntu
@@ -224,7 +218,6 @@ sudo apt-get update
 sudo apt-get install -y \
     qemu-system-x86 \
     qemu-utils \
-    virtualbox \
     openssh-client \
     curl
 ```

@@ -151,30 +151,6 @@ jobs:
             | Arquivo | Uso |
             |---------|-----|
             | `debian-a11ydevs.qcow2` | QEMU / KVM / libvirt |
-            | `debian-a11ydevs.vmdk` | VirtualBox (disco avulso) |
-
-            ### Importar no VirtualBox
-
-            ```bash
-            # 1. Criar nova VM (Debian 64-bit, sem disco)
-            VBoxManage createvm --name debian-a11y --ostype Debian_64 --register
-
-            # 2. Configurar hardware mínimo
-            VBoxManage modifyvm debian-a11y \
-              --memory 2048 --cpus 2 \
-              --audio-driver default --audio-controller ac97 \
-              --audio-enabled on --audio-out on \
-              --nic1 nat
-
-            # 3. Adicionar o VMDK como disco principal
-            VBoxManage storagectl debian-a11y --name SATA --add sata
-            VBoxManage storageattach debian-a11y \
-              --storagectl SATA --port 0 --device 0 \
-              --type hdd --medium debian-a11ydevs.vmdk
-
-            # 4. Iniciar
-            VBoxManage startvm debian-a11y --type headless
-            ```
 
             ### Credenciais padrão
 

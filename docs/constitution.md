@@ -1,147 +1,126 @@
-# Constituição do Projeto emacs-a11y-vm
+# Constituicao do Projeto emacs-a11y-vm
 
-Este documento registra os princípios fundamentais que guiaram as decisões de design e implementação deste projeto. Ele deve ser consultado antes de qualquer modificação ou melhoria significativa.
-
----
-
-## 1. Acessibilidade é a finalidade, não um recurso adicional
-
-A VM existe para tornar o Emacs acessível via síntese de voz. Todo componente — desde o preseed de instalação até o `init.el` padrão — deve preservar essa finalidade. Configurações que comprometam o uso com leitores de tela (espeakup, BRLTTY) não devem ser adicionadas sem justificativa explícita.
+Este documento registra os principios fundamentais que guiam as decisoes de design e implementacao do projeto.
 
 ---
 
-## 2. Público-alvo: usuários Windows
+## 1. Acessibilidade e prioridade absoluta
 
-O projeto é direcionado a usuários do Windows que utilizam o VirtualBox. O script de instalação principal é `scripts/install-release-vm.ps1`. Não há suporte ativo a Linux ou macOS no fluxo de instalação de releases. Novas funcionalidades devem considerar esse contexto.
+A VM existe para tornar o Emacs acessivel via sintese de voz. Toda mudanca deve preservar:
 
----
-
-## 3. Arquitetura de dois discos é inviolável
-
-A separação entre disco de sistema (VMDK) e disco de dados do usuário (VDI) é a peça central do projeto:
-
-- **VMDK** (`/`): imutável, substituído em upgrades, gerado pelo CI.
-- **VDI** (`/home`): persistente, nunca substituído, criado localmente no primeiro uso.
-
-Qualquer modificação que misture esses papéis — armazenar dados do usuário no VMDK ou fazer o script apagar o VDI sem consentimento explícito — viola esse princípio.
+- speakup/espeakup funcionando no boot
+- fluxo de recuperacao de voz (atalhos/comandos de emergencia)
+- operacao sem interface grafica obrigatoria
 
 ---
 
-## 4. Customizações do usuário vivem exclusivamente em `/home`
+## 2. Projeto QEMU-only
 
-O usuário não deve modificar nada fora de `/home`. Essa restrição é documentada, reforçada pelo script de inicialização de userdata e pelo guia de customização. Scripts e documentação não devem encorajar alterações fora desse escopo.
+O projeto adota QEMU como unico backend de virtualizacao para fluxo suportado.
 
----
-
-## 5. Idempotência nos scripts de instalação
-
-O script `install-release-vm.ps1` deve poder ser executado múltiplas vezes com segurança:
-
-- Se o VMDK já existe na versão correta, não baixar novamente.
-- Se a VM já está registrada com os discos corretos, não recriar.
-- Se o VDI já existe, preservá-lo — nunca sobrescrever sem `-PreserveUserData` explícito.
-
-Qualquer bloco novo adicionado ao script deve respeitar os flags `$ReuseExistingVmdk`, `$SkipVmCreation` e `$PreserveUserData`.
+- Nao introduzir dependencias de VirtualBox, VBoxManage, VDI ou vboxsf.
+- Nao criar novos fluxos paralelos de backend.
+- Documentacao, scripts e CI devem refletir esse direcionamento.
 
 ---
 
-## 6. Comparação de versão, não de tamanho de arquivo
+## 3. Arquitetura de dois discos (qcow2) e inviolavel
 
-A detecção de "novo download necessário" usa o arquivo `.version` gerado ao lado do VMDK, comparando tags de release. Comparação por tamanho de arquivo é proibida: VMDKs dinâmicos crescem com uso e o tamanho se torna não-determinístico após a primeira inicialização da VM.
+A separacao entre sistema e dados do usuario e obrigatoria:
 
----
+- Disco de sistema (qcow2): atualizado/substituido em upgrades.
+- Disco de dados (qcow2): persistente, montado em /home e preservado.
 
-## 7. Pasta de saída estável e independente do CWD
-
-O diretório padrão de armazenamento é `%USERPROFILE%\.emacs-a11y-vm`. Nunca usar caminhos relativos ao diretório de trabalho do PowerShell, que pode variar conforme o contexto de execução (ex.: `C:\Program Files\Oracle\VirtualBox`). O caminho absoluto deve ser resolvido via `$env:USERPROFILE` ou `$env:LOCALAPPDATA`, nunca via `$PWD` ou `Get-Location`.
-
----
-
-## 8. Distribuição via GitHub Releases, não via código-fonte
-
-O usuário final não precisa clonar o repositório. O script pode ser executado diretamente via URL com `iex (iwr ...)`. Os artefatos distribuíveis são publicados como assets em GitHub Releases (`.vmdk`, `.qcow2`). O repositório contém apenas o código de geração e instalação, não imagens binárias (exceto `releases/debian-a11ydevs.vmdk` que é o seed inicial).
+Qualquer mudanca que misture esses papeis viola a arquitetura do projeto.
 
 ---
 
-## 9. Build automatizado e reproduzível via CI
+## 4. Customizacoes do usuario em /home
 
-A imagem VMDK é gerada exclusivamente via Packer + QEMU no GitHub Actions (`release.yml`). Builds manuais locais são permitidos para desenvolvimento, mas não devem produzir artefatos publicáveis. O preseed (`packer/http/preseed.cfg`) e o template HCL (`packer/debian-a11y.pkr.hcl`) são a única fonte de verdade do sistema base.
+Customizacoes de usuario devem viver em /home.
 
----
-
-## 10. Sem credenciais ou dados sensíveis em código ou documentação
-
-Nenhum script, arquivo de configuração, preseed ou exemplo de documentação deve conter senhas reais, tokens de API, chaves SSH privadas ou outros dados sensíveis. Valores padrão usados no preseed (ex.: senha de instalação) são aceitáveis apenas por serem de uma VM descartável/local, e devem ser documentados como tal.
+- O usuario deve conseguir atualizar a imagem de sistema sem perder dados.
+- Scripts e documentacao nao devem incentivar alteracoes persistentes fora de /home.
 
 ---
 
-## 11. VBoxManage como única interface com o VirtualBox
+## 5. Idempotencia da CLI e dos scripts
 
-Toda interação com o VirtualBox nos scripts de instalação ocorre via `VBoxManage`. Não usar GUIs, COM objects ou APIs alternativas. Isso garante funcionamento em sistemas sem interface gráfica (ex.: servidores de CI, Windows Server Core) e facilita depuração.
+Comandos principais devem ser reexecutaveis com seguranca.
 
----
-
-## 12. Erros devem ser fatais e informativos
-
-O script usa `$ErrorActionPreference = "Stop"`. Qualquer falha deve interromper a execução com mensagem clara de contexto. Não suprimir erros com `2>$null` ou blocos `catch` vazios. Exceções da saída de progresso do VBoxManage (ex.: `"0%..."`) são a exceção conhecida — verificar existência do arquivo resultante em vez de confiar no código de saída nesses casos.
+- vm install: nao deve baixar novamente sem necessidade (exceto force-download).
+- vm start/stop/status/ssh: devem lidar com estado existente sem corromper ambiente.
+- Disco de dados: jamais sobrescrever por padrao.
 
 ---
 
-## 13. Documentação acompanha cada funcionalidade
+## 6. Distribuicao de release em QCOW2
 
-Cada comportamento relevante deve ter documentação correspondente:
+A distribuicao oficial e baseada em asset qcow2 no GitHub Releases.
 
-- `architecture.md` → arquitetura de discos
-- `customization-guide.md` → o que o usuário pode e não pode modificar
-- `upgrade-guide.md` → como atualizar preservando dados
-- `github-releases.md` → fluxo de CI/CD e publicação
-
-Ao adicionar uma funcionalidade nova, atualizar o documento pertinente. Ao remover uma funcionalidade, remover ou atualizar as referências existentes.
+- CI publica qcow2.
+- CLI prepara/consome qcow2 diretamente.
+- Nao converter para formatos legados no fluxo suportado.
 
 ---
 
-## 14. Mínimo de dependências externas
+## 7. Build reproduzivel via Packer + QEMU
 
-O script de instalação depende apenas de PowerShell (nativo no Windows) e VirtualBox (pré-requisito documentado). Não adicionar dependências de ferramentas externas (chocolatey, winget, 7-zip, curl) sem avaliação cuidadosa. Preferir as APIs nativas do PowerShell (`Invoke-WebRequest`, `Expand-Archive`, `[System.IO.Compression.ZipFile]`).
+A imagem base e definida por:
 
----
+- packer/debian-a11y.pkr.hcl
+- packer/http/preseed.cfg
+- arquivos em packer/files
 
-## 15. Distribui QCOW2 e converte para VDI localmente
-
-O CI gera QCOW2 compactado (< 2GB, compatível com limite do GitHub Releases). O instalador Windows converte QCOW2 → VDI nativo do VirtualBox no host do usuário usando `VBoxManage clonemedium`.
-
-**Razão**: Formato VMDK ultrapassou limite de 2GB do GitHub quando monolithicSparse (gravável). streamOptimized (read-only) criava child media indesejados. QCOW2 é universal (QEMU/KVM/libvirt) e compacta bem, VDI é nativo VirtualBox e gravável.
-
-**Implicação no CI**: `.github/workflows/release.yml` publica apenas `debian-a11ydevs.qcow2`. VMDK não é mais distribuído.
-
-**Implicação no Instalador**: `install-release-vm.ps1` baixa QCOW2, converte para VDI (~5-10min), anexa VDI como disco de sistema. Conversão ocorre apenas quando versão muda.
+Esses artefatos sao a fonte de verdade para sistema base.
 
 ---
 
-## 16. Recuperação de Emergência para Síntese de Voz
+## 8. Erros devem ser fatais e informativos
 
-Usuários cegos dependem 100% da síntese de voz (espeakup). Se o espeakup falhar, perdem todo acesso ao sistema sem feedback visual para diagnosticar o problema. A VM implementa recuperação multi-camada:
+Scripts de automacao devem falhar cedo com contexto claro.
 
-1. **Atalho F12**: Execução imediata via bash readline (`~/.inputrc` mapeia `\e[24~` para `restart-speech\n`)
-2. **Comando `falar`**: Alias curto e memorável em português (`.bashrc`)
-3. **Comando `restart-speech`**: Script completo em `/usr/local/bin/restart-speech` que para espeakup, recarrega módulo `speakup_soft`, reinicia espeakup, verifica status
-4. **Auto-restart systemd**: Drop-in `/etc/systemd/system/espeakup.service.d/resilience.conf` configura `Restart=on-failure` com 5 tentativas em 2 minutos
-5. **Sudoers sem senha**: Arquivo `/etc/sudoers.d/a11y-speech` (modo 440) permite restart de espeakup e modprobe sem digitar senha (único mecanismo viável quando usuário está cego sem áudio)
-
-**Implicação em Modificações**: Qualquer mudança no espeakup, speakup_soft, sudoers ou dotfiles do skel deve preservar estes mecanismos. O motd DEVE destacar instruções de emergência ("pressione F12"). Sudoers DEVE manter NOPASSWD para comandos críticos de acessibilidade. Dotfiles em `/etc/skel/emacs-a11y/` devem incluir `.inputrc` com binding F12.
-
-**Justificativa do F12**: Tecla única (não requer digitação), localização de canto (fácil de encontrar tatilmente), raramente conflita com outros softwares, funciona nativamente em bash readline sem dependências externas.
+- Evitar suprimir erro silenciosamente.
+- Mensagens devem indicar acao de recuperacao quando possivel.
 
 ---
 
-## Checklist para modificações
+## 9. Sem dados sensiveis em codigo/documentacao
 
-Antes de aplicar qualquer mudança significativa ao projeto, verifique:
+Nao incluir:
 
-- [ ] A modificação preserva o funcionamento com síntese de voz?
-- [ ] O script de instalação continua idempotente?
-- [ ] O disco VDI do usuário é preservado em todos os caminhos de execução?
-- [ ] O caminho de armazenamento é absoluto e independente do CWD?
-- [ ] A documentação relevante foi atualizada?
-- [ ] Nenhuma credencial ou dado sensível foi introduzido?
-- [ ] A modificação funciona no contexto do público-alvo (Windows + VirtualBox)?
+- tokens
+- chaves privadas
+- credenciais reais
+
+Valores de laboratorio da VM devem estar claramente identificados como nao-producao.
+
+---
+
+## 10. Documentacao acompanha mudancas
+
+Toda alteracao funcional relevante deve atualizar a documentacao correspondente.
+
+- arquitetura
+- releases
+- instalacao/upgrade
+- operacao e troubleshooting
+
+---
+
+## 11. Recuperacao de emergencia de voz e obrigatoria
+
+Mudancas em espeakup/speakup/dotfiles/systemd nao podem remover os mecanismos de recuperacao de audio para usuarios cegos.
+
+---
+
+## Checklist para modificacoes
+
+Antes de consolidar mudancas significativas, validar:
+
+- [ ] acessibilidade continua funcional no boot e pos-boot
+- [ ] backend segue QEMU-only
+- [ ] disco de dados em /home permanece preservado
+- [ ] comandos sao idempotentes
+- [ ] documentacao foi atualizada
+- [ ] nenhum segredo foi introduzido

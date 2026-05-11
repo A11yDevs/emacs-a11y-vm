@@ -1,18 +1,10 @@
 #!/bin/bash
-# Script para montar automaticamente pastas compartilhadas de host
-# Suporta:
-# - VirtualBox Shared Folders (vboxsf)
-# - QEMU 9p/virtfs com tag hosthome_<usuario>
-# - QEMU usernet SMB fallback (//10.0.2.4/qemu -> /home/hosthome)
-# - SMB do host Windows (credenciais via fw_cfg do QEMU)
-#
-# Executado pelo systemd no boot.
-#
-# Para cada shared folder configurada no VirtualBox (VBoxControl sharedfolder list),
-# monta em /home/<nome-da-share> com uid/gid do usuario a11ydevs.
-# Isso permite que a pasta pessoal do Windows apareça em /home/<usuario-windows>.
+# Script para montar compartilhamento do host no guest (QEMU).
+# Modos suportados:
+# - SSH (Unix/macOS): sshfs via fw_cfg (opt/ea11/ssh_*)
+# - CIFS (Windows): cifs via fw_cfg (opt/ea11/smb_*)
 
-set -uo pipefail
+set -euo pipefail
 
 USER_UID=1000
 USER_GID=1000
@@ -20,91 +12,119 @@ USER_GID=1000
 echo "=== mount-shared-folder.sh iniciado ==="
 echo "Data: $(date)"
 
-# --- Montagem QEMU 9p/virtfs ------------------------------------------------
+read_fw_cfg_string() {
+    local key="$1"
+    local value=""
+    local raw_path="/sys/firmware/qemu_fw_cfg/by_name/opt/ea11/${key}/raw"
+    local alt_path="/sys/firmware/qemu_fw_cfg/by_name/opt/ea11/${key}"
 
-mount_qemu_9p() {
-    local mounted=0
-    local failed=0
+    if [[ -r "$raw_path" ]]; then
+        value="$(tr -d '\0\r\n' < "$raw_path" 2>/dev/null || true)"
+    elif [[ -r "$alt_path" ]]; then
+        value="$(tr -d '\0\r\n' < "$alt_path" 2>/dev/null || true)"
+    fi
 
-    # Carregar modulos 9p, se disponiveis
-    modprobe 9pnet_virtio 2>/dev/null || true
-    modprobe 9pnet 2>/dev/null || true
-    modprobe 9p 2>/dev/null || true
+    printf '%s\n' "$value"
+}
 
-    mapfile -t qemu_tags < <(
-        find /sys -type f -name mount_tag 2>/dev/null \
-            | while read -r tag_file; do
-                cat "$tag_file" 2>/dev/null || true
-              done \
-            | sort -u
+sanitize_user() {
+    local value="$1"
+    value="$(printf '%s' "$value" | tr -cd '[:alnum:]_-')"
+    if [[ -z "$value" ]]; then
+        printf 'hosthome\n'
+        return
+    fi
+    printf '%s\n' "$value"
+}
+
+share_mountpoint() {
+    local host_user
+    host_user="$(sanitize_user "$(read_fw_cfg_string host_user)")"
+    printf '/home/%s\n' "$host_user"
+}
+
+prepare_mountpoint() {
+    local mount_point="$1"
+    mkdir -p "$mount_point"
+    chown "$USER_UID:$USER_GID" "$mount_point" 2>/dev/null || true
+}
+
+mount_host_ssh() {
+    local ssh_host ssh_port ssh_user ssh_path ssh_password mount_point target
+    local -a sshfs_args
+
+    ssh_host="$(read_fw_cfg_string ssh_host)"
+    ssh_port="$(read_fw_cfg_string ssh_port)"
+    ssh_user="$(read_fw_cfg_string ssh_user)"
+    ssh_path="$(read_fw_cfg_string ssh_path)"
+    ssh_password="$(read_fw_cfg_string ssh_password)"
+    mount_point="$(share_mountpoint)"
+
+    [[ -z "$ssh_host" ]] && ssh_host='10.0.2.2'
+    [[ -z "$ssh_port" ]] && ssh_port='22'
+
+    if [[ -z "$ssh_user" || -z "$ssh_path" ]]; then
+        echo "SSH share sem usuario/caminho configurado; pulando."
+        return 1
+    fi
+
+    if ! command -v sshfs &>/dev/null; then
+        echo "AVISO: sshfs nao encontrado (instale pacote sshfs no guest)."
+        return 1
+    fi
+
+    prepare_mountpoint "$mount_point"
+    if mountpoint -q "$mount_point"; then
+        echo "SSH share ja montado em $mount_point"
+        return 0
+    fi
+
+    target="${ssh_user}@${ssh_host}:${ssh_path}"
+    sshfs_args=(
+        -p "$ssh_port"
+        -o StrictHostKeyChecking=accept-new
+        -o UserKnownHostsFile=/root/.ssh/known_hosts
+        -o reconnect
+        -o uid="$USER_UID"
+        -o gid="$USER_GID"
     )
 
-    for tag in "${qemu_tags[@]}"; do
-        [[ -z "$tag" ]] && continue
-
-        if [[ "$tag" =~ ^hosthome_(.+)$ ]]; then
-            host_user="${BASH_REMATCH[1]}"
-            mount_point="/home/$host_user"
-
-            if [[ ! -d "$mount_point" ]]; then
-                mkdir -p "$mount_point"
-                chown "$USER_UID:$USER_GID" "$mount_point"
-            fi
-
-            if mountpoint -q "$mount_point"; then
-                echo "QEMU 9p tag '$tag' ja montada em $mount_point"
-                continue
-            fi
-
-            if mount -t 9p -o trans=virtio,version=9p2000.L,msize=262144,cache=mmap "$tag" "$mount_point"; then
-                echo "QEMU 9p tag '$tag' montada em $mount_point"
-                chown "$USER_UID:$USER_GID" "$mount_point" 2>/dev/null || true
-                (( mounted++ )) || true
-            else
-                echo "AVISO: Nao foi possivel montar QEMU 9p tag '$tag' em $mount_point"
-                (( failed++ )) || true
-            fi
+    if [[ -n "$ssh_password" ]]; then
+        if printf '%s' "$ssh_password" | sshfs "$target" "$mount_point" "${sshfs_args[@]}" -o password_stdin; then
+            echo "SSH share montado: $target -> $mount_point"
+            return 0
         fi
-    done
+    else
+        if sshfs "$target" "$mount_point" "${sshfs_args[@]}"; then
+            echo "SSH share montado: $target -> $mount_point"
+            return 0
+        fi
+    fi
 
-    echo "QEMU 9p: $mounted montagem(ns), $failed falha(s)"
+    echo "AVISO: Falha ao montar SSH share ($target)"
+    return 1
 }
 
 mount_qemu_smb_fallback() {
-    local smb_server="10.0.2.4"
-    local smb_share="qemu"
-    local host_user=""
-    local mount_point="/home/hosthome"
+    local smb_server='10.0.2.4'
+    local smb_share='qemu'
+    local mount_point
     local mounted=0
-
-    # Host user enviado pelo CLI via QEMU fw_cfg: opt/ea11/host_user
-    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/host_user/raw ]]; then
-        host_user="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/host_user/raw 2>/dev/null || true)"
-    fi
-
-    if [[ -z "$host_user" && -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/host_user ]]; then
-        host_user="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/host_user 2>/dev/null || true)"
-    fi
-
-    host_user="$(echo "$host_user" | tr -cd '[:alnum:]_-')"
-    if [[ -n "$host_user" ]]; then
-        mount_point="/home/$host_user"
-    fi
 
     if ! command -v mount.cifs &>/dev/null; then
         echo "AVISO: mount.cifs nao encontrado (instale cifs-utils para SMB fallback no QEMU)"
-        return
+        return 1
     fi
+
+    mount_point="$(share_mountpoint)"
 
     if mountpoint -q "$mount_point"; then
         echo "QEMU SMB fallback ja montado em $mount_point"
-        return
+        return 0
     fi
 
-    mkdir -p "$mount_point"
-    chown "$USER_UID:$USER_GID" "$mount_point" 2>/dev/null || true
+    prepare_mountpoint "$mount_point"
 
-    # Alguns ambientes aceitam SMB moderno; outros so montam com versao antiga.
     local options=(
         "guest,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,noperm,vers=3.0"
         "guest,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,noperm,vers=2.1"
@@ -122,168 +142,82 @@ mount_qemu_smb_fallback() {
 
     if [[ $mounted -eq 0 ]]; then
         echo "AVISO: SMB fallback do QEMU indisponivel (//$smb_server/$smb_share)."
+        return 1
     fi
+
+    return 0
 }
-
-# --- Montagem VirtualBox Shared Folders -------------------------------------
-
-mount_virtualbox_shares() {
-    # --- Verificações de pré-requisito ---------------------------------------
-
-# Guest Additions disponível?
-    if ! modinfo vboxsf &>/dev/null; then
-        echo "AVISO: módulo vboxsf não encontrado (Guest Additions não instalado?)"
-        return
-    fi
-    echo "OK: módulo vboxsf disponível"
-
-# Carregar módulo vboxsf se necessário
-    if ! lsmod | grep -q vboxsf; then
-        echo "Carregando módulo vboxsf..."
-        modprobe vboxsf 2>/dev/null || {
-            echo "AVISO: falha ao carregar módulo vboxsf"
-            return
-        }
-    fi
-    echo "OK: módulo vboxsf carregado"
-
-# VBoxControl acessível?
-    if ! command -v VBoxControl &>/dev/null; then
-        echo "AVISO: VBoxControl não encontrado no PATH"
-        return
-    fi
-    echo "OK: VBoxControl encontrado em $(command -v VBoxControl)"
-
-# --- Descobrir shares configuradas -------------------------------------------
-# Formato da saída de VBoxControl sharedfolder list (VirtualBox 6+):
-#   No.  Name        Host Path        Access  AutoMount  AutoMountPoint
-#   ---  ----        ---------        ------  ---------  --------------
-#     1  joao        C:\Users\joao    rw      y          /home/joao
-#
-# Extrai a coluna "Name" (campo 2, linhas de dados após o cabeçalho).
-# Usa método robusto: pula linhas que começam com "No." ou "---" ou são vazias.
-
-    mapfile -t SHARE_NAMES < <(
-        VBoxControl sharedfolder list 2>/dev/null \
-            | awk '$1 ~ /^[0-9]+$/ && NF>=3 { print $3 }'
-    )
-
-# Debug: mostrar o que foi encontrado
-    echo "VBoxControl encontrou ${#SHARE_NAMES[@]} share(s)"
-    for share_name in "${SHARE_NAMES[@]}"; do
-        echo "  - $share_name"
-    done
-
-    if [[ ${#SHARE_NAMES[@]} -eq 0 ]]; then
-        # Nenhuma shared folder configurada — sair silenciosamente
-        return
-    fi
-
-# --- Montar cada share -------------------------------------------------------
-
-    mounted=0
-    failed=0
-
-    for share_name in "${SHARE_NAMES[@]}"; do
-        [[ -z "$share_name" ]] && continue
-
-        mount_point="/home/$share_name"
-
-    # Criar ponto de montagem se não existe
-        if [[ ! -d "$mount_point" ]]; then
-            mkdir -p "$mount_point"
-            chown "$USER_UID:$USER_GID" "$mount_point"
-        fi
-
-    # Pular se já montado
-        if mountpoint -q "$mount_point"; then
-            echo "Shared folder '$share_name' ja montado em $mount_point"
-            continue
-        fi
-
-    # Montar
-        if mount -t vboxsf -o "uid=$USER_UID,gid=$USER_GID" "$share_name" "$mount_point"; then
-            echo "Shared folder '$share_name' montado em $mount_point"
-            (( mounted++ )) || true
-        else
-            echo "AVISO: Nao foi possivel montar '$share_name' em $mount_point"
-            (( failed++ )) || true
-        fi
-    done
-
-    echo "VirtualBox shares: $mounted montagem(ns), $failed falha(s)"
-}
-
-# --- Montagem SMB do host Windows (via fw_cfg) --------------------------------
 
 mount_host_smb() {
+    local smb_server smb_share smb_user smb_password mount_point
+
     if ! command -v mount.cifs &>/dev/null; then
-        return
+        return 1
     fi
 
-    local smb_server=""
-    local smb_share=""
-    local smb_user=""
-    local smb_password=""
+    smb_server="$(read_fw_cfg_string smb_server)"
+    smb_share="$(read_fw_cfg_string smb_share)"
+    smb_user="$(read_fw_cfg_string smb_user)"
+    smb_password="$(read_fw_cfg_string smb_password)"
 
-    # Ler credenciais SMB do host via fw_cfg (enviadas pelo CLI)
-    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_server/raw ]]; then
-        smb_server="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_server/raw 2>/dev/null || true)"
-    fi
-    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_share/raw ]]; then
-        smb_share="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_share/raw 2>/dev/null || true)"
-    fi
-    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_user/raw ]]; then
-        smb_user="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_user/raw 2>/dev/null || true)"
-    fi
-    if [[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_password/raw ]]; then
-        smb_password="$(tr -d '\0\r\n' < /sys/firmware/qemu_fw_cfg/by_name/opt/ea11/smb_password/raw 2>/dev/null || true)"
+    if [[ -z "$smb_server" || -z "$smb_share" ]]; then
+        return 1
     fi
 
-    if [[ -z "$smb_server" ]] || [[ -z "$smb_share" ]]; then
-        return
-    fi
-
-    local mount_point="/home/hosthome"
-    if [[ -n "$smb_user" ]]; then
-        mount_point="/home/$smb_user"
-    fi
+    mount_point="$(share_mountpoint)"
 
     if mountpoint -q "$mount_point"; then
         echo "SMB do host ja montado em $mount_point"
-        return
+        return 0
     fi
 
-    mkdir -p "$mount_point"
-    chown "$USER_UID:$USER_GID" "$mount_point" 2>/dev/null || true
+    prepare_mountpoint "$mount_point"
 
     local options=()
-    if [[ -n "$smb_user" ]] && [[ -n "$smb_password" ]]; then
+    if [[ -n "$smb_user" && -n "$smb_password" ]]; then
         options=("username=$smb_user,password=$smb_password,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,vers=3.0")
     else
         options=("guest,uid=$USER_UID,gid=$USER_GID,iocharset=utf8,noperm,vers=3.0")
     fi
 
-    # Tentar com a credencial; se falhar, tentar com fallbacks de versão
-    if mount -t cifs "//\$smb_server/$smb_share" "$mount_point" -o "${options[0]}"; then
+    if mount -t cifs "//$smb_server/$smb_share" "$mount_point" -o "${options[0]}"; then
         echo "SMB do host montado: //$smb_server/$smb_share -> $mount_point"
-        return
+        return 0
     fi
 
-    # Fallback: tentar versoes mais antigas
-    local fallback_options=("vers=2.1" "vers=2.0" "vers=1.0")
+    local fallback_options=('vers=2.1' 'vers=2.0' 'vers=1.0')
     for fallback_opt in "${fallback_options[@]}"; do
         local opt_string="${options[0]%%vers=*}$fallback_opt"
-        if mount -t cifs "//\$smb_server/$smb_share" "$mount_point" -o "$opt_string" 2>/dev/null; then
+        if mount -t cifs "//$smb_server/$smb_share" "$mount_point" -o "$opt_string" 2>/dev/null; then
             echo "SMB do host montado (fallback $fallback_opt): //$smb_server/$smb_share -> $mount_point"
-            return
+            return 0
         fi
     done
 
     echo "AVISO: Falha ao montar SMB do host ($smb_server/$smb_share)"
+    return 1
 }
 
-mount_qemu_9p
-mount_qemu_smb_fallback
-mount_host_smb
-mount_virtualbox_shares
+mount_by_mode() {
+    local mode
+    mode="$(read_fw_cfg_string share_mode)"
+    [[ -z "$mode" ]] && mode='auto'
+
+    case "$mode" in
+        ssh)
+            mount_host_ssh || true
+            ;;
+        cifs)
+            mount_host_smb || mount_qemu_smb_fallback || true
+            ;;
+        auto)
+            mount_host_ssh || mount_host_smb || mount_qemu_smb_fallback || true
+            ;;
+        *)
+            echo "AVISO: share_mode desconhecido '$mode', usando auto"
+            mount_host_ssh || mount_host_smb || mount_qemu_smb_fallback || true
+            ;;
+    esac
+}
+
+mount_by_mode

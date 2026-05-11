@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # Constantes
-EA11CTL_FALLBACK_VERSION='0.1.32'
+EA11CTL_FALLBACK_VERSION='0.1.33'
 EA11CTL_OWNER='A11yDevs'
 EA11CTL_REPO='emacs-a11y-vm'
 EA11CTL_BRANCH='main'
@@ -284,7 +284,7 @@ vm_backend_flag_present() {
     local arg
     for arg in "$@"; do
         case "$arg" in
-            -b|--backend|--qemu|--virtualbox)
+            -b|--backend|--qemu)
                 return 0
                 ;;
         esac
@@ -317,13 +317,13 @@ sync_backend_scripts_from_repo() {
         return 0
     fi
 
-    for file in common.sh qemu.sh virtualbox.sh; do
+    for file in common.sh qemu.sh; do
         if [[ -f "$source_dir/$file" ]]; then
             cp "$source_dir/$file" "$target_dir/$file"
         fi
     done
 
-    chmod +x "$target_dir/qemu.sh" "$target_dir/virtualbox.sh" 2>/dev/null || true
+    chmod +x "$target_dir/qemu.sh" 2>/dev/null || true
 }
 
 sync_backend_scripts_from_remote() {
@@ -332,18 +332,18 @@ sync_backend_scripts_from_remote() {
     local base_url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$EA11CTL_BRANCH/cli/backend-scripts"
     local file
 
-    for file in common.sh qemu.sh virtualbox.sh; do
+    for file in common.sh qemu.sh; do
         if ! curl -fsSL "$base_url/$file" -o "$target_dir/$file" 2>/dev/null; then
             ea11_warn "Nao foi possivel atualizar backend script: $file"
             return 1
         fi
     done
 
-    chmod +x "$target_dir/qemu.sh" "$target_dir/virtualbox.sh" 2>/dev/null || true
+    chmod +x "$target_dir/qemu.sh" 2>/dev/null || true
 }
 
 resolve_vm_backend() {
-    local backend='virtualbox'
+    local backend='qemu'
     local current
     while [[ $# -gt 0 ]]; do
         current="$1"
@@ -351,7 +351,7 @@ resolve_vm_backend() {
         case "$current" in
             -b|--backend)
                 if [[ $# -eq 0 ]]; then
-                    ea11_error 'Use --backend com um valor (virtualbox ou qemu).'
+                    ea11_error 'Use --backend com um valor (qemu).'
                     return 1
                 fi
                 backend="$1"
@@ -360,15 +360,16 @@ resolve_vm_backend() {
             --qemu)
                 backend='qemu'
                 ;;
-            --virtualbox)
-                backend='virtualbox'
-                ;;
         esac
     done
 
     case "$backend" in
-        virtualbox|qemu)
+        qemu)
             echo "$backend"
+            ;;
+        virtualbox|vbox)
+            ea11_error 'Backend virtualbox foi descontinuado. Use qemu.'
+            return 1
             ;;
         *)
             ea11_error "Backend desconhecido: $backend"
@@ -459,37 +460,11 @@ invoke_vm_close() {
     run_backend_command "$backend" close "$@"
 }
 
-invoke_share_folder_add() {
-    run_backend_command virtualbox share-folder add "$@"
-}
-
-invoke_share_folder_remove() {
-    run_backend_command virtualbox share-folder remove "$@"
-}
-
-invoke_share_folder_list() {
-    run_backend_command virtualbox share-folder list "$@"
-}
-
-invoke_vm_share_folder() {
+invoke_vm_host_share() {
     local action="${1:-list}"
     shift || true
-    
-    case "$action" in
-        add)
-            invoke_share_folder_add "$@"
-            ;;
-        remove)
-            invoke_share_folder_remove "$@"
-            ;;
-        list)
-            invoke_share_folder_list "$@"
-            ;;
-        *)
-            ea11_error "Ação desconhecida de share-folder: $action"
-            return 1
-            ;;
-    esac
+
+    run_backend_command qemu share "$action" "$@"
 }
 
 invoke_vm_command() {
@@ -540,7 +515,10 @@ invoke_vm_command() {
             invoke_vm_ssh "$@"
             ;;
         share-folder|-F)
-            invoke_vm_share_folder "$@"
+            invoke_vm_host_share "$@"
+            ;;
+        host-share|-H)
+            invoke_vm_host_share "$@"
             ;;
         *)
             ea11_error "Subcomando vm desconhecido: $action"
@@ -563,21 +541,23 @@ Uso:
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
     ea11ctl vm install|-i [args-do-install-release-vm.sh]
-    ea11ctl vm version|-V [-n|--name VM] [--backend virtualbox|qemu]
-    ea11ctl vm check-update|-U [-n|--name VM] [--backend virtualbox|qemu]
-  ea11ctl vm list|-l [--backend virtualbox|qemu]
-  ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--backend virtualbox|qemu]
-  ea11ctl vm stop|-S [-n|--name VM] [-f|--force] [--backend virtualbox|qemu]
-  ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS] [--backend virtualbox|qemu]
-  ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N] [--backend virtualbox|qemu]
-  ea11ctl vm status|-q [-n|--name VM] [--backend virtualbox|qemu]
-  ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [--backend virtualbox|qemu] [-- extra-args]
-  ea11ctl vm share-folder|-F add [-n|--name VM] -p|--path CAMINHO [--name NOME] [-r|--readonly]
-  ea11ctl vm share-folder|-F remove [-n|--name VM] --name NOME
-  ea11ctl vm share-folder|-F list [-n|--name VM]
+        ea11ctl vm version|-V [-n|--name VM] [--backend qemu]
+        ea11ctl vm check-update|-U [-n|--name VM] [--backend qemu]
+    ea11ctl vm list|-l [--backend qemu]
+    ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--backend qemu]
+    ea11ctl vm stop|-S [-n|--name VM] [-f|--force] [--backend qemu]
+    ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS] [--backend qemu]
+    ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N] [--backend qemu]
+    ea11ctl vm status|-q [-n|--name VM] [--backend qemu]
+    ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [--backend qemu] [-- extra-args]
+    ea11ctl vm host-share|-H list
+    ea11ctl vm host-share|-H set [--mode ssh|cifs] [--host-user USER]
+    ea11ctl vm host-share|-H set --mode ssh [--ssh-host HOST] [--ssh-port PORT] [--ssh-user USER] [--ssh-path PATH] [--ssh-password PASS]
+    ea11ctl vm host-share|-H set --mode cifs [--smb-server HOST] [--smb-share SHARE] [--smb-user USER] [--smb-password PASS]
+    ea11ctl vm host-share|-H clear
 
 Defaults:
-    Backend: virtualbox
+        Backend: qemu
   VM: debian-a11y
   SSH user: a11ydevs
   SSH port: 2222

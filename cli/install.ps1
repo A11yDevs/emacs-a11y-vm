@@ -72,7 +72,79 @@ function Add-ToUserPath {
     return $true
 }
 
+function Test-QemuAvailable {
+    $candidates = @(
+        'qemu-system-x86_64.exe',
+        'qemu-system-x86_64w.exe',
+        'qemu-img.exe'
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Get-Command $candidate -ErrorAction SilentlyContinue) {
+            return $true
+        }
+    }
+
+    $knownPaths = @(
+        "$env:ProgramFiles\qemu\qemu-system-x86_64w.exe",
+        "$env:ProgramFiles\qemu\qemu-system-x86_64.exe",
+        "$env:ProgramFiles\qemu\qemu-img.exe",
+        "${env:ProgramFiles(x86)}\qemu\qemu-system-x86_64w.exe",
+        "${env:ProgramFiles(x86)}\qemu\qemu-system-x86_64.exe",
+        "${env:ProgramFiles(x86)}\qemu\qemu-img.exe"
+    )
+
+    foreach ($path in $knownPaths) {
+        if ($path -and (Test-Path $path)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Ensure-QemuInstalled {
+    if (Test-QemuAvailable) {
+        Write-Info 'QEMU ja esta disponivel.'
+        return
+    }
+
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        Write-WarnMsg 'winget nao encontrado; nao foi possivel instalar QEMU automaticamente.'
+        Write-WarnMsg 'Instale manualmente com: winget install -e --id SoftwareFreedomConservancy.QEMU'
+        return
+    }
+
+    Write-Info 'QEMU nao encontrado. Instalando via winget...'
+    try {
+        & winget install -e --id SoftwareFreedomConservancy.QEMU --accept-package-agreements --accept-source-agreements
+    }
+    catch {
+        Write-WarnMsg "Falha ao instalar QEMU via winget: $($_.Exception.Message)"
+        Write-WarnMsg 'Tente manualmente: winget install -e --id SoftwareFreedomConservancy.QEMU'
+        return
+    }
+
+    # Atualiza PATH da sessao para pegar instalacao recente quando necessario.
+    if (Test-Path "$env:ProgramFiles\qemu") {
+        $sessionPathParts = $env:Path -split ';'
+        if (-not ($sessionPathParts -contains "$env:ProgramFiles\qemu")) {
+            $env:Path = "$env:ProgramFiles\qemu;$env:Path"
+        }
+    }
+
+    if (Test-QemuAvailable) {
+        Write-Info 'QEMU instalado e detectado com sucesso.'
+    }
+    else {
+        Write-WarnMsg 'QEMU nao foi detectado apos a instalacao. Feche e abra o terminal e valide novamente.'
+    }
+}
+
 Assert-Windows
+
+Ensure-QemuInstalled
 
 $installDir = Join-Path $env:LOCALAPPDATA 'ea11ctl\bin'
 Ensure-Directory -Path $installDir

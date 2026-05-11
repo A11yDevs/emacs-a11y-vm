@@ -6,7 +6,7 @@
 # Detecta o segundo disco (/dev/sdb), formata se necessário, e monta em /home.
 #
 # Fluxo:
-#   1. Verifica se /dev/sdb existe (segundo disco VDI)
+#   1. Verifica se /dev/sdb existe (segundo disco virtual, ex. qcow2 no QEMU)
 #   2. Formata como ext4 se não formatado
 #   3. Move conteúdo atual de /home para o novo disco
 #   4. Adiciona entrada em /etc/fstab

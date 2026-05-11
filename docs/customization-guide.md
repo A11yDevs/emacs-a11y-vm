@@ -430,14 +430,14 @@ sudo ifdown eth0 && sudo ifup eth0
 
 ⚠️ **IMPORTANTE**: Modificações em `/etc/network/interfaces` são **preservadas em upgrades** (arquivo está fora do sistema base).
 
-### Modo de Rede no VirtualBox
+### Modo de Rede no QEMU
 
 A VM pode usar dois modos:
 
 - **Bridge** (padrão): VM recebe IP da rede local (acesso direto)
 - **NAT**: VM usa rede privada com port forwarding (SSH: localhost:2222)
 
-Para alternar, reconfigure a VM pelo VirtualBox Manager ou pelos scripts de instalação.
+Para alternar, ajuste os parâmetros de rede no comando de inicialização QEMU (usernet com port forwarding ou bridge/tap, conforme seu ambiente).
 
 ---
 
@@ -651,20 +651,22 @@ git remote add origin git@github.com:usuario/dotfiles.git
 git push -u origin main
 ```
 
-### Backup Automático do Disco de Dados
+### Backup Automatico do Disco de Dados
 
 No **host** (fora da VM):
 
 ```bash
-# Script de backup do VDI
+# Script de backup do qcow2 de dados
 #!/bin/bash
-VBoxManage clonemedium disk \
-  releases/debian-a11y-userdata.vdi \
-  backups/debian-a11y-userdata-$(date +%Y%m%d).vdi
+SRC="$HOME/.emacs-a11y-vm/debian-a11y-home.qcow2"
+DST="backups/debian-a11y-home-$(date +%Y%m%d).qcow2"
 
-# Manter apenas últimos 5 backups
+mkdir -p backups
+qemu-img convert -f qcow2 -O qcow2 "$SRC" "$DST"
+
+# Manter apenas ultimos 5 backups
 cd backups
-ls -t debian-a11y-userdata-*.vdi | tail -n +6 | xargs rm -f
+ls -t debian-a11y-home-*.qcow2 | tail -n +6 | xargs rm -f
 ```
 
 ---

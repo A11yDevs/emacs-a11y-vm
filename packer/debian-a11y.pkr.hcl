@@ -81,7 +81,7 @@ variable "ssh_password" {
 
 variable "version" {
   type    = string
-  default = "2.0.33"
+  default = "2.0.37"
 }
 
 # ------------------------------------------------------------------------------
@@ -267,6 +267,12 @@ build {
     destination = "/tmp/configure-speakup.service"
   }
 
+  # Instalar CLI ea11ctl no guest (gerenciamento de compartilhamento do host)
+  provisioner "file" {
+    source      = "${path.root}/files/ea11ctl-guest.sh"
+    destination = "/tmp/ea11ctl-guest.sh"
+  }
+
   # Instalar configuração de rede
   provisioner "file" {
     source      = "${path.root}/files/interfaces"
@@ -330,6 +336,10 @@ build {
       "sudo systemctl daemon-reload",
       "sudo systemctl enable configure-speakup.service",
       "echo 'Script de configuração do speakup instalado'",
+      "echo '=== Instalando CLI ea11ctl no guest ==='",
+      "sudo mv /tmp/ea11ctl-guest.sh /usr/local/bin/ea11ctl",
+      "sudo chmod 755 /usr/local/bin/ea11ctl",
+      "echo 'ea11ctl guest instalado em /usr/local/bin/ea11ctl'",
       "echo '=== Configurando rede (DHCP em eth0) ==='",
       "sudo mv /tmp/interfaces /etc/network/interfaces",
       "sudo chmod 644 /etc/network/interfaces",
@@ -356,28 +366,12 @@ build {
     ]
   }
 
-  # Instalar VirtualBox Guest Additions durante o build
   provisioner "shell" {
     inline = [
-      "echo '=== Instalando dependências para Guest Additions ==='",
+      "echo '=== Instalando dependências de runtime (áudio e compartilhamento) ==='",
       "sudo apt-get update",
-      "sudo apt-get install -y build-essential linux-headers-$(uname -r) dkms curl alsa-utils cifs-utils",
-      "echo 'Dependências instaladas: build-essential, linux-headers, dkms, curl, alsa-utils, cifs-utils'"
-    ]
-  }
-
-  # Copiar script de instalação do Guest Additions
-  provisioner "file" {
-    source      = "packer/files/install-guest-additions-build.sh"
-    destination = "/tmp/install-guest-additions-build.sh"
-  }
-
-  # Executar instalação do Guest Additions
-  provisioner "shell" {
-    inline = [
-      "echo '=== Instalando VirtualBox Guest Additions ==='",
-      "sudo bash /tmp/install-guest-additions-build.sh",
-      "sudo rm /tmp/install-guest-additions-build.sh"
+      "sudo apt-get install -y curl alsa-utils cifs-utils sshfs",
+      "echo 'Dependências instaladas: curl, alsa-utils, cifs-utils, sshfs'"
     ]
   }
 
@@ -400,8 +394,6 @@ build {
       "sudo mv /tmp/mount-shared-folder.service /etc/systemd/system/",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable mount-shared-folder.service",
-      "echo 'Adicionar usuário a11ydevs ao grupo vboxsf'",
-      "sudo usermod -aG vboxsf a11ydevs || echo 'Grupo vboxsf não existe ainda (será criado no boot)'",
       "echo 'Configuração de shared folders concluída'"
     ]
   }
@@ -438,9 +430,10 @@ build {
       "systemctl is-enabled mount-shared-folder && echo 'mount-shared-folder: OK' || echo 'mount-shared-folder: AVISO'",
       "command -v emacs  && emacs --version | head -1 || echo 'emacs: AVISO — não encontrado'",
       "command -v ssh    && ssh -V || echo 'ssh: AVISO — não encontrado'",
-      "test -f /sbin/mount.vboxsf && echo 'VBox Guest Additions: OK' || echo 'VBox Guest Additions: AVISO'",
+      "command -v sshfs >/dev/null 2>&1 && echo 'sshfs: OK' || echo 'sshfs: AVISO — não encontrado'",
       "grep -q 'speakup.synth=soft' /etc/default/grub && echo 'GRUB speakup: OK' || echo 'GRUB speakup: AVISO'",
       "test -x /usr/local/sbin/setup-userdata-disk.sh && echo 'setup-userdata-disk.sh: OK' || echo 'setup-userdata-disk.sh: AVISO'",
+      "test -x /usr/local/bin/ea11ctl && echo 'ea11ctl guest: OK' || echo 'ea11ctl guest: AVISO'",
       "grep -q '^allow-hotplug eth0$' /etc/network/interfaces && grep -q '^iface eth0 inet dhcp$' /etc/network/interfaces && echo 'Network config: OK' || echo 'Network config: AVISO'",
       "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO'",
       "dpkg -l | grep -q '^ii  emacspeak ' && echo 'emacspeak: OK' || echo 'emacspeak: AVISO — pacote não instalado'",

@@ -170,6 +170,81 @@ check_force_reinstall() {
     echo "$force_reinstall"
 }
 
+command_exists() {
+    command -v "$1" &>/dev/null
+}
+
+qemu_is_available() {
+    command_exists qemu-system-x86_64 && command_exists qemu-img
+}
+
+install_qemu_macos() {
+    if ! command_exists brew; then
+        print_warn "Homebrew não encontrado; não foi possível instalar QEMU automaticamente."
+        print_warn "Instale manualmente com: brew install qemu"
+        return 1
+    fi
+
+    print_info "QEMU não encontrado. Instalando via Homebrew..."
+    if brew install qemu; then
+        return 0
+    fi
+
+    print_warn "Falha ao instalar QEMU via Homebrew."
+    print_warn "Tente manualmente: brew install qemu"
+    return 1
+}
+
+install_qemu_debian_ubuntu() {
+    if ! command_exists apt-get; then
+        print_warn "apt-get não encontrado; não foi possível instalar QEMU automaticamente."
+        print_warn "Instale manualmente os pacotes qemu-system-x86 e qemu-utils."
+        return 1
+    fi
+
+    print_info "QEMU não encontrado. Instalando via apt-get..."
+    if sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils; then
+        return 0
+    fi
+
+    print_warn "Falha ao instalar QEMU via apt-get."
+    print_warn "Tente manualmente: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils"
+    return 1
+}
+
+ensure_qemu_installed() {
+    local os="$1"
+    local distro="$2"
+
+    if qemu_is_available; then
+        print_info "QEMU já está disponível (qemu-system-x86_64 e qemu-img)."
+        return 0
+    fi
+
+    case "$os" in
+        macos)
+            install_qemu_macos || true
+            ;;
+        linux)
+            case "$distro" in
+                debian|ubuntu)
+                    install_qemu_debian_ubuntu || true
+                    ;;
+                *)
+                    print_warn "Instalação automática de QEMU não suportada para a distribuição: $distro"
+                    print_warn "Instale manualmente qemu-system-x86_64 e qemu-img usando o gerenciador da sua distro."
+                    ;;
+            esac
+            ;;
+    esac
+
+    if qemu_is_available; then
+        print_info "QEMU instalado e detectado com sucesso."
+    else
+        print_warn "QEMU ainda não foi detectado. A CLI foi instalada, mas os comandos de VM exigem QEMU."
+    fi
+}
+
 install_backend_scripts() {
     local backend_dir="$HOME/.emacs-a11y-vm/scripts"
     local local_backend_dir="$SCRIPT_DIR/backend-scripts"
@@ -178,7 +253,7 @@ install_backend_scripts() {
 
     ensure_directory "$backend_dir"
 
-    for file in common.sh qemu.sh virtualbox.sh; do
+    for file in common.sh qemu.sh; do
         if [[ -f "$local_backend_dir/$file" ]]; then
             cp "$local_backend_dir/$file" "$backend_dir/$file"
         else
@@ -186,7 +261,7 @@ install_backend_scripts() {
         fi
     done
 
-    chmod +x "$backend_dir/qemu.sh" "$backend_dir/virtualbox.sh"
+    chmod +x "$backend_dir/qemu.sh"
     print_info "Scripts de backend instalados em: $backend_dir"
 }
 
@@ -212,6 +287,8 @@ main() {
         distro=$(detect_distro)
         print_info "Distribuição detectada: $distro"
     fi
+
+    ensure_qemu_installed "$os" "$distro"
     
     # Determinar diretório de instalação
     local install_dir

@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.32'
+$EA11CTL_FALLBACK_VERSION = '0.1.33'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -33,20 +33,17 @@ Uso:
   ea11ctl help|-h|--help
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
-  ea11ctl vm|vm install|-i [args-do-install-release-vm.ps1]
-    ea11ctl vm list|-l [--backend virtualbox|qemu]
-    ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--backend virtualbox|qemu]
-    ea11ctl vm stop|-S [-n|--name VM] [-f|--force] [--backend virtualbox|qemu]
-    ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS] [--backend virtualbox|qemu]
-    ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N] [--backend virtualbox|qemu]
-    ea11ctl vm status|-q [-n|--name VM] [--backend virtualbox|qemu]
-    ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [--backend virtualbox|qemu] [-- extra-args]
-  ea11ctl vm share-folder|-F add [-n|--name VM] -p|--path CAMINHO [--name NOME] [-r|--readonly]
-  ea11ctl vm share-folder|-F remove [-n|--name VM] --name NOME
-  ea11ctl vm share-folder|-F list [-n|--name VM]
+    ea11ctl vm|vm install|-i
+        ea11ctl vm list|-l [--backend qemu]
+        ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--backend qemu]
+        ea11ctl vm stop|-S [-n|--name VM] [-f|--force] [--backend qemu]
+        ea11ctl vm close|-c [-n|--name VM] [--backend qemu]
+        ea11ctl vm diagnose|-d [-n|--name VM] [-L|--lines N] [--backend qemu]
+        ea11ctl vm status|-q [-n|--name VM] [--backend qemu]
+        ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [--backend qemu] [-- extra-args]
 
 Defaults:
-    Backend: virtualbox
+        Backend: qemu
   VM: debian-a11y
   SSH user: a11ydevs
   SSH port: 2222
@@ -384,7 +381,7 @@ function Get-IntOptionValue {
 function Resolve-VMBackend {
     param(
         [string[]]$Tokens,
-        [string]$DefaultBackend = 'virtualbox'
+        [string]$DefaultBackend = 'qemu'
     )
 
     $backend = $DefaultBackend
@@ -395,7 +392,7 @@ function Resolve-VMBackend {
 
         if ($token -in @('--backend', '-b')) {
             if (($i + 1) -ge $Tokens.Length) {
-                throw "Use --backend com um valor (virtualbox ou qemu)."
+                throw "Use --backend com um valor (qemu)."
             }
 
             $backend = $Tokens[$i + 1]
@@ -409,8 +406,7 @@ function Resolve-VMBackend {
         }
 
         if ($token -eq '--virtualbox') {
-            $backend = 'virtualbox'
-            continue
+            throw "Backend virtualbox foi descontinuado. Use qemu."
         }
 
         [void]$cleanTokens.Add($token)
@@ -418,10 +414,10 @@ function Resolve-VMBackend {
 
     $normalized = $backend.ToLowerInvariant()
     switch ($normalized) {
-        'virtualbox' { }
-        'vbox' { $normalized = 'virtualbox' }
         'qemu' { }
-        default { throw "Backend desconhecido: $backend (use virtualbox ou qemu)." }
+        'virtualbox' { throw "Backend virtualbox foi descontinuado. Use qemu." }
+        'vbox' { throw "Backend virtualbox foi descontinuado. Use qemu." }
+        default { throw "Backend desconhecido: $backend (use qemu)." }
     }
 
     return @{
@@ -981,27 +977,42 @@ function Get-RepoRoot {
 function Invoke-VMInstall {
     param([string[]]$InstallArgs)
 
-    $repoRoot = Get-RepoRoot
-    if ($repoRoot) {
-        $localScript = Join-Path $repoRoot "scripts/install-release-vm.ps1"
-        Write-EA11Info "Executando instalador local: $localScript"
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $localScript @InstallArgs
+    $owner = Get-OptionValue -Tokens $InstallArgs -Names @('--owner') -Default $EA11CTL_OWNER
+    $repo = Get-OptionValue -Tokens $InstallArgs -Names @('--repo') -Default $EA11CTL_REPO
+    $tag = Get-OptionValue -Tokens $InstallArgs -Names @('--tag') -Default 'latest'
+    $forceDownload = Has-Flag -Tokens $InstallArgs -Flags @('--force-download', '--force', '-f')
+
+    $stateDir = Get-EA11StateDirectory
+    $targetDisk = Join-Path $stateDir 'debian-a11ydevs.qcow2'
+
+    if ((Test-Path $targetDisk) -and (-not $forceDownload)) {
+        Write-EA11Info "Imagem QCOW2 ja existe em: $targetDisk"
+        Write-EA11Info "Use --force-download para baixar novamente."
         return
     }
 
-    $remote = "https://raw.githubusercontent.com/A11yDevs/emacs-a11y-vm/main/scripts/install-release-vm.ps1"
-    $tmp = Join-Path $env:TEMP "ea11-install-release-vm.ps1"
+    $assetName = 'debian-a11ydevs.qcow2'
+    if ($tag -eq 'latest') {
+        $url = "https://github.com/$owner/$repo/releases/latest/download/$assetName"
+    }
+    else {
+        $url = "https://github.com/$owner/$repo/releases/download/$tag/$assetName"
+    }
 
-    Write-EA11Info "Baixando instalador remoto..."
-    Invoke-WebRequest -Uri $remote -OutFile $tmp -UseBasicParsing
+    $tmpFile = "$targetDisk.download"
+    Write-EA11Info "Baixando imagem QCOW2: $url"
 
     try {
-        Write-EA11Info "Executando instalador remoto..."
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $tmp @InstallArgs
+        Invoke-WebRequest -Uri $url -OutFile $tmpFile -UseBasicParsing
+        Move-Item -Path $tmpFile -Destination $targetDisk -Force
     }
-    finally {
-        Remove-Item -Path $tmp -ErrorAction SilentlyContinue
+    catch {
+        Remove-Item -Path $tmpFile -ErrorAction SilentlyContinue
+        throw "Falha ao baixar imagem QCOW2 da release: $($_.Exception.Message)"
     }
+
+    Write-EA11Info "Imagem QEMU instalada em: $targetDisk"
+    Write-EA11Info "Proximo passo: ea11ctl vm start"
 }
 
 function Get-VMName {
@@ -1862,7 +1873,7 @@ function Invoke-VMShareFolder {
 function Invoke-VMCommand {
     param(
         [string[]]$Tokens,
-        [string]$DefaultBackend = 'virtualbox'
+        [string]$DefaultBackend = 'qemu'
     )
 
     $resolved = Resolve-VMBackend -Tokens $Tokens -DefaultBackend $DefaultBackend
@@ -1870,7 +1881,7 @@ function Invoke-VMCommand {
     $cleanTokens = $resolved.Tokens
 
     if ($cleanTokens.Length -eq 0) {
-        throw "Uso: ea11ctl vm <install|list|start|stop|close|diagnose|status|ssh|share-folder>"
+        throw "Uso: ea11ctl vm <install|list|start|stop|close|diagnose|status|ssh>"
     }
 
     $sub = $cleanTokens[0]
@@ -1881,72 +1892,28 @@ function Invoke-VMCommand {
 
     switch ($sub) {
         { $_ -in @('install', '-i') } {
-            if ($backend -eq 'qemu') {
-                throw 'Comando vm install ainda nao suporta backend qemu. Use vm start --backend qemu para bootstrap automatico da imagem padrao.'
-            }
             Invoke-VMInstall -InstallArgs $rest
         }
         { $_ -in @('list', '-l') } {
-            if ($backend -eq 'qemu') {
-                Invoke-QemuVMList
-            }
-            else {
-                Invoke-VMList
-            }
+            Invoke-QemuVMList
         }
         { $_ -in @('start', '-s') } {
-            if ($backend -eq 'qemu') {
-                Invoke-QemuVMStart -Tokens $rest
-            }
-            else {
-                Invoke-VMStart -Tokens $rest
-            }
+            Invoke-QemuVMStart -Tokens $rest
         }
         { $_ -in @('stop', '-S') } {
-            if ($backend -eq 'qemu') {
-                Invoke-QemuVMStop -Tokens $rest
-            }
-            else {
-                Invoke-VMStop -Tokens $rest
-            }
+            Invoke-QemuVMStop -Tokens $rest
         }
         { $_ -in @('close', '-c') } {
-            if ($backend -eq 'qemu') {
-                Invoke-QemuVMStop -Tokens $rest
-            }
-            else {
-                Invoke-VMClose -Tokens $rest
-            }
+            Invoke-QemuVMStop -Tokens $rest
         }
         { $_ -in @('diagnose', '-d') } {
-            if ($backend -eq 'qemu') {
-                Invoke-QemuVMDiagnose -Tokens $rest
-            }
-            else {
-                Invoke-VMDiagnose -Tokens $rest
-            }
+            Invoke-QemuVMDiagnose -Tokens $rest
         }
         { $_ -in @('status', '-q') } {
-            if ($backend -eq 'qemu') {
-                Invoke-QemuVMStatus -Tokens $rest
-            }
-            else {
-                Invoke-VMStatus -Tokens $rest
-            }
+            Invoke-QemuVMStatus -Tokens $rest
         }
         { $_ -in @('ssh', '-x') } {
-            if ($backend -eq 'qemu') {
-                Invoke-QemuVMSSH -Tokens $rest
-            }
-            else {
-                Invoke-VMSSH -Tokens $rest
-            }
-        }
-        { $_ -in @('share-folder', '-F') } {
-            if ($backend -eq 'qemu') {
-                throw 'Comando vm share-folder nao se aplica ao backend qemu.'
-            }
-            Invoke-VMShareFolder -Tokens $rest
+            Invoke-QemuVMSSH -Tokens $rest
         }
         default { throw "Subcomando vm desconhecido: $sub" }
     }

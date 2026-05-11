@@ -11,21 +11,19 @@ A VM é textual, sem interface gráfica, com fala habilitada desde o boot via es
 ### Windows
 
 - Windows 10 ou 11
-- [VirtualBox](https://www.virtualbox.org/wiki/Downloads) instalado
+- QEMU instalado
 
 ### macOS
 
 - macOS 10.15+
-- [VirtualBox](https://www.virtualbox.org/wiki/Downloads) **ou** QEMU
-  - VirtualBox: `brew install --cask virtualbox`
-  - QEMU: `brew install qemu`
+- QEMU
+  - `brew install qemu`
 
 ### Linux (Debian/Ubuntu)
 
 - Debian 11+ ou Ubuntu 20.04+
-- VirtualBox **ou** QEMU
-  - VirtualBox: `sudo apt-get install virtualbox`
-  - QEMU: `sudo apt-get install qemu-system-x86 qemu-utils`
+- QEMU
+  - `sudo apt-get install qemu-system-x86 qemu-utils`
 
 ### QEMU (todos os SOs)
 
@@ -84,7 +82,7 @@ ea11ctl vm install
 ea11ctl vm install
 ```
 
-O comando baixa a imagem do GitHub, converte para o formato do VirtualBox e cria a VM automaticamente (~5-10 min na primeira vez).
+O comando baixa/prepara a imagem QCOW2 e cria a VM no QEMU automaticamente (~5-10 min na primeira vez).
 
 ---
 
@@ -95,36 +93,30 @@ A CLI `ea11ctl` funciona **identicamente** em Windows (PowerShell), macOS e Linu
 | Comando | O que faz |
 |---|---|
 | `ea11ctl vm install` | Instala a VM a partir da última release |
-| `ea11ctl vm start` | Inicia a VM (backend padrão: `virtualbox`) |
-| `ea11ctl vm start -b qemu` | Inicia a VM no QEMU |
-| `ea11ctl vm stop -b qemu` | Desliga a VM QEMU |
-| `ea11ctl vm status -b qemu` | Mostra o estado atual no backend QEMU |
-| `ea11ctl vm ssh -b qemu` | Abre sessão SSH na VM QEMU |
+| `ea11ctl vm start` | Inicia a VM no QEMU |
+| `ea11ctl vm stop` | Desliga a VM QEMU |
+| `ea11ctl vm status` | Mostra o estado atual da VM QEMU |
+| `ea11ctl vm ssh` | Abre sessão SSH na VM QEMU |
 | `ea11ctl self-update` | Atualiza a CLI para a versão mais recente |
 
-### Backends da CLI
+### Backend da CLI
 
-O comando `vm` é único e aceita seleção de backend, preferencialmente com a opção curta `-b`:
-
-- `-b virtualbox` (equivalente: `--backend virtualbox`)
-- `-b qemu` (equivalente: `--backend qemu`)
+O backend VirtualBox foi descontinuado. A CLI usa QEMU como padrão.
 
 Exemplos (funciona em Windows, macOS e Linux):
 
 ```bash
 # Linux/macOS (bash/zsh)
-ea11ctl vm start -b virtualbox
-ea11ctl vm start -b qemu
-ea11ctl vm status -b qemu
-ea11ctl vm ssh -b qemu
+ea11ctl vm start
+ea11ctl vm status
+ea11ctl vm ssh
 ```
 
 ```powershell
 # Windows (PowerShell)
-ea11ctl vm start -b virtualbox
-ea11ctl vm start -b qemu
-ea11ctl vm status -b qemu
-ea11ctl vm ssh -b qemu
+ea11ctl vm start
+ea11ctl vm status
+ea11ctl vm ssh
 ```
 
 No backend QEMU, os arquivos da VM ficam em `~/.emacs-a11y-vm`:
@@ -173,12 +165,6 @@ ea11ctl vm ssh
 ea11ctl vm ssh
 ```
 
-Para backend QEMU:
-
-```powershell
-ea11ctl vm ssh -b qemu
-```
-
 Ou diretamente:
 
 ```bash
@@ -207,7 +193,8 @@ ssh -p 2222 a11ydevs@localhost
 |---|---|
 | [CLI Bash - Guia Completo](cli/README-BASH.md) | Instalação, uso e troubleshooting da CLI para macOS/Linux |
 | [CLI Bash vs PowerShell](docs/cli-bash-comparison.md) | Compatibilidade entre as versões Windows e Unix |
-| [Implementação de VM Backends](docs/cli-vm-implementation-guide.md) | Guia técnico para VirtualBox e QEMU |
+| [Implementação de VM Backends](docs/cli-vm-implementation-guide.md) | Guia técnico do backend QEMU |
+| [Declaração de uso de IA](docs/devs/ai-usage.md) | Transparência sobre Copilot, agentes e modelos usados |
 
 ### Seus dados estão seguros em upgrades
 

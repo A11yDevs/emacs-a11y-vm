@@ -16,6 +16,71 @@ qemu_log_file() {
     printf '%s/%s.qemu.log\n' "$EA11_LOG_DIR" "$1"
 }
 
+qemu_share_config_file() {
+    printf '%s\n' "$EA11_QEMU_SHARE_CONFIG"
+}
+
+qemu_default_share_mode() {
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+            printf 'cifs\n'
+            ;;
+        *)
+            printf 'ssh\n'
+            ;;
+    esac
+}
+
+qemu_load_share_config() {
+    local share_file
+    share_file=$(qemu_share_config_file)
+
+    SHARE_MODE=$(qemu_default_share_mode)
+    SHARE_HOST_USER="${USER:-hosthome}"
+    SHARE_SSH_HOST='10.0.2.2'
+    SHARE_SSH_PORT='22'
+    SHARE_SSH_USER=''
+    SHARE_SSH_PATH=''
+    SHARE_SSH_PASSWORD=''
+    SHARE_SMB_SERVER=''
+    SHARE_SMB_SHARE=''
+    SHARE_SMB_USER=''
+    SHARE_SMB_PASSWORD=''
+
+    if [[ -f "$share_file" ]]; then
+        # shellcheck source=/dev/null
+        source "$share_file"
+    fi
+
+    if [[ -z "${SHARE_SSH_USER:-}" ]]; then
+        SHARE_SSH_USER="${USER:-}"
+    fi
+
+    if [[ -z "${SHARE_SSH_PATH:-}" ]]; then
+        SHARE_SSH_PATH="${HOME:-}"
+    fi
+}
+
+qemu_save_share_config() {
+    local share_file
+    share_file=$(qemu_share_config_file)
+
+    {
+        printf 'SHARE_MODE=%q\n' "$SHARE_MODE"
+        printf 'SHARE_HOST_USER=%q\n' "$SHARE_HOST_USER"
+        printf 'SHARE_SSH_HOST=%q\n' "$SHARE_SSH_HOST"
+        printf 'SHARE_SSH_PORT=%q\n' "$SHARE_SSH_PORT"
+        printf 'SHARE_SSH_USER=%q\n' "$SHARE_SSH_USER"
+        printf 'SHARE_SSH_PATH=%q\n' "$SHARE_SSH_PATH"
+        printf 'SHARE_SSH_PASSWORD=%q\n' "$SHARE_SSH_PASSWORD"
+        printf 'SHARE_SMB_SERVER=%q\n' "$SHARE_SMB_SERVER"
+        printf 'SHARE_SMB_SHARE=%q\n' "$SHARE_SMB_SHARE"
+        printf 'SHARE_SMB_USER=%q\n' "$SHARE_SMB_USER"
+        printf 'SHARE_SMB_PASSWORD=%q\n' "$SHARE_SMB_PASSWORD"
+    } > "$share_file"
+    chmod 600 "$share_file"
+}
+
 qemu_load_state() {
     local vm_name="$1"
     local state_file
@@ -197,6 +262,14 @@ qemu_cmd_start() {
     mem_mb=$(qemu_runtime_memory_mb)
     cpu_count=$(qemu_runtime_cpus)
     net_device=$(qemu_net_device_name)
+    qemu_load_share_config
+
+    if [[ "$SHARE_MODE" == 'ssh' ]] && [[ -z "$SHARE_SSH_USER" || -z "$SHARE_SSH_PATH" ]]; then
+        ea11_backend_warn 'Compartilhamento ssh sem --ssh-user/--ssh-path definidos; guest pode nao montar automaticamente.'
+    fi
+    if [[ "$SHARE_MODE" == 'cifs' ]] && [[ -z "$SHARE_SMB_SERVER" || -z "$SHARE_SMB_SHARE" ]]; then
+        ea11_backend_warn 'Compartilhamento cifs sem --smb-server/--smb-share definidos; guest usara fallback SMB do QEMU se disponivel.'
+    fi
 
     [[ -f "$system_image" ]] || ea11_backend_die "Imagem de sistema nao encontrada: $system_image"
 
@@ -220,7 +293,32 @@ qemu_cmd_start() {
         -drive "file=${data_disk},format=qcow2,if=virtio"
         -netdev "user,id=net0,hostfwd=tcp::${ssh_port}-:22"
         -device "${net_device},netdev=net0"
+        -fw_cfg "name=opt/ea11/share_mode,string=${SHARE_MODE}"
+        -fw_cfg "name=opt/ea11/host_user,string=${SHARE_HOST_USER}"
     )
+
+    if [[ "$SHARE_MODE" == 'ssh' ]]; then
+        qemu_cmd+=(
+            -fw_cfg "name=opt/ea11/ssh_host,string=${SHARE_SSH_HOST}"
+            -fw_cfg "name=opt/ea11/ssh_port,string=${SHARE_SSH_PORT}"
+            -fw_cfg "name=opt/ea11/ssh_user,string=${SHARE_SSH_USER}"
+            -fw_cfg "name=opt/ea11/ssh_path,string=${SHARE_SSH_PATH}"
+        )
+        if [[ -n "${SHARE_SSH_PASSWORD:-}" ]]; then
+            qemu_cmd+=(-fw_cfg "name=opt/ea11/ssh_password,string=${SHARE_SSH_PASSWORD}")
+        fi
+    fi
+
+    if [[ "$SHARE_MODE" == 'cifs' ]]; then
+        qemu_cmd+=(
+            -fw_cfg "name=opt/ea11/smb_server,string=${SHARE_SMB_SERVER}"
+            -fw_cfg "name=opt/ea11/smb_share,string=${SHARE_SMB_SHARE}"
+            -fw_cfg "name=opt/ea11/smb_user,string=${SHARE_SMB_USER}"
+        )
+        if [[ -n "${SHARE_SMB_PASSWORD:-}" ]]; then
+            qemu_cmd+=(-fw_cfg "name=opt/ea11/smb_password,string=${SHARE_SMB_PASSWORD}")
+        fi
+    fi
 
     if [[ $headless -eq 1 ]]; then
         qemu_cmd+=(-nographic -serial mon:stdio)
@@ -248,7 +346,32 @@ qemu_cmd_start() {
                 -drive "file=${data_disk},format=qcow2,if=virtio"
                 -netdev "user,id=net0,hostfwd=tcp::${ssh_port}-:22"
                 -device "${net_device},netdev=net0"
+                -fw_cfg "name=opt/ea11/share_mode,string=${SHARE_MODE}"
+                -fw_cfg "name=opt/ea11/host_user,string=${SHARE_HOST_USER}"
             )
+
+            if [[ "$SHARE_MODE" == 'ssh' ]]; then
+                qemu_cmd+=(
+                    -fw_cfg "name=opt/ea11/ssh_host,string=${SHARE_SSH_HOST}"
+                    -fw_cfg "name=opt/ea11/ssh_port,string=${SHARE_SSH_PORT}"
+                    -fw_cfg "name=opt/ea11/ssh_user,string=${SHARE_SSH_USER}"
+                    -fw_cfg "name=opt/ea11/ssh_path,string=${SHARE_SSH_PATH}"
+                )
+                if [[ -n "${SHARE_SSH_PASSWORD:-}" ]]; then
+                    qemu_cmd+=(-fw_cfg "name=opt/ea11/ssh_password,string=${SHARE_SSH_PASSWORD}")
+                fi
+            fi
+
+            if [[ "$SHARE_MODE" == 'cifs' ]]; then
+                qemu_cmd+=(
+                    -fw_cfg "name=opt/ea11/smb_server,string=${SHARE_SMB_SERVER}"
+                    -fw_cfg "name=opt/ea11/smb_share,string=${SHARE_SMB_SHARE}"
+                    -fw_cfg "name=opt/ea11/smb_user,string=${SHARE_SMB_USER}"
+                )
+                if [[ -n "${SHARE_SMB_PASSWORD:-}" ]]; then
+                    qemu_cmd+=(-fw_cfg "name=opt/ea11/smb_password,string=${SHARE_SMB_PASSWORD}")
+                fi
+            fi
 
             if [[ $headless -eq 1 ]]; then
                 qemu_cmd+=(-nographic -serial mon:stdio)
@@ -277,6 +400,7 @@ qemu_cmd_start() {
 
     ea11_backend_info "VM QEMU '$vm_name' iniciada com PID ${qemu_pid}."
     ea11_backend_info "SSH: ssh -p ${ssh_port} ${EA11_DEFAULT_SSH_USER}@localhost"
+    ea11_backend_info "Compartilhamento do host: modo=${SHARE_MODE}"
 }
 
 qemu_cmd_stop() {
@@ -407,9 +531,66 @@ qemu_cmd_install() {
     IMAGE_TAG="$image_tag"
     qemu_save_state "$vm_name"
 
+    if [[ ! -f "$data_disk" ]]; then
+        ea11_backend_info "Criando disco de home em $data_disk"
+        qemu-img create -f qcow2 "$data_disk" 20G >/dev/null
+    fi
+
     ea11_backend_info "Imagem QEMU pronta em $EA11_DEFAULT_SYSTEM_IMAGE"
     ea11_backend_info "VM QEMU '$vm_name' registrada (state=stopped, tag=${image_tag})."
-    ea11_backend_info "Use: ea11ctl vm start -b qemu"
+    ea11_backend_info "Use: ea11ctl vm start"
+}
+
+qemu_cmd_share() {
+    local action="${1:-list}"
+    shift || true
+
+    qemu_load_share_config
+
+    case "$action" in
+        list)
+            printf 'mode=%s\n' "$SHARE_MODE"
+            printf 'host_user=%s\n' "$SHARE_HOST_USER"
+            printf 'ssh_host=%s\n' "$SHARE_SSH_HOST"
+            printf 'ssh_port=%s\n' "$SHARE_SSH_PORT"
+            printf 'ssh_user=%s\n' "$SHARE_SSH_USER"
+            printf 'ssh_path=%s\n' "$SHARE_SSH_PATH"
+            printf 'smb_server=%s\n' "$SHARE_SMB_SERVER"
+            printf 'smb_share=%s\n' "$SHARE_SMB_SHARE"
+            printf 'smb_user=%s\n' "$SHARE_SMB_USER"
+            ;;
+        set)
+            SHARE_MODE=$(ea11_backend_option_value --mode '' "$@" || printf '%s\n' "$SHARE_MODE")
+            SHARE_HOST_USER=$(ea11_backend_option_value --host-user '' "$@" || printf '%s\n' "$SHARE_HOST_USER")
+            SHARE_SSH_HOST=$(ea11_backend_option_value --ssh-host '' "$@" || printf '%s\n' "$SHARE_SSH_HOST")
+            SHARE_SSH_PORT=$(ea11_backend_option_value --ssh-port '' "$@" || printf '%s\n' "$SHARE_SSH_PORT")
+            SHARE_SSH_USER=$(ea11_backend_option_value --ssh-user '' "$@" || printf '%s\n' "$SHARE_SSH_USER")
+            SHARE_SSH_PATH=$(ea11_backend_option_value --ssh-path '' "$@" || printf '%s\n' "$SHARE_SSH_PATH")
+            SHARE_SSH_PASSWORD=$(ea11_backend_option_value --ssh-password '' "$@" || printf '%s\n' "$SHARE_SSH_PASSWORD")
+            SHARE_SMB_SERVER=$(ea11_backend_option_value --smb-server '' "$@" || printf '%s\n' "$SHARE_SMB_SERVER")
+            SHARE_SMB_SHARE=$(ea11_backend_option_value --smb-share '' "$@" || printf '%s\n' "$SHARE_SMB_SHARE")
+            SHARE_SMB_USER=$(ea11_backend_option_value --smb-user '' "$@" || printf '%s\n' "$SHARE_SMB_USER")
+            SHARE_SMB_PASSWORD=$(ea11_backend_option_value --smb-password '' "$@" || printf '%s\n' "$SHARE_SMB_PASSWORD")
+
+            case "$SHARE_MODE" in
+                ssh|cifs)
+                    ;;
+                *)
+                    ea11_backend_die "Modo de compartilhamento invalido: $SHARE_MODE (use ssh ou cifs)"
+                    ;;
+            esac
+
+            qemu_save_share_config
+            ea11_backend_info "Configuracao de compartilhamento salva em $(qemu_share_config_file)"
+            ;;
+        clear)
+            rm -f "$(qemu_share_config_file)"
+            ea11_backend_info 'Configuracao de compartilhamento removida.'
+            ;;
+        *)
+            ea11_backend_die "Acao de share desconhecida: $action"
+            ;;
+    esac
 }
 
 qemu_cmd_version() {
@@ -486,6 +667,7 @@ main() {
         install) qemu_cmd_install "$@" ;;
         version) qemu_cmd_version "$@" ;;
         check-update) qemu_cmd_check_update "$@" ;;
+        share) qemu_cmd_share "$@" ;;
         list) qemu_cmd_list "$@" ;;
         start) qemu_cmd_start "$@" ;;
         stop|close) qemu_cmd_stop "$@" ;;

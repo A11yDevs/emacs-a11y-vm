@@ -51,6 +51,11 @@ param(
     [switch]$Help
 )
 
+Write-Host "[DEPRECATED] scripts/install-release-vm.ps1 foi descontinuado (fluxo VirtualBox/VDI)." -ForegroundColor Yellow
+Write-Host "Use a CLI QEMU-only:" -ForegroundColor Cyan
+Write-Host "  ea11ctl vm start --backend qemu" -ForegroundColor Cyan
+exit 1
+
 # Impede que o script feche a janela imediatamente em caso de erro
 $ErrorActionPreference = "Stop"
 

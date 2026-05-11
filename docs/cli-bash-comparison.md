@@ -6,7 +6,7 @@ A CLI agora está disponível em **duas versões**:
 - **PowerShell** (`ea11ctl.ps1`) - Windows
 - **Bash** (`ea11ctl`) - macOS, Linux (Debian, Ubuntu, etc.)
 
-Ambas possuem funcionalidades equivalentes e sintaxe idêntica.
+Ambas operam no backend QEMU e possuem sintaxe próxima para os comandos principais.
 
 ## Compatibilidade de Comandos
 
@@ -25,9 +25,8 @@ Ambas possuem funcionalidades equivalentes e sintaxe idêntica.
 | `vm diagnose`, `vm -d` | ✅ | 🔄 | Base implementada |
 | `vm status`, `vm -q` | ✅ | 🔄 | Base implementada |
 | `vm ssh`, `vm -x` | ✅ | 🔄 | Base implementada |
-| `vm share-folder` | ✅ | 🔄 | Base implementada |
-| `--backend virtualbox` | ✅ | 🔄 | Parcialmente |
-| `--backend qemu` | ✅ | 🔄 | Parcialmente |
+| `vm share-folder` | ❌ | ✅ | Bash possui host-share dedicado |
+| `--backend qemu` | ✅ | ✅ | Completo |
 
 **Legenda:**
 - ✅ Completo e testado
@@ -93,11 +92,11 @@ wget -O - https://... | bash
 - [x] Detecção automática de SO (macOS, Linux)
 - [x] Download com fallback múltiplo
 - [x] Resolução de SHA do commit
+- [x] Backend QEMU como padrão
 
 ### 🔄 Em Desenvolvimento
 
 - [ ] **VM Commands**
-  - [ ] Integração completa com VirtualBox
   - [ ] Integração completa com QEMU
   - [ ] Suporte a múltiplos nomes de VM
   - [ ] Montagem de pastas compartilhadas
@@ -232,7 +231,7 @@ ls -la /tmp/ea11ctl-update-*
 ## Roadmap
 
 ### v0.2.0 (Próximo)
-- [ ] Integração completa com VirtualBox
+- [x] Migração para backend QEMU-only
 - [ ] Suporte a QEMU aprimorado
 - [ ] Shell auto-completion (bash/zsh)
 - [ ] Testes automatizados completos
