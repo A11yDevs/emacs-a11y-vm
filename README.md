@@ -95,13 +95,15 @@ A CLI `ea11ctl` funciona **identicamente** em Windows (PowerShell), macOS e Linu
 | `ea11ctl vm install` | Instala a VM a partir da última release |
 | `ea11ctl vm start` | Inicia a VM no QEMU |
 | `ea11ctl vm stop` | Desliga a VM QEMU |
+| `ea11ctl vm remove --all --yes` | Remove registro da VM e discos (sistema + dados) |
 | `ea11ctl vm status` | Mostra o estado atual da VM QEMU |
 | `ea11ctl vm ssh` | Abre sessão SSH na VM QEMU |
 | `ea11ctl self-update` | Atualiza a CLI para a versão mais recente |
+| `ea11ctl uninstall --yes` | Desinstala a CLI local |
 
 ### Backend da CLI
 
-O backend VirtualBox foi descontinuado. A CLI usa QEMU como padrão.
+O backend VirtualBox foi descontinuado. A CLI e QEMU-only.
 
 Exemplos (funciona em Windows, macOS e Linux):
 

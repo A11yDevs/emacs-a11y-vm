@@ -639,7 +639,7 @@ qemu_cmd_check_update() {
     if [[ "$local_tag" == "unknown" ]]; then
         printf 'update_status=unknown-local\n'
         ea11_backend_warn 'Tag local da imagem nao registrada.'
-        ea11_backend_info 'Atualize para registrar a tag local: ea11ctl vm install -b qemu --force-download'
+        ea11_backend_info 'Atualize para registrar a tag local: ea11ctl vm install --force-download'
         return 0
     fi
 
@@ -655,7 +655,92 @@ qemu_cmd_check_update() {
     else
         printf 'update_status=update-available\n'
         ea11_backend_warn "Nova release disponivel: $latest_tag (local: $local_tag)."
-        ea11_backend_info 'Atualize com: ea11ctl vm install -b qemu --force-download'
+        ea11_backend_info 'Atualize com: ea11ctl vm install --force-download'
+    fi
+}
+
+qemu_cmd_remove() {
+    local vm_name remove_data remove_system remove_all force yes
+    local state_file system_image data_disk log_file
+    vm_name=$(qemu_parse_vm_name "$@")
+    remove_data=0
+    remove_system=0
+    remove_all=0
+    force=0
+    yes=0
+
+    if ea11_backend_has_flag --data "$@"; then
+        remove_data=1
+    fi
+    if ea11_backend_has_flag --system "$@"; then
+        remove_system=1
+    fi
+    if ea11_backend_has_flag --all "$@"; then
+        remove_all=1
+        remove_data=1
+        remove_system=1
+    fi
+    if ea11_backend_has_flag --force "$@" || ea11_backend_has_flag -f "$@"; then
+        force=1
+    fi
+    if ea11_backend_has_flag --yes "$@" || ea11_backend_has_flag -y "$@"; then
+        yes=1
+    fi
+
+    unset VM_NAME QEMU_PID SSH_PORT SYSTEM_IMAGE DATA_DISK LOG_FILE STATE IMAGE_TAG
+    qemu_load_state "$vm_name"
+
+    state_file=$(qemu_state_file "$vm_name")
+    system_image="${SYSTEM_IMAGE:-$EA11_DEFAULT_SYSTEM_IMAGE}"
+    data_disk="${DATA_DISK:-$EA11_HOME/${vm_name}-home.qcow2}"
+    log_file="${LOG_FILE:-$(qemu_log_file "$vm_name")}" 
+
+    if qemu_is_running "${QEMU_PID:-}"; then
+        if [[ $force -eq 1 ]]; then
+            kill -KILL "$QEMU_PID" 2>/dev/null || true
+            ea11_backend_warn "VM '$vm_name' estava em execucao e foi encerrada com --force."
+        else
+            ea11_backend_die "VM '$vm_name' esta em execucao. Pare com 'ea11ctl vm stop --name $vm_name' ou use --force."
+        fi
+    fi
+
+    if [[ $yes -eq 0 ]]; then
+        ea11_backend_warn "Isso removera o registro da VM '$vm_name'."
+        if [[ $remove_data -eq 1 ]]; then
+            ea11_backend_warn "Tambem removera disco de dados: $data_disk"
+        fi
+        if [[ $remove_system -eq 1 ]]; then
+            ea11_backend_warn "Tambem removera imagem de sistema: $system_image"
+        fi
+        printf 'Digite "yes" para confirmar: '
+        local reply
+        read -r reply
+        if [[ "$reply" != 'yes' ]]; then
+            ea11_backend_info 'Remocao cancelada.'
+            return 0
+        fi
+    fi
+
+    rm -f "$state_file" 2>/dev/null || true
+    rm -f "$log_file" 2>/dev/null || true
+
+    if [[ $remove_data -eq 1 ]]; then
+        rm -f "$data_disk" 2>/dev/null || true
+    fi
+
+    if [[ $remove_system -eq 1 ]]; then
+        rm -f "$system_image" 2>/dev/null || true
+    fi
+
+    ea11_backend_info "VM '$vm_name' removida (registro/local state)."
+    if [[ $remove_data -eq 1 ]]; then
+        ea11_backend_info 'Disco de dados removido.'
+    fi
+    if [[ $remove_system -eq 1 ]]; then
+        ea11_backend_info 'Imagem de sistema removida.'
+    fi
+    if [[ $remove_all -eq 1 ]]; then
+        ea11_backend_info 'Remocao completa concluida (--all).'
     fi
 }
 
@@ -671,6 +756,7 @@ main() {
         list) qemu_cmd_list "$@" ;;
         start) qemu_cmd_start "$@" ;;
         stop|close) qemu_cmd_stop "$@" ;;
+        remove) qemu_cmd_remove "$@" ;;
         status) qemu_cmd_status "$@" ;;
         ssh) qemu_cmd_ssh "$@" ;;
         diagnose) qemu_cmd_diagnose "$@" ;;

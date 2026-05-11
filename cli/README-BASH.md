@@ -117,6 +117,22 @@ ea11ctl vm stop -f
 ea11ctl vm close -t 30
 ```
 
+#### Remover VM
+
+```bash
+# Remove apenas registro/estado local da VM
+ea11ctl vm remove -n debian-a11y
+
+# Remove tambem disco de dados (/home)
+ea11ctl vm remove -n debian-a11y --data --yes
+
+# Remove tambem imagem de sistema
+ea11ctl vm remove -n debian-a11y --system --yes
+
+# Remocao completa (registro + dados + sistema)
+ea11ctl vm remove -n debian-a11y --all --yes
+```
+
 #### Status da VM
 
 ```bash
@@ -168,14 +184,25 @@ ea11ctl vm install
 ea11ctl vm install -n debian-a11y --no-gui
 ```
 
+### Desinstalar CLI
+
+```bash
+# Remove apenas a CLI instalada
+ea11ctl uninstall --yes
+
+# Remove CLI e todo estado local (VMs, discos e logs)
+ea11ctl uninstall --purge-state --yes
+```
+
 ## Configuração Padrão
 
 | Opção | Valor Padrão |
 |-------|--------------|
-| Backend | qemu |
 | VM | debian-a11y |
 | Usuário SSH | a11ydevs |
 | Porta SSH | 2222 |
+
+Observacao: a CLI e QEMU-only; a opcao de backend foi removida.
 
 ## Estrutura de Diretórios
 

@@ -280,16 +280,17 @@ get_ea11_scripts_directory() {
     echo "$scripts_dir"
 }
 
-vm_backend_flag_present() {
+assert_no_backend_option() {
     local arg
     for arg in "$@"; do
         case "$arg" in
-            -b|--backend|--qemu)
-                return 0
+            -b|--backend|--qemu|--virtualbox)
+                ea11_error 'A opcao de backend foi removida. A CLI agora e QEMU-only.'
+                return 1
                 ;;
         esac
     done
-    return 1
+    return 0
 }
 
 qemu_has_registered_vm() {
@@ -342,42 +343,6 @@ sync_backend_scripts_from_remote() {
     chmod +x "$target_dir/qemu.sh" 2>/dev/null || true
 }
 
-resolve_vm_backend() {
-    local backend='qemu'
-    local current
-    while [[ $# -gt 0 ]]; do
-        current="$1"
-        shift
-        case "$current" in
-            -b|--backend)
-                if [[ $# -eq 0 ]]; then
-                    ea11_error 'Use --backend com um valor (qemu).'
-                    return 1
-                fi
-                backend="$1"
-                shift
-                ;;
-            --qemu)
-                backend='qemu'
-                ;;
-        esac
-    done
-
-    case "$backend" in
-        qemu)
-            echo "$backend"
-            ;;
-        virtualbox|vbox)
-            ea11_error 'Backend virtualbox foi descontinuado. Use qemu.'
-            return 1
-            ;;
-        *)
-            ea11_error "Backend desconhecido: $backend"
-            return 1
-            ;;
-    esac
-}
-
 resolve_backend_script_path() {
     local backend="$1"
     local target_dir
@@ -399,10 +364,10 @@ resolve_backend_script_path() {
 }
 
 run_backend_command() {
-    local backend="$1"
-    local command="$2"
-    shift 2
+    local command="$1"
+    shift
 
+    local backend='qemu'
     local script_path
     script_path=$(resolve_backend_script_path "$backend") || return 1
     bash "$script_path" "$command" "$@"
@@ -413,51 +378,48 @@ run_backend_command() {
 #################################################################################
 
 invoke_vm_install() {
-    local backend
-    backend=$(resolve_vm_backend "$@") || return 1
-    run_backend_command "$backend" install "$@"
+    assert_no_backend_option "$@" || return 1
+    run_backend_command install "$@"
 }
 
 invoke_vm_list() {
-    local backend
-    backend=$(resolve_vm_backend "$@") || return 1
-    run_backend_command "$backend" list "$@"
+    assert_no_backend_option "$@" || return 1
+    run_backend_command list "$@"
 }
 
 invoke_vm_start() {
-    local backend
-    backend=$(resolve_vm_backend "$@") || return 1
-    run_backend_command "$backend" start "$@"
+    assert_no_backend_option "$@" || return 1
+    run_backend_command start "$@"
 }
 
 invoke_vm_stop() {
-    local backend
-    backend=$(resolve_vm_backend "$@") || return 1
-    run_backend_command "$backend" stop "$@"
+    assert_no_backend_option "$@" || return 1
+    run_backend_command stop "$@"
 }
 
 invoke_vm_status() {
-    local backend
-    backend=$(resolve_vm_backend "$@") || return 1
-    run_backend_command "$backend" status "$@"
+    assert_no_backend_option "$@" || return 1
+    run_backend_command status "$@"
 }
 
 invoke_vm_ssh() {
-    local backend
-    backend=$(resolve_vm_backend "$@") || return 1
-    run_backend_command "$backend" ssh "$@"
+    assert_no_backend_option "$@" || return 1
+    run_backend_command ssh "$@"
 }
 
 invoke_vm_diagnose() {
-    local backend
-    backend=$(resolve_vm_backend "$@") || return 1
-    run_backend_command "$backend" diagnose "$@"
+    assert_no_backend_option "$@" || return 1
+    run_backend_command diagnose "$@"
 }
 
 invoke_vm_close() {
-    local backend
-    backend=$(resolve_vm_backend "$@") || return 1
-    run_backend_command "$backend" close "$@"
+    assert_no_backend_option "$@" || return 1
+    run_backend_command close "$@"
+}
+
+invoke_vm_remove() {
+    assert_no_backend_option "$@" || return 1
+    run_backend_command remove "$@"
 }
 
 invoke_vm_host_share() {
@@ -476,22 +438,12 @@ invoke_vm_command() {
             invoke_vm_install "$@"
             ;;
         version|-V)
-            local backend
-            if ! vm_backend_flag_present "$@" && qemu_has_registered_vm; then
-                backend='qemu'
-            else
-                backend=$(resolve_vm_backend "$@") || return 1
-            fi
-            run_backend_command "$backend" version "$@"
+            assert_no_backend_option "$@" || return 1
+            run_backend_command version "$@"
             ;;
         check-update|-U)
-            local backend
-            if ! vm_backend_flag_present "$@" && qemu_has_registered_vm; then
-                backend='qemu'
-            else
-                backend=$(resolve_vm_backend "$@") || return 1
-            fi
-            run_backend_command "$backend" check-update "$@"
+            assert_no_backend_option "$@" || return 1
+            run_backend_command check-update "$@"
             ;;
         list|-l)
             invoke_vm_list "$@"
@@ -504,6 +456,9 @@ invoke_vm_command() {
             ;;
         close|-c)
             invoke_vm_close "$@"
+            ;;
+        remove|-r|delete)
+            invoke_vm_remove "$@"
             ;;
         status|-q)
             invoke_vm_status "$@"
@@ -528,6 +483,57 @@ invoke_vm_command() {
     esac
 }
 
+invoke_uninstall() {
+    local purge_state=0 yes=0 force_repo_path=0
+    if has_flag --purge-state "$@"; then
+        purge_state=1
+    fi
+    if has_flag --yes "$@" || has_flag -y "$@"; then
+        yes=1
+    fi
+    if has_flag --force-repo-path "$@"; then
+        force_repo_path=1
+    fi
+
+    if [[ -d "$SCRIPT_DIR/../.git" && $force_repo_path -eq 0 ]]; then
+        ea11_error 'Desinstalacao bloqueada: esta CLI parece estar sendo executada do checkout do repositorio.'
+        ea11_error 'Use --force-repo-path para confirmar remocao neste diretorio.'
+        return 1
+    fi
+
+    if [[ $yes -eq 0 ]]; then
+        ea11_warn 'Esta acao desinstala a CLI atual.'
+        if [[ $purge_state -eq 1 ]]; then
+            ea11_warn 'Tambem removera o diretorio ~/.emacs-a11y-vm (VMs, estado e logs).'
+        fi
+        printf 'Digite "yes" para confirmar: '
+        local reply
+        read -r reply
+        if [[ "$reply" != 'yes' ]]; then
+            ea11_info 'Desinstalacao cancelada.'
+            return 0
+        fi
+    fi
+
+    local install_dir="$SCRIPT_DIR"
+    local files=(ea11ctl install.sh VERSION ea11ctl.ps1 ea11ctl.cmd)
+    local f
+    for f in "${files[@]}"; do
+        rm -f "$install_dir/$f" 2>/dev/null || true
+    done
+
+    rm -rf "$(get_ea11_scripts_directory)" 2>/dev/null || true
+
+    if [[ $purge_state -eq 1 ]]; then
+        rm -rf "$(get_ea11_state_directory)" 2>/dev/null || true
+    fi
+
+    ea11_success 'ea11ctl desinstalado neste diretório.'
+    if [[ $purge_state -eq 0 ]]; then
+        ea11_info 'Para remover VMs e dados, use: ea11ctl vm remove --all --yes ou ea11ctl uninstall --purge-state --yes'
+    fi
+}
+
 #################################################################################
 # Help
 #################################################################################
@@ -540,16 +546,18 @@ Uso:
   ea11ctl help|-h|--help
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
+    ea11ctl uninstall [--purge-state] [--yes] [--force-repo-path]
     ea11ctl vm install|-i [args-do-install-release-vm.sh]
-        ea11ctl vm version|-V [-n|--name VM] [--backend qemu]
-        ea11ctl vm check-update|-U [-n|--name VM] [--backend qemu]
-    ea11ctl vm list|-l [--backend qemu]
-    ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--backend qemu]
-    ea11ctl vm stop|-S [-n|--name VM] [-f|--force] [--backend qemu]
-    ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS] [--backend qemu]
-    ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N] [--backend qemu]
-    ea11ctl vm status|-q [-n|--name VM] [--backend qemu]
-    ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [--backend qemu] [-- extra-args]
+                ea11ctl vm version|-V [-n|--name VM]
+                ea11ctl vm check-update|-U [-n|--name VM]
+        ea11ctl vm list|-l
+        ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
+        ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
+        ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS]
+        ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
+        ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N]
+        ea11ctl vm status|-q [-n|--name VM]
+        ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
     ea11ctl vm host-share|-H list
     ea11ctl vm host-share|-H set [--mode ssh|cifs] [--host-user USER]
     ea11ctl vm host-share|-H set --mode ssh [--ssh-host HOST] [--ssh-port PORT] [--ssh-user USER] [--ssh-path PATH] [--ssh-password PASS]
@@ -557,7 +565,6 @@ Uso:
     ea11ctl vm host-share|-H clear
 
 Defaults:
-        Backend: qemu
   VM: debian-a11y
   SSH user: a11ydevs
   SSH port: 2222
@@ -585,6 +592,9 @@ main() {
             ;;
         self-update|update)
             invoke_self_update "$@"
+            ;;
+        uninstall)
+            invoke_uninstall "$@"
             ;;
         vm)
             invoke_vm_command "$@"

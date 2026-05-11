@@ -33,17 +33,18 @@ Uso:
   ea11ctl help|-h|--help
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
+    ea11ctl uninstall [--purge-state] [--yes] [--force-repo-path]
     ea11ctl vm|vm install|-i
-        ea11ctl vm list|-l [--backend qemu]
-        ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--backend qemu]
-        ea11ctl vm stop|-S [-n|--name VM] [-f|--force] [--backend qemu]
-        ea11ctl vm close|-c [-n|--name VM] [--backend qemu]
-        ea11ctl vm diagnose|-d [-n|--name VM] [-L|--lines N] [--backend qemu]
-        ea11ctl vm status|-q [-n|--name VM] [--backend qemu]
-        ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [--backend qemu] [-- extra-args]
+      ea11ctl vm list|-l
+      ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
+      ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
+      ea11ctl vm close|-c [-n|--name VM]
+      ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
+      ea11ctl vm diagnose|-d [-n|--name VM] [-L|--lines N]
+      ea11ctl vm status|-q [-n|--name VM]
+      ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
 
 Defaults:
-        Backend: qemu
   VM: debian-a11y
   SSH user: a11ydevs
   SSH port: 2222
@@ -378,51 +379,14 @@ function Get-IntOptionValue {
     return $value
 }
 
-function Resolve-VMBackend {
-    param(
-        [string[]]$Tokens,
-        [string]$DefaultBackend = 'qemu'
-    )
-
-    $backend = $DefaultBackend
-    $cleanTokens = New-Object System.Collections.Generic.List[string]
+function Assert-NoBackendOption {
+    param([string[]]$Tokens)
 
     for ($i = 0; $i -lt $Tokens.Length; $i++) {
         $token = $Tokens[$i]
-
-        if ($token -in @('--backend', '-b')) {
-            if (($i + 1) -ge $Tokens.Length) {
-                throw "Use --backend com um valor (qemu)."
-            }
-
-            $backend = $Tokens[$i + 1]
-            $i++
-            continue
+        if ($token -in @('--backend', '-b', '--qemu', '--virtualbox')) {
+            throw 'A opcao de backend foi removida. A CLI agora e QEMU-only.'
         }
-
-        if ($token -eq '--qemu') {
-            $backend = 'qemu'
-            continue
-        }
-
-        if ($token -eq '--virtualbox') {
-            throw "Backend virtualbox foi descontinuado. Use qemu."
-        }
-
-        [void]$cleanTokens.Add($token)
-    }
-
-    $normalized = $backend.ToLowerInvariant()
-    switch ($normalized) {
-        'qemu' { }
-        'virtualbox' { throw "Backend virtualbox foi descontinuado. Use qemu." }
-        'vbox' { throw "Backend virtualbox foi descontinuado. Use qemu." }
-        default { throw "Backend desconhecido: $backend (use qemu)." }
-    }
-
-    return @{
-        Backend = $normalized
-        Tokens = $cleanTokens.ToArray()
     }
 }
 
@@ -1439,6 +1403,123 @@ function Invoke-QemuVMStop {
     }
 }
 
+function Invoke-QemuVMRemove {
+    param([string[]]$Tokens)
+
+    $vmName = Get-VMName -Tokens $Tokens
+    $removeData = Has-Flag -Tokens $Tokens -Flags @('--data')
+    $removeSystem = Has-Flag -Tokens $Tokens -Flags @('--system')
+    $removeAll = Has-Flag -Tokens $Tokens -Flags @('--all')
+    $force = Has-Flag -Tokens $Tokens -Flags @('--force', '-f')
+    $yes = Has-Flag -Tokens $Tokens -Flags @('--yes', '-y')
+
+    if ($removeAll) {
+        $removeData = $true
+        $removeSystem = $true
+    }
+
+    $state = Load-QemuState -VMName $vmName
+    $stateDir = Get-EA11StateDirectory
+    $stateFile = Get-QemuStateFilePath -VMName $vmName
+    $logsDir = Get-QemuLogsDirectory
+    $stderrLog = Join-Path $logsDir "$vmName-stderr.log"
+    $stdoutLog = Join-Path $logsDir "$vmName-stdout.log"
+
+    $systemDisk = Join-Path $stateDir 'debian-a11ydevs.qcow2'
+    $userDataDisk = Join-Path $stateDir "$vmName-home.qcow2"
+    if ($state) {
+        if ($state.systemDisk) { $systemDisk = [string]$state.systemDisk }
+        if ($state.userDataDisk) { $userDataDisk = [string]$state.userDataDisk }
+        if ($state.stderrLog) { $stderrLog = [string]$state.stderrLog }
+        if ($state.stdoutLog) { $stdoutLog = [string]$state.stdoutLog }
+    }
+
+    if ($state -and $state.pid) {
+        $vmPid = [int]$state.pid
+        if ($vmPid -gt 0 -and (Get-ProcessByIdSafe -ProcessId $vmPid)) {
+            if ($force) {
+                Stop-Process -Id $vmPid -Force -ErrorAction SilentlyContinue
+                Write-EA11Warn "VM '$vmName' estava em execucao e foi encerrada com --force."
+            }
+            else {
+                throw "VM '$vmName' esta em execucao. Use ea11ctl vm stop --name $vmName ou --force."
+            }
+        }
+    }
+
+    if (-not $yes) {
+        Write-EA11Warn "Isso removera o registro local da VM '$vmName'."
+        if ($removeData) {
+            Write-EA11Warn "Tambem removera disco de dados: $userDataDisk"
+        }
+        if ($removeSystem) {
+            Write-EA11Warn "Tambem removera imagem de sistema: $systemDisk"
+        }
+        $reply = Read-Host 'Digite "yes" para confirmar'
+        if ($reply -ne 'yes') {
+            Write-EA11Info 'Remocao cancelada.'
+            return
+        }
+    }
+
+    Remove-Item -Path $stateFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $stdoutLog -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $stderrLog -Force -ErrorAction SilentlyContinue
+
+    if ($removeData) {
+        Remove-Item -Path $userDataDisk -Force -ErrorAction SilentlyContinue
+    }
+    if ($removeSystem) {
+        Remove-Item -Path $systemDisk -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-EA11Info "VM '$vmName' removida (registro/local state)."
+    if ($removeData) { Write-EA11Info 'Disco de dados removido.' }
+    if ($removeSystem) { Write-EA11Info 'Imagem de sistema removida.' }
+}
+
+function Invoke-Uninstall {
+    param([string[]]$Tokens)
+
+    $purgeState = Has-Flag -Tokens $Tokens -Flags @('--purge-state')
+    $yes = Has-Flag -Tokens $Tokens -Flags @('--yes', '-y')
+    $forceRepoPath = Has-Flag -Tokens $Tokens -Flags @('--force-repo-path')
+
+    $repoGitPath = Join-Path (Join-Path $PSScriptRoot '..') '.git'
+    if ((Test-Path $repoGitPath) -and (-not $forceRepoPath)) {
+        throw 'Desinstalacao bloqueada: esta CLI parece estar sendo executada do checkout do repositorio. Use --force-repo-path para confirmar.'
+    }
+
+    if (-not $yes) {
+        Write-EA11Warn 'Esta acao desinstala a CLI deste diretorio.'
+        if ($purgeState) {
+            Write-EA11Warn 'Tambem removera ~/.emacs-a11y-vm (VMs, estado e logs).'
+        }
+        $reply = Read-Host 'Digite "yes" para confirmar'
+        if ($reply -ne 'yes') {
+            Write-EA11Info 'Desinstalacao cancelada.'
+            return
+        }
+    }
+
+    $installDir = $PSScriptRoot
+    $toRemove = @('ea11ctl.cmd', 'VERSION')
+    foreach ($file in $toRemove) {
+        Remove-Item -Path (Join-Path $installDir $file) -Force -ErrorAction SilentlyContinue
+    }
+
+    # Auto-remocao do proprio script apos o processo atual encerrar.
+    $selfPath = $MyInvocation.MyCommand.Path
+    $cleanupCmd = "ping 127.0.0.1 -n 3 >nul & del /f /q `"$selfPath`""
+    cmd.exe /c $cleanupCmd | Out-Null
+
+    if ($purgeState) {
+        Remove-Item -Path (Get-EA11StateDirectory) -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Host 'ea11ctl desinstalado neste diretorio.' -ForegroundColor Green
+}
+
 function Invoke-QemuVMStatus {
     param([string[]]$Tokens)
 
@@ -1871,17 +1952,13 @@ function Invoke-VMShareFolder {
 }
 
 function Invoke-VMCommand {
-    param(
-        [string[]]$Tokens,
-        [string]$DefaultBackend = 'qemu'
-    )
+    param([string[]]$Tokens)
 
-    $resolved = Resolve-VMBackend -Tokens $Tokens -DefaultBackend $DefaultBackend
-    $backend = $resolved.Backend
-    $cleanTokens = $resolved.Tokens
+    Assert-NoBackendOption -Tokens $Tokens
+    $cleanTokens = $Tokens
 
     if ($cleanTokens.Length -eq 0) {
-        throw "Uso: ea11ctl vm <install|list|start|stop|close|diagnose|status|ssh>"
+        throw "Uso: ea11ctl vm <install|list|start|stop|close|remove|diagnose|status|ssh>"
     }
 
     $sub = $cleanTokens[0]
@@ -1905,6 +1982,9 @@ function Invoke-VMCommand {
         }
         { $_ -in @('close', '-c') } {
             Invoke-QemuVMStop -Tokens $rest
+        }
+        { $_ -in @('remove', '-r', 'delete') } {
+            Invoke-QemuVMRemove -Tokens $rest
         }
         { $_ -in @('diagnose', '-d') } {
             Invoke-QemuVMDiagnose -Tokens $rest
@@ -1939,6 +2019,7 @@ try {
         '--version' { Invoke-VersionCommand -Tokens $rest }
         'self-update' { Invoke-SelfUpdate -Tokens $rest }
         'update' { Invoke-SelfUpdate -Tokens $rest }
+        'uninstall' { Invoke-Uninstall -Tokens $rest }
         'vm' { Invoke-VMCommand -Tokens $rest }
         default {
             throw "Comando desconhecido: $root"

@@ -25,8 +25,10 @@ Ambas operam no backend QEMU e possuem sintaxe próxima para os comandos princip
 | `vm diagnose`, `vm -d` | ✅ | 🔄 | Base implementada |
 | `vm status`, `vm -q` | ✅ | 🔄 | Base implementada |
 | `vm ssh`, `vm -x` | ✅ | 🔄 | Base implementada |
-| `vm share-folder` | ❌ | ✅ | Bash possui host-share dedicado |
-| `--backend qemu` | ✅ | ✅ | Completo |
+| `vm remove`, `vm delete` | ✅ | ✅ | Completo |
+| `uninstall` | ✅ | ✅ | Completo |
+| `vm host-share` | ❌ | ✅ | Bash possui gerenciamento dedicado de compartilhamento |
+| `--backend qemu` | ❌ | ❌ | Removido (QEMU-only) |
 
 **Legenda:**
 - ✅ Completo e testado
@@ -96,12 +98,8 @@ wget -O - https://... | bash
 
 ### 🔄 Em Desenvolvimento
 
-- [ ] **VM Commands**
-  - [ ] Integração completa com QEMU
-  - [ ] Suporte a múltiplos nomes de VM
-  - [ ] Montagem de pastas compartilhadas
-  - [ ] Diagnóstico completo
-  - [ ] Persistência de estado
+- [ ] Melhorias de UX e ergonomia
+- [ ] Expansao de testes automatizados
 
 - [ ] **SSH**
   - [ ] Suporte a autenticação por chave
@@ -232,6 +230,9 @@ ls -la /tmp/ea11ctl-update-*
 
 ### v0.2.0 (Próximo)
 - [x] Migração para backend QEMU-only
+- [x] Remoção da opção de backend na CLI
+- [x] Comando `vm remove` (registro, dados e sistema)
+- [x] Comando `uninstall` na CLI
 - [ ] Suporte a QEMU aprimorado
 - [ ] Shell auto-completion (bash/zsh)
 - [ ] Testes automatizados completos
