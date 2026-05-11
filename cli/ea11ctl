@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # Constantes
-EA11CTL_FALLBACK_VERSION='0.1.33'
+EA11CTL_FALLBACK_VERSION='0.1.34'
 EA11CTL_OWNER='A11yDevs'
 EA11CTL_REPO='emacs-a11y-vm'
 EA11CTL_BRANCH='main'
@@ -22,6 +22,36 @@ ea11_info() {
     printf '\033[36m[ea11ctl] %s\033[0m\n' "$*" >&2
 }
 
+compare_semver() {
+    local left="$1"
+    local right="$2"
+    local IFS='.'
+    local -a left_parts right_parts
+    local i max left_num right_num
+
+    read -r -a left_parts <<< "$left"
+    read -r -a right_parts <<< "$right"
+
+    max=${#left_parts[@]}
+    if (( ${#right_parts[@]} > max )); then
+        max=${#right_parts[@]}
+    fi
+
+    for ((i=0; i<max; i++)); do
+        left_num=${left_parts[i]:-0}
+        right_num=${right_parts[i]:-0}
+        if ((10#$left_num > 10#$right_num)); then
+            echo 1
+            return 0
+        fi
+        if ((10#$left_num < 10#$right_num)); then
+            echo -1
+            return 0
+        fi
+    done
+
+    echo 0
+}
 ea11_warn() {
     printf '\033[33m[ea11ctl] %s\033[0m\n' "$*" >&2
 }
@@ -93,11 +123,16 @@ invoke_version_command() {
         return 0
     fi
     
-    if [[ "$remote_version" == "$local_version" ]]; then
-        ea11_info "Você já está na versão mais recente ($local_version)."
-    else
+    local cmp
+    cmp=$(compare_semver "$remote_version" "$local_version")
+
+    if [[ "$cmp" == "1" ]]; then
         ea11_info "Nova versão disponível: $remote_version (local: $local_version)"
         echo "Use: ea11ctl self-update" | sed 's/^/  /'
+    elif [[ "$cmp" == "0" ]]; then
+        ea11_info "Você já está na versão mais recente ($local_version)."
+    else
+        ea11_info "Sua CLI local ($local_version) está à frente da remota ($remote_version)."
     fi
 }
 
@@ -120,10 +155,20 @@ invoke_self_update() {
         
         if [[ -z "$remote_version" ]]; then
             ea11_warn "Não foi possível validar versão remota; prosseguindo com update."
-        elif [[ "$remote_version" == "$local_version" ]]; then
-            ea11_info "ea11ctl já está atualizado (v$local_version)."
-            return 0
         else
+            local cmp
+            cmp=$(compare_semver "$remote_version" "$local_version")
+
+            if [[ "$cmp" == "0" ]]; then
+                ea11_info "ea11ctl já está atualizado (v$local_version)."
+                return 0
+            fi
+
+            if [[ "$cmp" == "-1" ]]; then
+                ea11_info "ea11ctl local (v$local_version) está à frente do remoto (v$remote_version)."
+                return 0
+            fi
+
             ea11_info "Atualizando ea11ctl de v$local_version para v$remote_version..."
         fi
     fi

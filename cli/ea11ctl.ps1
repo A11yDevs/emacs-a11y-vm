@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.33'
+$EA11CTL_FALLBACK_VERSION = '0.1.34'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -157,6 +157,33 @@ function Get-RemoteBranchHeadSha {
     return ([string]$json.sha).Trim()
 }
 
+function Compare-SemVer {
+    param(
+        [Parameter(Mandatory = $true)][string]$Left,
+        [Parameter(Mandatory = $true)][string]$Right
+    )
+
+    $leftParts = $Left.Split('.')
+    $rightParts = $Right.Split('.')
+    $maxLen = [Math]::Max($leftParts.Length, $rightParts.Length)
+
+    for ($i = 0; $i -lt $maxLen; $i++) {
+        $lv = 0
+        $rv = 0
+        if ($i -lt $leftParts.Length) {
+            [void][int]::TryParse($leftParts[$i], [ref]$lv)
+        }
+        if ($i -lt $rightParts.Length) {
+            [void][int]::TryParse($rightParts[$i], [ref]$rv)
+        }
+
+        if ($lv -gt $rv) { return 1 }
+        if ($lv -lt $rv) { return -1 }
+    }
+
+    return 0
+}
+
 function Invoke-VersionCommand {
     param([string[]]$Tokens)
 
@@ -169,12 +196,16 @@ function Invoke-VersionCommand {
 
     try {
         $remoteVersion = Get-RemoteCliVersion
-        if ($remoteVersion -eq $localVersion) {
+        $cmp = Compare-SemVer -Left $remoteVersion -Right $localVersion
+        if ($cmp -gt 0) {
+            Write-EA11Info "Nova versao disponivel: $remoteVersion (local: $localVersion)"
+            Write-Host 'Use: ea11ctl self-update' -ForegroundColor Green
+        }
+        elseif ($cmp -eq 0) {
             Write-EA11Info "Voce ja esta na versao mais recente ($localVersion)."
         }
         else {
-            Write-EA11Info "Nova versao disponivel: $remoteVersion (local: $localVersion)"
-            Write-Host 'Use: ea11ctl self-update' -ForegroundColor Green
+            Write-EA11Info "Sua CLI local ($localVersion) esta a frente da remota ($remoteVersion)."
         }
     }
     catch {
@@ -191,8 +222,15 @@ function Invoke-SelfUpdate {
     if (-not $force) {
         try {
             $remoteVersion = Get-RemoteCliVersion
-            if ($remoteVersion -eq $localVersion) {
+            $cmp = Compare-SemVer -Left $remoteVersion -Right $localVersion
+
+            if ($cmp -eq 0) {
                 Write-EA11Info "ea11ctl ja esta atualizado (v$localVersion)."
+                return
+            }
+
+            if ($cmp -lt 0) {
+                Write-EA11Info "ea11ctl local (v$localVersion) esta a frente do remoto (v$remoteVersion)."
                 return
             }
 
