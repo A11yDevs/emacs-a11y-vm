@@ -1466,7 +1466,7 @@ function Invoke-QemuVMStart {
             if (($hostHomeShareMode -ne '9p') -and $smbSupportInfo -and ($smbSupportInfo.Supported -or ($smbSupportInfo.Reason -ne 'unsupported'))) {
                 $hostHomeShareMode = 'smb'
                 $escapedSmbPath = ([string]$hostHomeShare.HostPath).Replace('"', '\"')
-                $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22,smb=\"$escapedSmbPath\""
+                $netdevValue = ('user,id=net0,hostfwd=tcp::{0}-:22,smb="{1}"' -f $sshPort, $escapedSmbPath)
                 $qemuSmbShare = @{
                     Server = '10.0.2.4'
                     Share = 'qemu'
