@@ -9,6 +9,7 @@ $EA11CTL_FALLBACK_VERSION = '0.1.34'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
+$EA11CTL_RELEASE_BASE_URL = 'https://argmap.inf.ufg.br/a11ydevs'
 
 function Write-EA11Info {
     param([string]$Message)
@@ -1160,6 +1161,7 @@ function Invoke-VMInstall {
     $owner = Get-OptionValue -Tokens $InstallArgs -Names @('--owner') -Default $EA11CTL_OWNER
     $repo = Get-OptionValue -Tokens $InstallArgs -Names @('--repo') -Default $EA11CTL_REPO
     $tag = Get-OptionValue -Tokens $InstallArgs -Names @('--tag') -Default 'latest'
+    $releaseBaseUrl = Get-OptionValue -Tokens $InstallArgs -Names @('--release-base-url') -Default $EA11CTL_RELEASE_BASE_URL
     $forceDownload = Has-Flag -Tokens $InstallArgs -Flags @('--force-download', '--force', '-f')
 
     $stateDir = Get-EA11StateDirectory
@@ -1172,23 +1174,55 @@ function Invoke-VMInstall {
     }
 
     $assetName = 'debian-a11ydevs.qcow2'
+    $releaseBaseUrl = [string]$releaseBaseUrl
+    if (-not [string]::IsNullOrWhiteSpace($releaseBaseUrl)) {
+        $releaseBaseUrl = $releaseBaseUrl.TrimEnd('/')
+    }
+
     if ($tag -eq 'latest') {
-        $url = "https://github.com/$owner/$repo/releases/latest/download/$assetName"
+        $mirrorUrl = "$releaseBaseUrl/latest/$assetName"
+        $githubUrl = "https://github.com/$owner/$repo/releases/latest/download/$assetName"
     }
     else {
-        $url = "https://github.com/$owner/$repo/releases/download/$tag/$assetName"
+        $mirrorUrl = "$releaseBaseUrl/$tag/$assetName"
+        $githubUrl = "https://github.com/$owner/$repo/releases/download/$tag/$assetName"
     }
 
     $tmpFile = "$targetDisk.download"
-    Write-EA11Info "Baixando imagem QCOW2: $url"
-
-    try {
-        Invoke-WebRequest -Uri $url -OutFile $tmpFile -UseBasicParsing
-        Move-Item -Path $tmpFile -Destination $targetDisk -Force
+    $urls = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($releaseBaseUrl)) {
+        [void]$urls.Add($mirrorUrl)
     }
-    catch {
-        Remove-Item -Path $tmpFile -ErrorAction SilentlyContinue
-        throw "Falha ao baixar imagem QCOW2 da release: $($_.Exception.Message)"
+    [void]$urls.Add($githubUrl)
+
+    $downloaded = $false
+    $lastError = ''
+
+    foreach ($url in $urls) {
+        try {
+            if ($url -eq $mirrorUrl) {
+                Write-EA11Info "Baixando imagem QCOW2 via mirror: $url"
+            }
+            else {
+                Write-EA11Info "Baixando imagem QCOW2 via GitHub: $url"
+            }
+
+            Invoke-WebRequest -Uri $url -OutFile $tmpFile -UseBasicParsing
+            Move-Item -Path $tmpFile -Destination $targetDisk -Force
+            $downloaded = $true
+            break
+        }
+        catch {
+            $lastError = $_.Exception.Message
+            Remove-Item -Path $tmpFile -ErrorAction SilentlyContinue
+            if ($url -eq $mirrorUrl) {
+                Write-EA11Warn "Falha no mirror; tentando GitHub."
+            }
+        }
+    }
+
+    if (-not $downloaded) {
+        throw "Falha ao baixar imagem QCOW2 da release: $lastError"
     }
 
     Write-EA11Info "Imagem QEMU instalada em: $targetDisk"
@@ -1355,7 +1389,7 @@ function Invoke-QemuVMStart {
             $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
         }
         elseif (Test-IsWindowsHost) {
-            $qemuArgs += @('-display', 'sdl')
+            $qemuArgs += @('-display', 'sdl', '-full-screen')
         }
 
         $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
@@ -1405,7 +1439,7 @@ function Invoke-QemuVMStart {
                     $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
                 }
                 elseif (Test-IsWindowsHost) {
-                    $qemuArgs += @('-display', 'sdl')
+                    $qemuArgs += @('-display', 'sdl', '-full-screen')
                 }
 
                 $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
@@ -1439,7 +1473,7 @@ function Invoke-QemuVMStart {
                     $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
                 }
                 elseif (Test-IsWindowsHost) {
-                    $qemuArgs += @('-display', 'sdl')
+                    $qemuArgs += @('-display', 'sdl', '-full-screen')
                 }
 
                 $qemuArgs += Get-QemuAudioArgs
@@ -1477,7 +1511,7 @@ function Invoke-QemuVMStart {
                     $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
                 }
                 elseif (Test-IsWindowsHost) {
-                    $qemuArgs += @('-display', 'sdl')
+                    $qemuArgs += @('-display', 'sdl', '-full-screen')
                 }
 
                 $qemuArgs += Get-QemuAudioArgs -Backend $fallbackAudio -SupportedDrivers $supportedAudioDrivers

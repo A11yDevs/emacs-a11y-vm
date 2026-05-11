@@ -16,6 +16,7 @@ EA11_DEFAULT_RELEASE_OWNER="A11yDevs"
 EA11_DEFAULT_RELEASE_REPO="emacs-a11y-vm"
 EA11_DEFAULT_RELEASE_TAG="latest"
 EA11_DEFAULT_RELEASE_ASSET="debian-a11ydevs.qcow2"
+EA11_DEFAULT_RELEASE_BASE_URL="https://argmap.inf.ufg.br/a11ydevs"
 
 ea11_backend_info() {
     printf '[ea11ctl] %s\n' "$*" >&2
@@ -113,6 +114,22 @@ ea11_backend_release_tag() {
     ea11_backend_option_value --tag '' "$@" || printf '%s\n' "$EA11_DEFAULT_RELEASE_TAG"
 }
 
+ea11_backend_release_base_url() {
+    local configured
+    configured=$(ea11_backend_option_value --release-base-url '' "$@" || true)
+    if [[ -n "$configured" ]]; then
+        printf '%s\n' "$configured"
+        return 0
+    fi
+
+    if [[ -n "${EA11_RELEASE_BASE_URL:-}" ]]; then
+        printf '%s\n' "$EA11_RELEASE_BASE_URL"
+        return 0
+    fi
+
+    printf '%s\n' "$EA11_DEFAULT_RELEASE_BASE_URL"
+}
+
 ea11_backend_download_force() {
     if ea11_backend_has_flag --force-download "$@" || ea11_backend_has_flag --force "$@" || ea11_backend_has_flag -f "$@"; then
         return 0
@@ -121,10 +138,21 @@ ea11_backend_download_force() {
 }
 
 ea11_backend_release_asset_url() {
-    local owner="$1"
-    local repo="$2"
-    local tag="$3"
-    local asset_name="$4"
+    local base_url="$1"
+    local owner="$2"
+    local repo="$3"
+    local tag="$4"
+    local asset_name="$5"
+
+    if [[ -n "$base_url" ]]; then
+        base_url="${base_url%/}"
+        if [[ "$tag" == "latest" ]]; then
+            printf '%s/latest/%s\n' "$base_url" "$asset_name"
+        else
+            printf '%s/%s/%s\n' "$base_url" "$tag" "$asset_name"
+        fi
+        return 0
+    fi
 
     if [[ "$tag" == "latest" ]]; then
         printf 'https://github.com/%s/%s/releases/latest/download/%s\n' "$owner" "$repo" "$asset_name"
@@ -156,17 +184,32 @@ ea11_backend_download_release_asset() {
     local tag="$3"
     local asset_name="$4"
     local destination="$5"
+    local base_url="${6:-}"
 
     local tmp_file
-    local url
-    url=$(ea11_backend_release_asset_url "$owner" "$repo" "$tag" "$asset_name")
+    local mirror_url github_url downloaded
+    mirror_url=$(ea11_backend_release_asset_url "$base_url" "$owner" "$repo" "$tag" "$asset_name")
+    github_url=$(ea11_backend_release_asset_url '' "$owner" "$repo" "$tag" "$asset_name")
     tmp_file="${destination}.download"
+    downloaded=0
 
-    ea11_backend_info "Baixando asset ${asset_name} (${tag})..."
-    ea11_backend_download_file "$url" "$tmp_file" || {
-        rm -f "$tmp_file"
-        ea11_backend_die "Falha ao baixar asset da release: $url"
-    }
+    if [[ -n "$base_url" ]]; then
+        ea11_backend_info "Baixando asset ${asset_name} (${tag}) via mirror: ${mirror_url}"
+        if ea11_backend_download_file "$mirror_url" "$tmp_file"; then
+            downloaded=1
+        else
+            rm -f "$tmp_file"
+            ea11_backend_warn "Falha no mirror; tentando GitHub: ${github_url}"
+        fi
+    fi
+
+    if [[ $downloaded -eq 0 ]]; then
+        ea11_backend_info "Baixando asset ${asset_name} (${tag}) via GitHub..."
+        ea11_backend_download_file "$github_url" "$tmp_file" || {
+            rm -f "$tmp_file"
+            ea11_backend_die "Falha ao baixar asset da release: $github_url"
+        }
+    fi
 
     mv "$tmp_file" "$destination"
 }

@@ -477,7 +477,14 @@ qemu_cmd_start() {
         if [[ "$(uname -s)" == 'Darwin' ]]; then
             qemu_apply_macos_desktop_args qemu_cmd
         else
-            qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}")
+            case "$(uname -s)" in
+                MINGW*|MSYS*|CYGWIN*|Windows_NT)
+                    qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}" -display sdl -full-screen)
+                    ;;
+                *)
+                    qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}")
+                    ;;
+            esac
         fi
     fi
 
@@ -534,7 +541,14 @@ qemu_cmd_start() {
                 if [[ "$(uname -s)" == 'Darwin' ]]; then
                     qemu_apply_macos_desktop_args qemu_cmd
                 else
-                    qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}")
+                    case "$(uname -s)" in
+                        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+                            qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}" -display sdl -full-screen)
+                            ;;
+                        *)
+                            qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}")
+                            ;;
+                    esac
                 fi
             fi
 
@@ -636,11 +650,12 @@ qemu_cmd_diagnose() {
 }
 
 qemu_cmd_install() {
-    local owner repo tag resolved_tag force_download vm_name ssh_port data_disk log_file
+    local owner repo tag base_url resolved_tag force_download vm_name ssh_port data_disk log_file
     local downloaded image_tag latest_tag
     owner=$(ea11_backend_release_owner "$@")
     repo=$(ea11_backend_release_repo "$@")
     tag=$(ea11_backend_release_tag "$@")
+    base_url=$(ea11_backend_release_base_url "$@")
     resolved_tag=$(ea11_backend_resolve_release_tag "$owner" "$repo" "$tag")
     vm_name=$(qemu_parse_vm_name "$@")
     ssh_port=$(qemu_parse_ssh_port "$@")
@@ -666,7 +681,8 @@ qemu_cmd_install() {
             "$repo" \
             "$tag" \
             "$EA11_DEFAULT_RELEASE_ASSET" \
-            "$EA11_DEFAULT_SYSTEM_IMAGE"
+            "$EA11_DEFAULT_SYSTEM_IMAGE" \
+            "$base_url"
         downloaded=1
         image_tag="$resolved_tag"
     fi
