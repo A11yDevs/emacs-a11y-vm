@@ -130,6 +130,8 @@ function Invoke-AccessibleDownload {
     $response = $null
     $sourceStream = $null
     $targetStream = $null
+    $progressId = 11
+    $lastBeepPercent = -1
 
     try {
         $response = $request.GetResponse()
@@ -153,14 +155,23 @@ function Invoke-AccessibleDownload {
 
             if ($contentLength -gt 0) {
                 $percent = [int](($downloadedBytes * 100) / $contentLength)
+                if ($percent -gt 100) {
+                    $percent = 100
+                }
+
+                Write-Progress -Id $progressId -Activity "Baixando $Label..." -Status "$percent% concluido" -PercentComplete $percent
+
+                if ($BeepOnProgress -and (Test-IsWindowsHost) -and $percent -gt $lastBeepPercent) {
+                    $freq = 300 + ($percent * 10)
+                    if ($freq -gt 2000) { $freq = 2000 }
+                    try { [console]::Beep($freq, 40) } catch {}
+                    $lastBeepPercent = $percent
+                }
+
                 if ($percent -ge $nextPercent) {
                     $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
                     $totalMb = [math]::Round($contentLength / 1MB, 1)
                     Write-Host "[ea11ctl] Progresso $Label: $percent% ($doneMb/$totalMb MB)"
-
-                    if ($BeepOnProgress -and (Test-IsWindowsHost)) {
-                        try { [console]::Beep(900, 70) } catch {}
-                    }
 
                     while ($percent -ge $nextPercent) {
                         $nextPercent += $PercentStep
@@ -169,6 +180,7 @@ function Invoke-AccessibleDownload {
             }
             elseif ($downloadedBytes -ge $nextUnknownReportBytes) {
                 $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
+                Write-Progress -Id $progressId -Activity "Baixando $Label..." -Status "$doneMb MB baixados"
                 Write-Host "[ea11ctl] Progresso $Label: $doneMb MB baixados"
                 if ($BeepOnProgress -and (Test-IsWindowsHost)) {
                     try { [console]::Beep(900, 70) } catch {}
@@ -180,14 +192,21 @@ function Invoke-AccessibleDownload {
         if ($contentLength -gt 0) {
             $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
             $totalMb = [math]::Round($contentLength / 1MB, 1)
+            Write-Progress -Id $progressId -Activity "Baixando $Label..." -Status '100% concluido' -PercentComplete 100 -Completed
             Write-Host "[ea11ctl] Progresso $Label: 100% ($doneMb/$totalMb MB)"
         }
         else {
             $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
+            Write-Progress -Id $progressId -Activity "Baixando $Label..." -Status 'Concluido' -Completed
             Write-Host "[ea11ctl] Download concluido ($doneMb MB): $Label"
+        }
+
+        if ($BeepOnProgress -and (Test-IsWindowsHost)) {
+            try { [console]::Beep(1200, 300) } catch {}
         }
     }
     finally {
+        Write-Progress -Id $progressId -Activity "Baixando $Label..." -Status 'Finalizado' -Completed -ErrorAction SilentlyContinue
         if ($targetStream) { $targetStream.Dispose() }
         if ($sourceStream) { $sourceStream.Dispose() }
         if ($response) { $response.Dispose() }
