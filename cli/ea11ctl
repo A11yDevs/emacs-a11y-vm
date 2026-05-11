@@ -348,12 +348,14 @@ resolve_backend_script_path() {
     local target_dir
     target_dir=$(get_ea11_scripts_directory)
 
+    # Mantem backend scripts sincronizados com esta instalacao da CLI.
+    sync_backend_scripts_from_repo
+
     if [[ -f "$target_dir/$backend.sh" ]]; then
         echo "$target_dir/$backend.sh"
         return 0
     fi
 
-    sync_backend_scripts_from_repo
     if [[ -f "$target_dir/$backend.sh" ]]; then
         echo "$target_dir/$backend.sh"
         return 0
@@ -429,6 +431,16 @@ invoke_vm_host_share() {
     run_backend_command qemu share "$action" "$@"
 }
 
+invoke_vm_config() {
+    local action="${1:-show}"
+    shift || true
+    run_backend_command config "$action" "$@"
+}
+
+invoke_vm_optimize() {
+    run_backend_command optimize "$@"
+}
+
 invoke_vm_command() {
     local action="${1:-}"
     shift || true
@@ -474,6 +486,12 @@ invoke_vm_command() {
             ;;
         host-share|-H)
             invoke_vm_host_share "$@"
+            ;;
+        config)
+            invoke_vm_config "$@"
+            ;;
+        optimize)
+            invoke_vm_optimize "$@"
             ;;
         *)
             ea11_error "Subcomando vm desconhecido: $action"
@@ -563,6 +581,8 @@ Uso:
     ea11ctl vm host-share|-H set --mode ssh [--ssh-host HOST] [--ssh-port PORT] [--ssh-user USER] [--ssh-path PATH] [--ssh-password PASS]
     ea11ctl vm host-share|-H set --mode cifs [--smb-server HOST] [--smb-share SHARE] [--smb-user USER] [--smb-password PASS]
     ea11ctl vm host-share|-H clear
+    ea11ctl vm config [show|path|reset]
+    ea11ctl vm optimize
 
 Defaults:
   VM: debian-a11y

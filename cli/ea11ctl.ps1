@@ -40,6 +40,8 @@ Uso:
       ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
       ea11ctl vm close|-c [-n|--name VM]
       ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
+    ea11ctl vm config [show|path|reset]
+    ea11ctl vm optimize
       ea11ctl vm diagnose|-d [-n|--name VM] [-L|--lines N]
       ea11ctl vm status|-q [-n|--name VM]
       ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
@@ -426,6 +428,156 @@ function Get-QemuStateFilePath {
     return (Join-Path (Get-QemuStateDirectory) "$VMName.json")
 }
 
+function Get-QemuRuntimeConfigPath {
+    return (Join-Path (Get-QemuStateDirectory) 'config.json')
+}
+
+function Get-DefaultQemuRuntimeConfig {
+    $isWindows = Test-IsWindowsHost
+    $isMac = Test-IsMacOSHost
+
+    $accel = 'tcg'
+    $cpuModel = 'host'
+
+    if ($isMac) {
+        $accel = 'hvf'
+        $cpuModel = 'host'
+    }
+    elseif ($isWindows) {
+        $accel = 'whpx'
+        $cpuModel = 'qemu64'
+    }
+    else {
+        if (Test-Path '/dev/kvm') {
+            $accel = 'kvm'
+            $cpuModel = 'host'
+        }
+        else {
+            $accel = 'tcg'
+            $cpuModel = 'qemu64'
+        }
+    }
+
+    return @{
+        accel = $accel
+        cpuModel = $cpuModel
+        cpus = 4
+        memoryMb = 4096
+        netDevice = 'virtio-net-pci'
+        diskInterface = 'virtio'
+        diskCache = 'writeback'
+        diskDiscard = 'unmap'
+        videoDevice = 'virtio-vga'
+    }
+}
+
+function Merge-QemuRuntimeConfig {
+    param(
+        [hashtable]$Base,
+        [object]$Override
+    )
+
+    if (-not $Override) {
+        return $Base
+    }
+
+    $merged = @{}
+    foreach ($k in $Base.Keys) {
+        $merged[$k] = $Base[$k]
+    }
+
+    foreach ($prop in $Override.PSObject.Properties) {
+        if ($null -ne $prop.Value -and $merged.ContainsKey($prop.Name)) {
+            $merged[$prop.Name] = $prop.Value
+        }
+    }
+
+    return $merged
+}
+
+function Get-QemuRuntimeConfig {
+    $defaults = Get-DefaultQemuRuntimeConfig
+    $cfgPath = Get-QemuRuntimeConfigPath
+
+    if (-not (Test-Path $cfgPath)) {
+        return $defaults
+    }
+
+    try {
+        $raw = Get-Content -Path $cfgPath -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            return $defaults
+        }
+
+        $parsed = $raw | ConvertFrom-Json
+        return (Merge-QemuRuntimeConfig -Base $defaults -Override $parsed)
+    }
+    catch {
+        Write-EA11Warn "Falha ao ler config runtime em $cfgPath. Usando defaults."
+        return $defaults
+    }
+}
+
+function Save-QemuRuntimeConfig {
+    param([hashtable]$Config)
+
+    $cfgPath = Get-QemuRuntimeConfigPath
+    $Config | ConvertTo-Json -Depth 5 | Set-Content -Path $cfgPath -Encoding utf8
+}
+
+function Show-QemuRuntimeConfig {
+    $cfgPath = Get-QemuRuntimeConfigPath
+    $cfg = Get-QemuRuntimeConfig
+
+    Write-Host "config_file=$cfgPath"
+    Write-Host "QEMU_ACCEL=$($cfg.accel)"
+    Write-Host "QEMU_CPU_MODEL=$($cfg.cpuModel)"
+    Write-Host "QEMU_CPUS=$($cfg.cpus)"
+    Write-Host "QEMU_MEMORY_MB=$($cfg.memoryMb)"
+    Write-Host "QEMU_NET_DEVICE=$($cfg.netDevice)"
+    Write-Host "QEMU_DISK_IF=$($cfg.diskInterface)"
+    Write-Host "QEMU_DISK_CACHE=$($cfg.diskCache)"
+    Write-Host "QEMU_DISK_DISCARD=$($cfg.diskDiscard)"
+    Write-Host "QEMU_VIDEO_DEVICE=$($cfg.videoDevice)"
+}
+
+function Invoke-QemuVMConfig {
+    param([string[]]$Tokens)
+
+    $action = 'show'
+    if ($Tokens.Length -gt 0 -and -not [string]::IsNullOrWhiteSpace($Tokens[0])) {
+        $action = $Tokens[0].ToLowerInvariant()
+    }
+
+    switch ($action) {
+        'show' { Show-QemuRuntimeConfig }
+        'list' { Show-QemuRuntimeConfig }
+        'path' { Write-Host (Get-QemuRuntimeConfigPath) }
+        'reset' {
+            Save-QemuRuntimeConfig -Config (Get-DefaultQemuRuntimeConfig)
+            Write-EA11Info "Configuracao resetada para defaults em $(Get-QemuRuntimeConfigPath)"
+        }
+        default {
+            throw "Acao de config desconhecida: $action"
+        }
+    }
+}
+
+function Invoke-QemuVMOptimize {
+    $cfgPath = Get-QemuRuntimeConfigPath
+    if (Test-Path $cfgPath) {
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $backupPath = "$cfgPath.bak-$stamp"
+        Copy-Item -Path $cfgPath -Destination $backupPath -Force
+        Write-EA11Info "Backup da configuracao atual: $backupPath"
+    }
+
+    Save-QemuRuntimeConfig -Config (Get-DefaultQemuRuntimeConfig)
+    Write-EA11Info "Configuracao otimizada aplicada em $cfgPath"
+    Write-EA11Info 'Use: ea11ctl vm config show'
+    Write-EA11Info 'Se houver regressao, restaure o backup ou execute: ea11ctl vm config reset'
+}
+
 function Load-QemuState {
     param([string]$VMName)
 
@@ -718,6 +870,11 @@ function New-QemuBaseArgs {
         [string]$SystemDisk,
         [string]$UserDataDisk,
         [string]$NetdevValue,
+        [string]$NetDevice,
+        [string]$DiskInterface,
+        [string]$DiskCache,
+        [string]$DiskDiscard,
+        [string]$VideoDevice,
         [hashtable]$HostHomeShare,
         [string]$HostHomeShareMode,
         [string]$HostUser,
@@ -730,13 +887,17 @@ function New-QemuBaseArgs {
     $args = @(
         '-m', "$Memory",
         '-smp', "$Cpus",
-        '-drive', "file=$SystemDisk,format=qcow2,if=virtio",
-        '-drive', "file=$UserDataDisk,format=qcow2,if=virtio",
+        '-drive', "file=$SystemDisk,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
+        '-drive', "file=$UserDataDisk,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
         '-netdev', $NetdevValue,
-        '-device', 'virtio-net,netdev=net0',
+        '-device', "$NetDevice,netdev=net0",
         '-serial', 'none',
         '-monitor', 'none'
     )
+
+    if (-not [string]::IsNullOrWhiteSpace($VideoDevice)) {
+        $args += @('-device', $VideoDevice)
+    }
 
     if (($HostHomeShareMode -eq '9p') -and $HostHomeShare) {
         $args += @(
@@ -796,27 +957,44 @@ function Test-IsMacOSHost {
 }
 
 function Get-QemuAccelerationArgs {
-    param([string]$Mode = 'auto')
+    param(
+        [string]$Mode = 'auto',
+        [string]$CpuModel = 'qemu64'
+    )
 
     $normalizedMode = $Mode.ToLowerInvariant()
 
+    if ($normalizedMode -eq 'kvm') {
+        return @('-enable-kvm', '-cpu', $CpuModel)
+    }
+
     if ($normalizedMode -eq 'tcg') {
-        return @('-accel', 'tcg,thread=multi', '-cpu', 'qemu64')
+        return @('-accel', 'tcg,thread=multi', '-cpu', $CpuModel)
+    }
+
+    if ($normalizedMode -in @('hvf', 'whpx')) {
+        if ((Test-IsMacOSHost) -and ($CpuModel -eq 'host')) {
+            return @('-accel', $normalizedMode, '-accel', 'tcg,thread=multi', '-cpu', 'host,-svm')
+        }
+        return @('-accel', $normalizedMode, '-accel', 'tcg,thread=multi', '-cpu', $CpuModel)
     }
 
     if (Test-IsMacOSHost) {
-        return @('-accel', 'hvf', '-accel', 'tcg,thread=multi', '-cpu', 'host,-svm')
+        if ($CpuModel -eq 'host') {
+            return @('-accel', 'hvf', '-accel', 'tcg,thread=multi', '-cpu', 'host,-svm')
+        }
+        return @('-accel', 'hvf', '-accel', 'tcg,thread=multi', '-cpu', $CpuModel)
     }
 
     if (Test-IsWindowsHost) {
-        return @('-accel', 'whpx', '-accel', 'tcg,thread=multi', '-cpu', 'qemu64')
+        return @('-accel', 'whpx', '-accel', 'tcg,thread=multi', '-cpu', $CpuModel)
     }
 
     if (Test-Path '/dev/kvm') {
-        return @('-enable-kvm', '-cpu', 'host')
+        return @('-enable-kvm', '-cpu', $CpuModel)
     }
 
-    return @('-accel', 'tcg,thread=multi', '-cpu', 'max')
+    return @('-accel', 'tcg,thread=multi', '-cpu', $CpuModel)
 }
 
 function Get-QemuAudioArgs {
@@ -1037,13 +1215,22 @@ function Invoke-QemuVMStart {
 
     Ensure-QemuSystem
 
+    $runtimeCfg = Get-QemuRuntimeConfig
+
     $vmName = Get-VMName -Tokens $Tokens
     $sshPort = Get-IntOptionValue -Tokens $Tokens -Names @('--port', '--ssh-port', '-p') -Default 2222 -OptionName '--ssh-port'
-    $memory = Get-IntOptionValue -Tokens $Tokens -Names @('--memory', '-m') -Default 1536 -OptionName '--memory'
-    $cpus = Get-IntOptionValue -Tokens $Tokens -Names @('--cpus') -Default 1 -OptionName '--cpus'
+    $memory = Get-IntOptionValue -Tokens $Tokens -Names @('--memory', '-m') -Default ([int]$runtimeCfg.memoryMb) -OptionName '--memory'
+    $cpus = Get-IntOptionValue -Tokens $Tokens -Names @('--cpus') -Default ([int]$runtimeCfg.cpus) -OptionName '--cpus'
     $userDataSize = Get-IntOptionValue -Tokens $Tokens -Names @('--user-data-size') -Default 10 -OptionName '--user-data-size'
     $headless = Has-Flag -Tokens $Tokens -Flags @('--headless', '-h')
     $audioBackend = Get-OptionValue -Tokens $Tokens -Names @('--audio-backend') -Default 'auto'
+    $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default ([string]$runtimeCfg.accel)
+    $cpuModel = [string]$runtimeCfg.cpuModel
+    $netDevice = [string]$runtimeCfg.netDevice
+    $diskInterface = [string]$runtimeCfg.diskInterface
+    $diskCache = [string]$runtimeCfg.diskCache
+    $diskDiscard = [string]$runtimeCfg.diskDiscard
+    $videoDevice = [string]$runtimeCfg.videoDevice
     $disableHostHomeShare = Has-Flag -Tokens $Tokens -Flags @('--no-host-home-share')
     $smbServer = Get-OptionValue -Tokens $Tokens -Names @('--smb-server') -Default $null
     $smbShare = Get-OptionValue -Tokens $Tokens -Names @('--smb-share') -Default $null
@@ -1118,23 +1305,19 @@ function Invoke-QemuVMStart {
         $hostUserForGuest = $hostHomeShare.HostUser
     }
 
-    $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest -HostSmbServer $smbServer -HostSmbShare $smbShare -HostSmbUser $smbUser -HostSmbPassword $smbPassword
+    $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -NetDevice $netDevice -DiskInterface $diskInterface -DiskCache $diskCache -DiskDiscard $diskDiscard -VideoDevice $videoDevice -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest -HostSmbServer $smbServer -HostSmbShare $smbShare -HostSmbUser $smbUser -HostSmbPassword $smbPassword
 
-    $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default 'auto'
-    $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
+    $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode -CpuModel $cpuModel
 
     if ($headless) {
         $qemuArgs += @('-nographic', '-serial', 'stdio')
     }
     else {
         if (Test-IsMacOSHost) {
-            $qemuArgs += @('-vga', 'virtio', '-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
+            $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
         }
         elseif (Test-IsWindowsHost) {
-            $qemuArgs += @('-vga', 'virtio', '-display', 'sdl')
-        }
-        else {
-            $qemuArgs += @('-vga', 'virtio')
+            $qemuArgs += @('-display', 'sdl')
         }
 
         $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
@@ -1173,21 +1356,18 @@ function Invoke-QemuVMStart {
             $hostUserForGuest = $null
             $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22"
 
-            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
-            $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -NetDevice $netDevice -DiskInterface $diskInterface -DiskCache $diskCache -DiskDiscard $diskDiscard -VideoDevice $videoDevice -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
+            $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode -CpuModel $cpuModel
 
             if ($headless) {
                 $qemuArgs += @('-nographic', '-serial', 'stdio')
             }
             else {
                 if (Test-IsMacOSHost) {
-                    $qemuArgs += @('-vga', 'virtio', '-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
+                    $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
                 }
                 elseif (Test-IsWindowsHost) {
-                    $qemuArgs += @('-vga', 'virtio', '-display', 'sdl')
-                }
-                else {
-                    $qemuArgs += @('-vga', 'virtio')
+                    $qemuArgs += @('-display', 'sdl')
                 }
 
                 $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
@@ -1209,22 +1389,19 @@ function Invoke-QemuVMStart {
         if ($lastError -match 'WHPX|Unexpected VP exit code|APX|MPX') {
             Write-EA11Warn 'WHPX falhou no host atual. Retentando automaticamente com aceleracao TCG (modo compatibilidade)...'
 
-            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -NetDevice $netDevice -DiskInterface $diskInterface -DiskCache $diskCache -DiskDiscard $diskDiscard -VideoDevice $videoDevice -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
 
-            $qemuArgs += Get-QemuAccelerationArgs -Mode 'tcg'
+            $qemuArgs += Get-QemuAccelerationArgs -Mode 'tcg' -CpuModel $cpuModel
 
             if ($headless) {
                 $qemuArgs += @('-nographic', '-serial', 'stdio')
             }
             else {
                 if (Test-IsMacOSHost) {
-                    $qemuArgs += @('-vga', 'virtio', '-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
+                    $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
                 }
                 elseif (Test-IsWindowsHost) {
-                    $qemuArgs += @('-vga', 'virtio', '-display', 'sdl')
-                }
-                else {
-                    $qemuArgs += @('-vga', 'virtio')
+                    $qemuArgs += @('-display', 'sdl')
                 }
 
                 $qemuArgs += Get-QemuAudioArgs
@@ -1250,22 +1427,19 @@ function Invoke-QemuVMStart {
             }
             Write-EA11Warn "Backend de audio automatico falhou. Retentando com '$fallbackAudio'..."
 
-            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
+            $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -NetDevice $netDevice -DiskInterface $diskInterface -DiskCache $diskCache -DiskDiscard $diskDiscard -VideoDevice $videoDevice -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
 
-            $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode
+            $qemuArgs += Get-QemuAccelerationArgs -Mode $accelMode -CpuModel $cpuModel
 
             if ($headless) {
                 $qemuArgs += @('-nographic', '-serial', 'stdio')
             }
             else {
                 if (Test-IsMacOSHost) {
-                    $qemuArgs += @('-vga', 'virtio', '-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
+                    $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
                 }
                 elseif (Test-IsWindowsHost) {
-                    $qemuArgs += @('-vga', 'virtio', '-display', 'sdl')
-                }
-                else {
-                    $qemuArgs += @('-vga', 'virtio')
+                    $qemuArgs += @('-display', 'sdl')
                 }
 
                 $qemuArgs += Get-QemuAudioArgs -Backend $fallbackAudio -SupportedDrivers $supportedAudioDrivers
@@ -1958,7 +2132,7 @@ function Invoke-VMCommand {
     $cleanTokens = $Tokens
 
     if ($cleanTokens.Length -eq 0) {
-        throw "Uso: ea11ctl vm <install|list|start|stop|close|remove|diagnose|status|ssh>"
+        throw "Uso: ea11ctl vm <install|list|start|stop|close|remove|config|optimize|diagnose|status|ssh>"
     }
 
     $sub = $cleanTokens[0]
@@ -1985,6 +2159,12 @@ function Invoke-VMCommand {
         }
         { $_ -in @('remove', '-r', 'delete') } {
             Invoke-QemuVMRemove -Tokens $rest
+        }
+        'config' {
+            Invoke-QemuVMConfig -Tokens $rest
+        }
+        'optimize' {
+            Invoke-QemuVMOptimize
         }
         { $_ -in @('diagnose', '-d') } {
             Invoke-QemuVMDiagnose -Tokens $rest

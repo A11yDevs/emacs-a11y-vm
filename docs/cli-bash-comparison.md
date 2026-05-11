@@ -27,6 +27,8 @@ Ambas operam no backend QEMU e possuem sintaxe próxima para os comandos princip
 | `vm ssh`, `vm -x` | ✅ | 🔄 | Base implementada |
 | `vm remove`, `vm delete` | ✅ | ✅ | Completo |
 | `uninstall` | ✅ | ✅ | Completo |
+| `vm config show|path|reset` | ✅ | ✅ | Completo |
+| `vm optimize` | ✅ | ✅ | Completo |
 | `vm host-share` | ❌ | ✅ | Bash possui gerenciamento dedicado de compartilhamento |
 | `--backend qemu` | ❌ | ❌ | Removido (QEMU-only) |
 

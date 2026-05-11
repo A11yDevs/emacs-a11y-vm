@@ -184,6 +184,49 @@ ea11ctl vm install
 ea11ctl vm install -n debian-a11y --no-gui
 ```
 
+#### Configuração de runtime do QEMU
+
+```bash
+# Mostrar configuração efetiva atual
+ea11ctl vm config show
+
+# Caminho do arquivo de configuração
+ea11ctl vm config path
+
+# Resetar para defaults seguros
+ea11ctl vm config reset
+```
+
+Arquivo usado:
+
+```text
+~/.emacs-a11y-vm/qemu/config.env
+```
+
+#### Otimização automática (com backup)
+
+```bash
+# Aplica perfil otimizado por sistema operacional host
+ea11ctl vm optimize
+
+# Depois confira o resultado
+ea11ctl vm config show
+```
+
+O comando `optimize` cria backup automático de `config.env` antes de alterar os valores.
+
+Perfil aplicado (base):
+
+- Linux host: `-enable-kvm`, `-cpu host`, `-smp 4`, `-m 4096`
+- macOS host: `-accel hvf`, `-cpu host`, `-smp 4`, `-m 4096`
+- Windows host (bash): `-accel whpx`, `-smp 4`, `-m 4096`
+
+Além disso, aplica defaults de baixa latência para I/O:
+
+- `-drive ... if=virtio,cache=writeback,discard=unmap`
+- `-device virtio-net-pci`
+- `-device virtio-vga`
+
 ### Desinstalar CLI
 
 ```bash

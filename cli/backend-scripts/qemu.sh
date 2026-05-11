@@ -20,6 +20,171 @@ qemu_share_config_file() {
     printf '%s\n' "$EA11_QEMU_SHARE_CONFIG"
 }
 
+qemu_runtime_config_file() {
+    printf '%s\n' "$EA11_QEMU_RUNTIME_CONFIG"
+}
+
+qemu_runtime_config_backup_file() {
+    local stamp
+    stamp=$(date +%Y%m%d-%H%M%S)
+    printf '%s.bak-%s\n' "$(qemu_runtime_config_file)" "$stamp"
+}
+
+qemu_default_accel() {
+    case "$(uname -s)" in
+        Darwin*)
+            printf 'hvf\n'
+            ;;
+        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+            printf 'whpx\n'
+            ;;
+        *)
+            if [[ -e /dev/kvm ]]; then
+                printf 'kvm\n'
+            else
+                printf 'tcg\n'
+            fi
+            ;;
+    esac
+}
+
+qemu_default_cpu_model() {
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+            printf 'qemu64\n'
+            ;;
+        *)
+            printf 'host\n'
+            ;;
+    esac
+}
+
+qemu_load_runtime_config() {
+    local cfg
+    cfg=$(qemu_runtime_config_file)
+
+    qemu_set_runtime_defaults
+
+    if [[ -f "$cfg" ]]; then
+        # shellcheck source=/dev/null
+        source "$cfg"
+    fi
+}
+
+qemu_set_runtime_defaults() {
+    QEMU_ACCEL="$(qemu_default_accel)"
+    QEMU_CPU_MODEL="$(qemu_default_cpu_model)"
+    QEMU_CPUS='4'
+    QEMU_MEMORY_MB='4096'
+    QEMU_NET_DEVICE='virtio-net-pci'
+    QEMU_DISK_IF='virtio'
+    QEMU_DISK_CACHE='writeback'
+    QEMU_DISK_DISCARD='unmap'
+    QEMU_VIDEO_DEVICE='virtio-vga'
+    QEMU_FULLSCREEN='on'
+}
+
+qemu_save_runtime_config() {
+    local cfg
+    cfg=$(qemu_runtime_config_file)
+    {
+        printf '# Configuracao de runtime do QEMU para ea11ctl\n'
+        printf '# Edite com cuidado. Valores invalidos podem impedir o boot.\n'
+        printf 'QEMU_ACCEL=%q\n' "$QEMU_ACCEL"
+        printf 'QEMU_CPU_MODEL=%q\n' "$QEMU_CPU_MODEL"
+        printf 'QEMU_CPUS=%q\n' "$QEMU_CPUS"
+        printf 'QEMU_MEMORY_MB=%q\n' "$QEMU_MEMORY_MB"
+        printf 'QEMU_NET_DEVICE=%q\n' "$QEMU_NET_DEVICE"
+        printf 'QEMU_DISK_IF=%q\n' "$QEMU_DISK_IF"
+        printf 'QEMU_DISK_CACHE=%q\n' "$QEMU_DISK_CACHE"
+        printf 'QEMU_DISK_DISCARD=%q\n' "$QEMU_DISK_DISCARD"
+        printf 'QEMU_VIDEO_DEVICE=%q\n' "$QEMU_VIDEO_DEVICE"
+        printf 'QEMU_FULLSCREEN=%q\n' "$QEMU_FULLSCREEN"
+    } > "$cfg"
+    chmod 600 "$cfg"
+}
+
+qemu_print_runtime_config() {
+    local cfg
+    cfg=$(qemu_runtime_config_file)
+    qemu_load_runtime_config
+    printf 'config_file=%s\n' "$cfg"
+    printf 'QEMU_ACCEL=%s\n' "$QEMU_ACCEL"
+    printf 'QEMU_CPU_MODEL=%s\n' "$QEMU_CPU_MODEL"
+    printf 'QEMU_CPUS=%s\n' "$QEMU_CPUS"
+    printf 'QEMU_MEMORY_MB=%s\n' "$QEMU_MEMORY_MB"
+    printf 'QEMU_NET_DEVICE=%s\n' "$QEMU_NET_DEVICE"
+    printf 'QEMU_DISK_IF=%s\n' "$QEMU_DISK_IF"
+    printf 'QEMU_DISK_CACHE=%s\n' "$QEMU_DISK_CACHE"
+    printf 'QEMU_DISK_DISCARD=%s\n' "$QEMU_DISK_DISCARD"
+    printf 'QEMU_VIDEO_DEVICE=%s\n' "$QEMU_VIDEO_DEVICE"
+    printf 'QEMU_FULLSCREEN=%s\n' "$QEMU_FULLSCREEN"
+}
+
+qemu_cmd_config() {
+    local action="${1:-show}"
+    shift || true
+
+    case "$action" in
+        show|list)
+            qemu_print_runtime_config
+            ;;
+        path)
+            printf '%s\n' "$(qemu_runtime_config_file)"
+            ;;
+        reset)
+            qemu_set_runtime_defaults
+            qemu_save_runtime_config
+            ea11_backend_info "Configuracao resetada para defaults em $(qemu_runtime_config_file)"
+            ;;
+        *)
+            ea11_backend_die "Acao de config desconhecida: $action"
+            ;;
+    esac
+}
+
+qemu_cmd_optimize() {
+    local cfg backup_file
+    cfg=$(qemu_runtime_config_file)
+
+    if [[ -f "$cfg" ]]; then
+        backup_file=$(qemu_runtime_config_backup_file)
+        cp "$cfg" "$backup_file"
+        ea11_backend_info "Backup da configuracao atual: $backup_file"
+    fi
+
+    qemu_load_runtime_config
+
+    # Recomendacoes base de performance/latencia por host.
+    case "$(uname -s)" in
+        Darwin*)
+            QEMU_ACCEL='hvf'
+            QEMU_CPU_MODEL='host'
+            ;;
+        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+            QEMU_ACCEL='whpx'
+            QEMU_CPU_MODEL='qemu64'
+            ;;
+        *)
+            QEMU_ACCEL='kvm'
+            QEMU_CPU_MODEL='host'
+            ;;
+    esac
+
+    QEMU_CPUS='4'
+    QEMU_MEMORY_MB='4096'
+    QEMU_NET_DEVICE='virtio-net-pci'
+    QEMU_DISK_IF='virtio'
+    QEMU_DISK_CACHE='writeback'
+    QEMU_DISK_DISCARD='unmap'
+    QEMU_VIDEO_DEVICE='virtio-vga'
+
+    qemu_save_runtime_config
+    ea11_backend_info "Configuracao otimizada aplicada em $cfg"
+    ea11_backend_info 'Use: ea11ctl vm config show'
+    ea11_backend_info 'Se houver regressao, restaure o backup ou execute: ea11ctl vm config reset'
+}
+
 qemu_default_share_mode() {
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*|Windows_NT)
@@ -108,43 +273,42 @@ EOF
 }
 
 qemu_resolve_accel_args() {
-    if [[ -n "${EA11_QEMU_ACCEL:-}" ]]; then
-        printf '%s\n' '-accel' "$EA11_QEMU_ACCEL"
-        return 0
-    fi
-
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        printf '%s\n' '-accel' 'hvf'
-        return 0
-    fi
-
-    if [[ -e /dev/kvm ]]; then
-        printf '%s\n' '-enable-kvm'
-    fi
+    case "${QEMU_ACCEL:-$(qemu_default_accel)}" in
+        kvm)
+            printf '%s\n' '-enable-kvm'
+            ;;
+        hvf|whpx|tcg)
+            printf '%s\n' '-accel' "${QEMU_ACCEL}"
+            ;;
+        *)
+            printf '%s\n' '-accel' "${QEMU_ACCEL}"
+            ;;
+    esac
 }
 
 qemu_resolve_cpu_args() {
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        # Evita warnings/falhas de virtualizacao no macOS com HVF.
+    local cpu_model
+    cpu_model="${QEMU_CPU_MODEL:-$(qemu_default_cpu_model)}"
+    if [[ "$(uname -s)" == "Darwin" && "$cpu_model" == 'host' ]]; then
         printf '%s\n' '-cpu' 'host,-svm'
         return 0
     fi
+    printf '%s\n' '-cpu' "$cpu_model"
 }
 
 qemu_apply_macos_desktop_args() {
     local -n _cmd_ref=$1
-    local fullscreen_mode vga_mode
+    local fullscreen_mode
 
     if [[ "$(uname -s)" != "Darwin" ]]; then
         return 0
     fi
 
     # Alinha defaults com scripts/run-qemu-macos para janela legivel no boot.
-    fullscreen_mode="${EA11_QEMU_FULLSCREEN:-on}"
-    vga_mode="${EA11_QEMU_VGA:-virtio}"
+    fullscreen_mode="${QEMU_FULLSCREEN:-on}"
 
     _cmd_ref+=(
-        -vga "$vga_mode"
+        -device "${QEMU_VIDEO_DEVICE:-virtio-vga}"
         -display "cocoa,zoom-to-fit=on,full-screen=${fullscreen_mode}"
         -k en-us
         -audiodev coreaudio,id=audio0,out.frequency=44100,out.mixing-engine=on,in.mixing-engine=off
@@ -153,37 +317,23 @@ qemu_apply_macos_desktop_args() {
 }
 
 qemu_runtime_memory_mb() {
-    if [[ -n "${EA11_QEMU_MEMORY_MB:-}" ]]; then
-        printf '%s\n' "$EA11_QEMU_MEMORY_MB"
+    if [[ -n "${QEMU_MEMORY_MB:-}" ]]; then
+        printf '%s\n' "$QEMU_MEMORY_MB"
         return 0
     fi
-
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        printf '1536\n'
-    else
-        printf '2048\n'
-    fi
+    printf '4096\n'
 }
 
 qemu_runtime_cpus() {
-    if [[ -n "${EA11_QEMU_CPUS:-}" ]]; then
-        printf '%s\n' "$EA11_QEMU_CPUS"
+    if [[ -n "${QEMU_CPUS:-}" ]]; then
+        printf '%s\n' "$QEMU_CPUS"
         return 0
     fi
-
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        printf '1\n'
-    else
-        printf '2\n'
-    fi
+    printf '4\n'
 }
 
 qemu_net_device_name() {
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        printf 'virtio-net\n'
-    else
-        printf 'virtio-net-pci\n'
-    fi
+    printf '%s\n' "${QEMU_NET_DEVICE:-virtio-net-pci}"
 }
 
 qemu_is_running() {
@@ -259,6 +409,7 @@ qemu_cmd_start() {
     system_image="${EA11_SYSTEM_IMAGE:-$EA11_DEFAULT_SYSTEM_IMAGE}"
     data_disk="${EA11_HOME}/${vm_name}-home.qcow2"
     log_file=$(qemu_log_file "$vm_name")
+    qemu_load_runtime_config
     mem_mb=$(qemu_runtime_memory_mb)
     cpu_count=$(qemu_runtime_cpus)
     net_device=$(qemu_net_device_name)
@@ -289,8 +440,8 @@ qemu_cmd_start() {
         "${cpu_args[@]}"
         -m "$mem_mb"
         -smp "$cpu_count"
-        -drive "file=${system_image},format=qcow2,if=virtio"
-        -drive "file=${data_disk},format=qcow2,if=virtio"
+        -drive "file=${system_image},format=qcow2,if=${QEMU_DISK_IF},cache=${QEMU_DISK_CACHE},discard=${QEMU_DISK_DISCARD}"
+        -drive "file=${data_disk},format=qcow2,if=${QEMU_DISK_IF},cache=${QEMU_DISK_CACHE},discard=${QEMU_DISK_DISCARD}"
         -netdev "user,id=net0,hostfwd=tcp::${ssh_port}-:22"
         -device "${net_device},netdev=net0"
         -fw_cfg "name=opt/ea11/share_mode,string=${SHARE_MODE}"
@@ -323,7 +474,11 @@ qemu_cmd_start() {
     if [[ $headless -eq 1 ]]; then
         qemu_cmd+=(-nographic -serial mon:stdio)
     else
-        qemu_apply_macos_desktop_args qemu_cmd
+        if [[ "$(uname -s)" == 'Darwin' ]]; then
+            qemu_apply_macos_desktop_args qemu_cmd
+        else
+            qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}")
+        fi
     fi
 
     nohup "${qemu_cmd[@]}" > "$log_file" 2>&1 < /dev/null &
@@ -342,8 +497,8 @@ qemu_cmd_start() {
                 "${cpu_args[@]}"
                 -m "$mem_mb"
                 -smp "$cpu_count"
-                -drive "file=${system_image},format=qcow2,if=virtio"
-                -drive "file=${data_disk},format=qcow2,if=virtio"
+                -drive "file=${system_image},format=qcow2,if=${QEMU_DISK_IF},cache=${QEMU_DISK_CACHE},discard=${QEMU_DISK_DISCARD}"
+                -drive "file=${data_disk},format=qcow2,if=${QEMU_DISK_IF},cache=${QEMU_DISK_CACHE},discard=${QEMU_DISK_DISCARD}"
                 -netdev "user,id=net0,hostfwd=tcp::${ssh_port}-:22"
                 -device "${net_device},netdev=net0"
                 -fw_cfg "name=opt/ea11/share_mode,string=${SHARE_MODE}"
@@ -376,7 +531,11 @@ qemu_cmd_start() {
             if [[ $headless -eq 1 ]]; then
                 qemu_cmd+=(-nographic -serial mon:stdio)
             else
-                qemu_apply_macos_desktop_args qemu_cmd
+                if [[ "$(uname -s)" == 'Darwin' ]]; then
+                    qemu_apply_macos_desktop_args qemu_cmd
+                else
+                    qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}")
+                fi
             fi
 
             nohup "${qemu_cmd[@]}" > "$log_file" 2>&1 < /dev/null &
@@ -750,6 +909,8 @@ main() {
 
     case "$command" in
         install) qemu_cmd_install "$@" ;;
+        config) qemu_cmd_config "$@" ;;
+        optimize) qemu_cmd_optimize "$@" ;;
         version) qemu_cmd_version "$@" ;;
         check-update) qemu_cmd_check_update "$@" ;;
         share) qemu_cmd_share "$@" ;;
