@@ -1464,19 +1464,26 @@ function Invoke-QemuVMStart {
             }
 
             if (($hostHomeShareMode -ne '9p') -and $smbSupportInfo -and ($smbSupportInfo.Supported -or ($smbSupportInfo.Reason -ne 'unsupported'))) {
-                $hostHomeShareMode = 'smb'
-                $escapedSmbPath = ([string]$hostHomeShare.HostPath).Replace('"', '\"')
-                $netdevValue = ('user,id=net0,hostfwd=tcp::{0}-:22,smb="{1}"' -f $sshPort, $escapedSmbPath)
-                $qemuSmbShare = @{
-                    Server = '10.0.2.4'
-                    Share = 'qemu'
-                    GuestMountPoint = $hostHomeShare.GuestMountPoint
-                }
-                if ($smbSupportInfo.Reason -eq 'missing-host-smb-helper') {
-                    Write-EA11Warn 'virtfs/9p indisponivel. SMB usernet sera tentado, mas o helper SMB do host aparenta ausente; se falhar, o start seguira sem share automaticamente.'
+                if (Test-IsWindowsHost) {
+                    Write-EA11Warn 'virtfs/9p indisponivel no QEMU do Windows. Iniciando VM sem compartilhamento automatico da home do host.'
+                    $hostHomeShareMode = $null
+                    $hostHomeShare = $null
                 }
                 else {
-                    Write-EA11Warn "virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
+                    $hostHomeShareMode = 'smb'
+                    $escapedSmbPath = ([string]$hostHomeShare.HostPath).Replace('"', '\"')
+                    $netdevValue = ('user,id=net0,hostfwd=tcp::{0}-:22,smb="{1}"' -f $sshPort, $escapedSmbPath)
+                    $qemuSmbShare = @{
+                        Server = '10.0.2.4'
+                        Share = 'qemu'
+                        GuestMountPoint = $hostHomeShare.GuestMountPoint
+                    }
+                    if ($smbSupportInfo.Reason -eq 'missing-host-smb-helper') {
+                        Write-EA11Warn 'virtfs/9p indisponivel. SMB usernet sera tentado, mas o helper SMB do host aparenta ausente; se falhar, o start seguira sem share automaticamente.'
+                    }
+                    else {
+                        Write-EA11Warn "virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
+                    }
                 }
             }
             elseif ($hostHomeShareMode -ne '9p') {
