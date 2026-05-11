@@ -52,17 +52,6 @@ Nota: Dentro da VM (guest context), execute: ea11ctl share
 "@
 }
 
-Defaults:
-  VM: debian-a11y
-  SSH user: a11ydevs
-  SSH port: 2222
-
-QEMU:
-    Imagem de sistema: ~/.emacs-a11y-vm/debian-a11ydevs.qcow2
-    Disco de dados: ~/.emacs-a11y-vm/<vm>-home.qcow2 (montado em /home na VM)
-"@
-}
-
 function Get-LocalCliVersion {
     $versionFile = Join-Path $PSScriptRoot 'VERSION'
     if (Test-Path $versionFile) {
@@ -1137,8 +1126,8 @@ function Ensure-QemuUserDataDisk {
     }
 
     Ensure-QemuImg
-    Write-EA11Info "Criando disco de dados do usuario ($SizeGB`G): $diskPath"
-    & qemu-img create -f qcow2 $diskPath "$SizeGB`G" | Out-Null
+    Write-EA11Info "Criando disco de dados do usuario (${SizeGB}G): $diskPath"
+    & qemu-img create -f qcow2 $diskPath "${SizeGB}G" | Out-Null
 
     return $diskPath
 }
