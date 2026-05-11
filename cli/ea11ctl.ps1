@@ -28,15 +28,15 @@ function Write-EA11Error {
 
 function Show-Help {
     @"
-ea11ctl - CLI do projeto emacs-a11y-vm
+ea11ctl - CLI do projeto emacs-a11y-vm [HOST - WINDOWS]
 
 Uso:
   ea11ctl help|-h|--help
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
   ea11ctl uninstall [--purge-state] [--yes] [--force-repo-path]
+  
   ea11ctl vm install|-i
-  ea11ctl host install|-i (Instalação nativa em Debian/Ubuntu)
   ea11ctl vm list|-l
   ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
   ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
@@ -47,6 +47,10 @@ Uso:
   ea11ctl vm diagnose|-d [-n|--name VM] [-L|--lines N]
   ea11ctl vm status|-q [-n|--name VM]
   ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
+
+Nota: Dentro da VM (guest context), execute: ea11ctl share
+"@
+}
 
 Defaults:
   VM: debian-a11y

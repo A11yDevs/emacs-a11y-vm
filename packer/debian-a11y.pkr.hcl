@@ -267,10 +267,10 @@ build {
     destination = "/tmp/configure-speakup.service"
   }
 
-  # Instalar CLI ea11ctl no guest (gerenciamento de compartilhamento do host)
+  # Instalar CLI ea11ctl no guest (modular com deteccao de contexto)
   provisioner "file" {
-    source      = "${path.root}/files/ea11ctl-guest.sh"
-    destination = "/tmp/ea11ctl-guest.sh"
+    source      = "${path.root}/../cli/ea11ctl"
+    destination = "/tmp/ea11ctl"
   }
 
   # Instalar configuração de rede
@@ -336,10 +336,13 @@ build {
       "sudo systemctl daemon-reload",
       "sudo systemctl enable configure-speakup.service",
       "echo 'Script de configuração do speakup instalado'",
-      "echo '=== Instalando CLI ea11ctl no guest ==='",
-      "sudo mv /tmp/ea11ctl-guest.sh /usr/local/bin/ea11ctl",
+      "echo '=== Instalando CLI ea11ctl no guest (modular) ===' ",
+      "sudo mv /tmp/ea11ctl /usr/local/bin/ea11ctl",
       "sudo chmod 755 /usr/local/bin/ea11ctl",
-      "echo 'ea11ctl guest instalado em /usr/local/bin/ea11ctl'",
+      "echo 'ea11ctl modular instalado em /usr/local/bin/ea11ctl'",
+      "echo '=== Criando marker de contexto guest ===' ",
+      "sudo touch /etc/ea11-guest-mode",
+      "echo 'Marker /etc/ea11-guest-mode criado (detecta guest context)'",
       "echo '=== Configurando rede (DHCP em eth0) ==='",
       "sudo mv /tmp/interfaces /etc/network/interfaces",
       "sudo chmod 644 /etc/network/interfaces",
@@ -433,7 +436,8 @@ build {
       "command -v sshfs >/dev/null 2>&1 && echo 'sshfs: OK' || echo 'sshfs: AVISO — não encontrado'",
       "grep -q 'speakup.synth=soft' /etc/default/grub && echo 'GRUB speakup: OK' || echo 'GRUB speakup: AVISO'",
       "test -x /usr/local/sbin/setup-userdata-disk.sh && echo 'setup-userdata-disk.sh: OK' || echo 'setup-userdata-disk.sh: AVISO'",
-      "test -x /usr/local/bin/ea11ctl && echo 'ea11ctl guest: OK' || echo 'ea11ctl guest: AVISO'",
+      "test -x /usr/local/bin/ea11ctl && echo 'ea11ctl modular: OK' || echo 'ea11ctl modular: AVISO'",
+      "test -f /etc/ea11-guest-mode && echo 'Guest context marker: OK' || echo 'Guest context marker: AVISO'",
       "grep -q '^allow-hotplug eth0$' /etc/network/interfaces && grep -q '^iface eth0 inet dhcp$' /etc/network/interfaces && echo 'Network config: OK' || echo 'Network config: AVISO'",
       "test -f /etc/motd && echo 'MOTD: OK' || echo 'MOTD: AVISO'",
       "dpkg -l | grep -q '^ii  emacspeak ' && echo 'emacspeak: OK' || echo 'emacspeak: AVISO — pacote não instalado'",

@@ -12,7 +12,24 @@ EA11CTL_FALLBACK_VERSION='0.1.34'
 EA11CTL_OWNER='A11yDevs'
 EA11CTL_REPO='emacs-a11y-vm'
 EA11CTL_BRANCH='main'
+EA11CTL_GUEST_MODE_FILE='/etc/ea11-guest-mode'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+#################################################################################
+# Deteccao de Contexto (Host vs Guest)
+#################################################################################
+
+is_guest_context() {
+    [[ -f "$EA11CTL_GUEST_MODE_FILE" ]]
+}
+
+get_execution_context() {
+    if is_guest_context; then
+        echo "guest"
+    else
+        echo "host"
+    fi
+}
 
 #################################################################################
 # Funções de Logging
@@ -573,6 +590,115 @@ invoke_host_command_main() {
     esac
 }
 
+#################################################################################
+# Funcoes de Guest (Compartilhamento de pasta do host)
+#################################################################################
+
+read_fw_cfg_string() {
+    local key="$1"
+    local value=""
+    local raw_path="/sys/firmware/qemu_fw_cfg/by_name/opt/ea11/${key}/raw"
+    local alt_path="/sys/firmware/qemu_fw_cfg/by_name/opt/ea11/${key}"
+
+    if [[ -r "$raw_path" ]]; then
+        value="$(tr -d '\0\r\n' < "$raw_path" 2>/dev/null || true)"
+    elif [[ -r "$alt_path" ]]; then
+        value="$(tr -d '\0\r\n' < "$alt_path" 2>/dev/null || true)"
+    fi
+
+    printf '%s\n' "$value"
+}
+
+sanitize_user() {
+    local value="$1"
+    value="$(printf '%s' "$value" | tr -cd '[:alnum:]_-')"
+    if [[ -z "$value" ]]; then
+        printf 'hosthome\n'
+        return
+    fi
+    printf '%s\n' "$value"
+}
+
+host_share_mountpoint() {
+    local host_user
+    host_user="$(sanitize_user "$(read_fw_cfg_string host_user)")"
+    printf '/home/%s\n' "$host_user"
+}
+
+invoke_guest_share_list() {
+    local mount_point
+    mount_point="$(host_share_mountpoint)"
+
+    echo "Mount point esperado: $mount_point"
+    echo
+    findmnt -rn -t cifs,fuse.sshfs,9p || true
+}
+
+invoke_guest_share_config() {
+    local mode host_user ssh_host ssh_port ssh_user ssh_path smb_server smb_share smb_user
+
+    mode="$(read_fw_cfg_string share_mode)"
+    host_user="$(sanitize_user "$(read_fw_cfg_string host_user)")"
+    ssh_host="$(read_fw_cfg_string ssh_host)"
+    ssh_port="$(read_fw_cfg_string ssh_port)"
+    ssh_user="$(read_fw_cfg_string ssh_user)"
+    ssh_path="$(read_fw_cfg_string ssh_path)"
+    smb_server="$(read_fw_cfg_string smb_server)"
+    smb_share="$(read_fw_cfg_string smb_share)"
+    smb_user="$(read_fw_cfg_string smb_user)"
+
+    printf 'mode=%s\n' "${mode:-auto}"
+    printf 'host_user=%s\n' "${host_user}"
+    printf 'ssh_host=%s\n' "${ssh_host}"
+    printf 'ssh_port=%s\n' "${ssh_port}"
+    printf 'ssh_user=%s\n' "${ssh_user}"
+    printf 'ssh_path=%s\n' "${ssh_path}"
+    printf 'smb_server=%s\n' "${smb_server}"
+    printf 'smb_share=%s\n' "${smb_share}"
+    printf 'smb_user=%s\n' "${smb_user}"
+}
+
+invoke_guest_share_mount() {
+    sudo /usr/local/bin/mount-shared-folder.sh
+}
+
+invoke_guest_share_umount() {
+    local mount_point
+    mount_point="$(host_share_mountpoint)"
+
+    if mountpoint -q "$mount_point"; then
+        sudo umount "$mount_point"
+        echo "Desmontado: $mount_point"
+    else
+        echo "Nao montado: $mount_point"
+    fi
+}
+
+invoke_guest_share_command() {
+    local action="${1:-}"
+    shift || true
+    
+    case "$action" in
+        list|-l)
+            invoke_guest_share_list "$@"
+            ;;
+        config|-c)
+            invoke_guest_share_config "$@"
+            ;;
+        mount|-m)
+            invoke_guest_share_mount "$@"
+            ;;
+        umount|-u)
+            invoke_guest_share_umount "$@"
+            ;;
+        *)
+            ea11_error "Subcomando share desconhecido: $action"
+            show_help
+            return 1
+            ;;
+    esac
+}
+
 invoke_uninstall() {
     local purge_state=0 yes=0 force_repo_path=0
     if has_flag --purge-state "$@"; then
@@ -629,33 +755,42 @@ invoke_uninstall() {
 #################################################################################
 
 show_help() {
+    local context
+    context=$(get_execution_context)
+    
+    if [[ "$context" == "guest" ]]; then
+        show_help_guest
+    else
+        show_help_host
+    fi
+}
+
+show_help_host() {
     cat << 'EOF'
-ea11ctl - CLI do projeto emacs-a11y-vm
+ea11ctl - CLI do projeto emacs-a11y-vm [HOST]
 
 Uso:
   ea11ctl help|-h|--help
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
   ea11ctl uninstall [--purge-state] [--yes] [--force-repo-path]
+  
   ea11ctl vm install|-i [args-do-install-release-vm.sh]
-  ea11ctl host install|-i (Instalação nativa em Debian/Ubuntu)
-                ea11ctl vm version|-V [-n|--name VM]
-                ea11ctl vm check-update|-U [-n|--name VM]
-        ea11ctl vm list|-l
-        ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
-        ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
-        ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS]
-        ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
-        ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N]
-        ea11ctl vm status|-q [-n|--name VM]
-        ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
-    ea11ctl vm host-share|-H list
-    ea11ctl vm host-share|-H set [--mode ssh|cifs] [--host-user USER]
-    ea11ctl vm host-share|-H set --mode ssh [--ssh-host HOST] [--ssh-port PORT] [--ssh-user USER] [--ssh-path PATH] [--ssh-password PASS]
-    ea11ctl vm host-share|-H set --mode cifs [--smb-server HOST] [--smb-share SHARE] [--smb-user USER] [--smb-password PASS]
-    ea11ctl vm host-share|-H clear
-    ea11ctl vm config [show|path|reset]
-    ea11ctl vm optimize
+  ea11ctl vm version|-V [-n|--name VM]
+  ea11ctl vm check-update|-U [-n|--name VM]
+  ea11ctl vm list|-l
+  ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
+  ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
+  ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS]
+  ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
+  ea11ctl vm diagnose|-d [-n|--name VM] [-T|--try-start] [-L|--lines N]
+  ea11ctl vm status|-q [-n|--name VM]
+  ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
+  ea11ctl vm host-share|-H list
+  ea11ctl vm config [show|path|reset]
+  ea11ctl vm optimize
+  
+  ea11ctl host install|-i (Instalacao nativa Debian/Ubuntu)
 
 Defaults:
   VM: debian-a11y
@@ -668,43 +803,87 @@ QEMU:
 EOF
 }
 
+show_help_guest() {
+    cat << 'EOF'
+ea11ctl - CLI do projeto emacs-a11y-vm [GUEST]
+
+Uso (dentro da VM Debian):
+  ea11ctl help|-h|--help
+  ea11ctl version|--version
+  ea11ctl share list|-l          Lista compartilhamentos montados
+  ea11ctl share config|-c        Mostra configuracao de compartilhamento
+  ea11ctl share mount|-m         Monta pasta do host
+  ea11ctl share umount|-u        Desmonta pasta do host
+
+Voce esta dentro da VM. Para gerenciar VMs, use ea11ctl no HOST.
+EOF
+}
+
 #################################################################################
 # Main
 #################################################################################
 
 main() {
+    local context
+    context=$(get_execution_context)
     local command="${1:-}"
     shift || true
     
-    case "$command" in
-        help|-h|--help)
-            show_help
-            ;;
-        version|--version)
-            invoke_version_command "$@"
-            ;;
-        self-update|update)
-            invoke_self_update "$@"
-            ;;
-        uninstall)
-            invoke_uninstall "$@"
-            ;;
-        vm)
-            invoke_vm_command "$@"
-            ;;
-        host)
-            invoke_host_command_main "$@"
-            ;;
-        "")
-            show_help
-            exit 0
-            ;;
-        *)
-            ea11_error "Comando desconhecido: $command"
-            show_help
-            exit 1
-            ;;
-    esac
+    # CONTEXT GUEST
+    if [[ "$context" == "guest" ]]; then
+        case "$command" in
+            help|-h|--help)
+                show_help
+                ;;
+            version|--version)
+                invoke_version_command "$@"
+                ;;
+            share|-S)
+                invoke_guest_share_command "$@"
+                ;;
+            "")
+                show_help
+                exit 0
+                ;;
+            *)
+                ea11_error "Comando desconhecido no contexto guest: $command"
+                show_help
+                exit 1
+                ;;
+        esac
+    
+    # CONTEXT HOST
+    else
+        case "$command" in
+            help|-h|--help)
+                show_help
+                ;;
+            version|--version)
+                invoke_version_command "$@"
+                ;;
+            self-update|update)
+                invoke_self_update "$@"
+                ;;
+            uninstall)
+                invoke_uninstall "$@"
+                ;;
+            vm)
+                invoke_vm_command "$@"
+                ;;
+            host)
+                invoke_host_command_main "$@"
+                ;;
+            "")
+                show_help
+                exit 0
+                ;;
+            *)
+                ea11_error "Comando desconhecido no contexto host: $command"
+                show_help
+                exit 1
+                ;;
+        esac
+    fi
 }
 
 # Executar main com tratamento de erro
