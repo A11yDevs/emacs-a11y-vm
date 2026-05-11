@@ -2238,6 +2238,8 @@ function Invoke-HostCommand {
         }
     }
 }
+
+function Invoke-VMCommand {
     param([string[]]$Tokens)
 
     Assert-NoBackendOption -Tokens $Tokens
