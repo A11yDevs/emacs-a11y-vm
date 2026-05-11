@@ -47,9 +47,11 @@ else
     echo "[mirror] baixando ${ASSET_NAME} da release ${latest_tag}"
     curl -fL --retry 3 --retry-delay 2 "$DOWNLOAD_URL" -o "$tmp_file"
     mv -f "$tmp_file" "$asset_target"
+    chmod +r "$asset_target"
 fi
 
 cp -f "$asset_target" "$asset_latest"
+chmod +r "$asset_latest"
 printf '%s\n' "$latest_tag" > "$version_latest"
 
 echo "[mirror] latest -> ${latest_tag}"
