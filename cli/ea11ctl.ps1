@@ -102,6 +102,98 @@ function Get-CacheBustValue {
     return [int64]([DateTime]::UtcNow - [DateTime]'1970-01-01').TotalSeconds
 }
 
+function Invoke-AccessibleDownload {
+    param(
+        [string]$Url,
+        [string]$Destination,
+        [string]$Label = 'download',
+        [int]$PercentStep = 5,
+        [switch]$BeepOnProgress
+    )
+
+    if ($PercentStep -lt 1) {
+        $PercentStep = 1
+    }
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
+    }
+    catch {
+        # Ignora plataformas onde o ajuste nao e suportado.
+    }
+
+    $request = [System.Net.HttpWebRequest]::Create($Url)
+    $request.Method = 'GET'
+    $request.UserAgent = "ea11ctl/$($EA11CTL_FALLBACK_VERSION)"
+    $request.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
+
+    $response = $null
+    $sourceStream = $null
+    $targetStream = $null
+
+    try {
+        $response = $request.GetResponse()
+        $sourceStream = $response.GetResponseStream()
+        $targetStream = [System.IO.File]::Open($Destination, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+
+        $contentLength = [int64]$response.ContentLength
+        $buffer = New-Object byte[] (1024 * 1024)
+        $downloadedBytes = [int64]0
+        $nextPercent = $PercentStep
+        $nextUnknownReportBytes = 50MB
+
+        while ($true) {
+            $bytesRead = $sourceStream.Read($buffer, 0, $buffer.Length)
+            if ($bytesRead -le 0) {
+                break
+            }
+
+            $targetStream.Write($buffer, 0, $bytesRead)
+            $downloadedBytes += $bytesRead
+
+            if ($contentLength -gt 0) {
+                $percent = [int](($downloadedBytes * 100) / $contentLength)
+                if ($percent -ge $nextPercent) {
+                    $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
+                    $totalMb = [math]::Round($contentLength / 1MB, 1)
+                    Write-Host "[ea11ctl] Progresso $Label: $percent% ($doneMb/$totalMb MB)"
+
+                    if ($BeepOnProgress -and (Test-IsWindowsHost)) {
+                        try { [console]::Beep(900, 70) } catch {}
+                    }
+
+                    while ($percent -ge $nextPercent) {
+                        $nextPercent += $PercentStep
+                    }
+                }
+            }
+            elseif ($downloadedBytes -ge $nextUnknownReportBytes) {
+                $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
+                Write-Host "[ea11ctl] Progresso $Label: $doneMb MB baixados"
+                if ($BeepOnProgress -and (Test-IsWindowsHost)) {
+                    try { [console]::Beep(900, 70) } catch {}
+                }
+                $nextUnknownReportBytes += 50MB
+            }
+        }
+
+        if ($contentLength -gt 0) {
+            $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
+            $totalMb = [math]::Round($contentLength / 1MB, 1)
+            Write-Host "[ea11ctl] Progresso $Label: 100% ($doneMb/$totalMb MB)"
+        }
+        else {
+            $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
+            Write-Host "[ea11ctl] Download concluido ($doneMb MB): $Label"
+        }
+    }
+    finally {
+        if ($targetStream) { $targetStream.Dispose() }
+        if ($sourceStream) { $sourceStream.Dispose() }
+        if ($response) { $response.Dispose() }
+    }
+}
+
 function Download-FileWithFallback {
     param(
         [string]$Owner,
@@ -1201,7 +1293,7 @@ function Invoke-VMInstall {
                 Write-EA11Info "Baixando imagem QCOW2 via GitHub: $url"
             }
 
-            Invoke-WebRequest -Uri $url -OutFile $tmpFile -UseBasicParsing
+            Invoke-AccessibleDownload -Url $url -Destination $tmpFile -Label 'imagem da VM' -PercentStep 5 -BeepOnProgress
             Move-Item -Path $tmpFile -Destination $targetDisk -Force
             $downloaded = $true
             break
