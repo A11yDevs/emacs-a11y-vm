@@ -466,17 +466,17 @@ function Get-QemuRuntimeConfigPath {
 }
 
 function Get-DefaultQemuRuntimeConfig {
-    $isWindows = Test-IsWindowsHost
-    $isMac = Test-IsMacOSHost
+    $isWindowsHost = Test-IsWindowsHost
+    $isMacHost = Test-IsMacOSHost
 
     $accel = 'tcg'
     $cpuModel = 'host'
 
-    if ($isMac) {
+    if ($isMacHost) {
         $accel = 'hvf'
         $cpuModel = 'host'
     }
-    elseif ($isWindows) {
+    elseif ($isWindowsHost) {
         $accel = 'whpx'
         $cpuModel = 'qemu64'
     }
