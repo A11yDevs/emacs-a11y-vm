@@ -171,7 +171,7 @@ function Invoke-AccessibleDownload {
                 if ($percent -ge $nextPercent) {
                     $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
                     $totalMb = [math]::Round($contentLength / 1MB, 1)
-                    Write-Host "[ea11ctl] Progresso $Label: $percent% ($doneMb/$totalMb MB)"
+                    Write-Host "[ea11ctl] Progresso ${Label}: $percent% ($doneMb/$totalMb MB)"
 
                     while ($percent -ge $nextPercent) {
                         $nextPercent += $PercentStep
@@ -181,7 +181,7 @@ function Invoke-AccessibleDownload {
             elseif ($downloadedBytes -ge $nextUnknownReportBytes) {
                 $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
                 Write-Progress -Id $progressId -Activity "Baixando $Label..." -Status "$doneMb MB baixados"
-                Write-Host "[ea11ctl] Progresso $Label: $doneMb MB baixados"
+                Write-Host "[ea11ctl] Progresso ${Label}: $doneMb MB baixados"
                 if ($BeepOnProgress -and (Test-IsWindowsHost)) {
                     try { [console]::Beep(900, 70) } catch {}
                 }
@@ -193,7 +193,7 @@ function Invoke-AccessibleDownload {
             $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
             $totalMb = [math]::Round($contentLength / 1MB, 1)
             Write-Progress -Id $progressId -Activity "Baixando $Label..." -Status '100% concluido' -PercentComplete 100 -Completed
-            Write-Host "[ea11ctl] Progresso $Label: 100% ($doneMb/$totalMb MB)"
+            Write-Host "[ea11ctl] Progresso ${Label}: 100% ($doneMb/$totalMb MB)"
         }
         else {
             $doneMb = [math]::Round($downloadedBytes / 1MB, 1)
