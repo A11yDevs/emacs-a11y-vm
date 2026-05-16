@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EA11CTL_FALLBACK_VERSION = '0.1.35'
+$EA11CTL_FALLBACK_VERSION = '0.1.36'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
 $EA11CTL_BRANCH = 'main'
@@ -1028,22 +1028,17 @@ function New-QemuBaseArgs {
         [string]$HostSmbPassword
     )
 
-    $systemDiskArg = $SystemDisk
-    $userDataDiskArg = $UserDataDisk
-    if (-not [string]::IsNullOrWhiteSpace($systemDiskArg)) {
-        $escapedSystemDisk = $systemDiskArg.Replace('"', '\"')
-        $systemDiskArg = '"' + $escapedSystemDisk + '"'
-    }
-    if (-not [string]::IsNullOrWhiteSpace($userDataDiskArg)) {
-        $escapedUserDataDisk = $userDataDiskArg.Replace('"', '\"')
-        $userDataDiskArg = '"' + $escapedUserDataDisk + '"'
-    }
-
+    # IMPORTANTE:
+    # Start-Process recebe ArgumentList como array. Portanto cada item abaixo ja e
+    # passado como um argumento separado para o qemu-system-*.
+    # Nao coloque aspas internas em file=..., mesmo quando o caminho tem espacos.
+    # Aspas internas podem chegar literalmente ao QEMU e fazer o processo morrer
+    # logo no start tentando abrir um caminho como "C:\...\disco.qcow2".
     $args = @(
         '-m', "$Memory",
         '-smp', "$Cpus",
-        '-drive', "file=$systemDiskArg,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
-        '-drive', "file=$userDataDiskArg,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
+        '-drive', "file=$SystemDisk,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
+        '-drive', "file=$UserDataDisk,format=qcow2,if=$DiskInterface,cache=$DiskCache,discard=$DiskDiscard",
         '-netdev', $NetdevValue,
         '-device', "$NetDevice,netdev=net0",
         '-serial', 'none',
@@ -1055,14 +1050,11 @@ function New-QemuBaseArgs {
     }
 
     if (($HostHomeShareMode -eq '9p') -and $HostHomeShare) {
-        $hostHomePathArg = [string]$HostHomeShare.HostPath
-        if (-not [string]::IsNullOrWhiteSpace($hostHomePathArg)) {
-            $escapedHostHomePath = $hostHomePathArg.Replace('"', '\"')
-            $hostHomePathArg = '"' + $escapedHostHomePath + '"'
-        }
+        # Mesmo motivo dos discos: nao inserir aspas internas. O argumento inteiro
+        # ja e uma unica string no array do Start-Process.
         $args += @(
             '-virtfs',
-            "local,path=$hostHomePathArg,mount_tag=$($HostHomeShare.MountTag),security_model=none,id=$($HostHomeShare.MountTag)"
+            "local,path=$($HostHomeShare.HostPath),mount_tag=$($HostHomeShare.MountTag),security_model=none,id=$($HostHomeShare.MountTag)"
         )
     }
 
@@ -1107,6 +1099,66 @@ function Test-IsWindowsHost {
 
     return ($env:OS -eq 'Windows_NT')
 }
+
+function Install-EA11VMShortcut {
+    param(
+        [string]$ShortcutName = 'EA11 VM.lnk',
+        [string]$VMName = 'debian-a11y'
+    )
+
+    if (-not (Test-IsWindowsHost)) {
+        return
+    }
+
+    try {
+        Write-EA11Info "Criando atalhos da VM na Area de Trabalho e no Menu Iniciar..."
+
+        $scriptPath = $PSCommandPath
+        if ([string]::IsNullOrWhiteSpace($scriptPath)) {
+            $scriptPath = $MyInvocation.MyCommand.Path
+        }
+        if ([string]::IsNullOrWhiteSpace($scriptPath)) {
+            $scriptPath = Join-Path $PSScriptRoot 'ea11ctl.ps1'
+        }
+
+        if (-not (Test-Path $scriptPath)) {
+            Write-EA11Warn "Nao foi possivel localizar o script ea11ctl.ps1 para criar o atalho."
+            return
+        }
+
+        $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        if (-not (Test-Path $powershellExe)) {
+            $powershellExe = 'powershell.exe'
+        }
+
+        $desktopPath = [Environment]::GetFolderPath('Desktop')
+        $startMenuPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+        $shortcutPaths = @($desktopPath, $startMenuPath) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+        $wshShell = New-Object -ComObject WScript.Shell
+
+        foreach ($path in $shortcutPaths) {
+            if (-not (Test-Path $path)) {
+                New-Item -ItemType Directory -Path $path -Force | Out-Null
+            }
+
+            $shortcutFile = Join-Path $path $ShortcutName
+            $shortcut = $wshShell.CreateShortcut($shortcutFile)
+            $shortcut.TargetPath = $powershellExe
+            $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" vm start --name `"$VMName`""
+            $shortcut.WorkingDirectory = Split-Path -Path $scriptPath -Parent
+            $shortcut.Description = 'Iniciar a VM EA11 pelo QEMU'
+            $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,13"
+            $shortcut.Save()
+        }
+
+        Write-EA11Info "Atalhos criados: Area de Trabalho e Menu Iniciar/Pesquisa do Windows."
+    }
+    catch {
+        Write-EA11Warn "Nao foi possivel criar os atalhos da VM: $($_.Exception.Message)"
+    }
+}
+
 
 function Test-IsMacOSHost {
     if ($PSVersionTable.PSVersion.Major -ge 6) {
@@ -1291,6 +1343,8 @@ function Invoke-VMInstall {
     if ((Test-Path $targetDisk) -and (-not $forceDownload)) {
         Write-EA11Info "Imagem QCOW2 ja existe em: $targetDisk"
         Write-EA11Info "Use --force-download para baixar novamente."
+        Install-EA11VMShortcut -VMName 'debian-a11y'
+        Write-EA11Info "Proximo passo: use o atalho 'EA11 VM' ou execute: ea11ctl vm start"
         return
     }
 
@@ -1347,7 +1401,8 @@ function Invoke-VMInstall {
     }
 
     Write-EA11Info "Imagem QEMU instalada em: $targetDisk"
-    Write-EA11Info "Proximo passo: ea11ctl vm start"
+    Install-EA11VMShortcut -VMName 'debian-a11y'
+    Write-EA11Info "Proximo passo: use o atalho 'EA11 VM' ou execute: ea11ctl vm start"
 }
 
 function Get-VMName {
@@ -1464,31 +1519,26 @@ function Invoke-QemuVMStart {
             }
 
             if (($hostHomeShareMode -ne '9p') -and $smbSupportInfo -and ($smbSupportInfo.Supported -or ($smbSupportInfo.Reason -ne 'unsupported'))) {
-                if (Test-IsWindowsHost) {
-                    Write-EA11Warn 'virtfs/9p indisponivel no QEMU do Windows. Iniciando VM sem compartilhamento automatico da home do host.'
-                    $hostHomeShareMode = $null
-                    $hostHomeShare = $null
+                # Mantem o comportamento resiliente do ea11ctl-old: quando 9p nao
+                # existe, tenta SMB usernet antes de desistir do compartilhamento.
+                # Se SMB quebrar em runtime, o bloco de retry abaixo ja reinicia sem share.
+                $hostHomeShareMode = 'smb'
+                $netdevValue = "user,id=net0,hostfwd=tcp::$sshPort-:22,smb=$($hostHomeShare.HostPath)"
+                $qemuSmbShare = @{
+                    Server = '10.0.2.4'
+                    Share = 'qemu'
+                    GuestMountPoint = $hostHomeShare.GuestMountPoint
+                }
+                if ($smbSupportInfo.Reason -eq 'missing-host-smb-helper') {
+                    Write-EA11Warn 'virtfs/9p indisponivel. SMB usernet sera tentado, mas o helper SMB do host aparenta ausente, caso falhe, o start seguira sem share automaticamente.'
                 }
                 else {
-                    $hostHomeShareMode = 'smb'
-                    $escapedSmbPath = ([string]$hostHomeShare.HostPath).Replace('"', '\"')
-                    $netdevValue = ('user,id=net0,hostfwd=tcp::{0}-:22,smb="{1}"' -f $sshPort, $escapedSmbPath)
-                    $qemuSmbShare = @{
-                        Server = '10.0.2.4'
-                        Share = 'qemu'
-                        GuestMountPoint = $hostHomeShare.GuestMountPoint
-                    }
-                    if ($smbSupportInfo.Reason -eq 'missing-host-smb-helper') {
-                        Write-EA11Warn 'virtfs/9p indisponivel. SMB usernet sera tentado, mas o helper SMB do host aparenta ausente; se falhar, o start seguira sem share automaticamente.'
-                    }
-                    else {
-                        Write-EA11Warn "virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
-                    }
+                    Write-EA11Warn "virtfs/9p indisponivel neste QEMU. Usando fallback SMB (//10.0.2.4/qemu -> $($qemuSmbShare.GuestMountPoint))."
                 }
             }
             elseif ($hostHomeShareMode -ne '9p') {
                 if ($smbSupportInfo -and ($smbSupportInfo.Reason -eq 'missing-host-smb-helper')) {
-                    Write-EA11Warn 'QEMU ate possui parametro SMB usernet, mas o helper SMB do host nao esta disponivel (ex.: smbd). VM iniciada sem compartilhamento automatico da home do host.'
+                    Write-EA11Warn 'QEMU ate possui parametro SMB usernet, mas o helper SMB do host nao esta disponivel. VM iniciada sem compartilhamento automatico da home do host.'
                 }
                 else {
                     Write-EA11Warn 'Este binario QEMU nao suporta virtfs/9p nem SMB usernet em runtime. VM iniciada sem compartilhamento automatico da home do host.'
@@ -1525,6 +1575,8 @@ function Invoke-QemuVMStart {
     }
 
     Write-EA11Info "Iniciando VM QEMU '$vmName'..."
+    $argsLog = Join-Path $logsDir "$vmName-qemu-args.log"
+    ($qemuArgs -join [Environment]::NewLine) | Set-Content -Path $argsLog -Encoding UTF8
     $startParams = @{
         FilePath = $qemuExecutable
         ArgumentList = $qemuArgs
@@ -1942,6 +1994,7 @@ function Invoke-QemuVMSSH {
     $state = Load-QemuState -VMName $vmName
 
     $user = Get-OptionValue -Tokens $Tokens -Names @('--user', '-u') -Default 'a11ydevs'
+
     $portFromState = '2222'
     if ($state -and $state.sshPort) {
         $portFromState = [string]$state.sshPort
@@ -1960,8 +2013,26 @@ function Invoke-QemuVMSSH {
         $extra = $Tokens[($extraStart + 1)..($Tokens.Length - 1)]
     }
 
+    # Evita conflito com chaves antigas gravadas para [localhost]:2222.
+    # Cada VM/porta passa a ter uma identidade SSH propria.
+    $hostKeyAlias = "ea11ctl-$vmName-$port"
+
+    $homeDir = Get-HomeDirectoryPath
+    $sshDir = Join-Path $homeDir '.ssh'
+    if (-not (Test-Path $sshDir)) {
+        New-Item -ItemType Directory -Path $sshDir -Force | Out-Null
+    }
+
+    $knownHostsFile = Join-Path $sshDir 'known_hosts_ea11ctl'
+
     Write-EA11Info "Abrindo SSH para $user@localhost:$port"
-    & ssh -p $port "$user@localhost" @extra
+
+    & ssh `
+        -p $port `
+        -o "HostKeyAlias=$hostKeyAlias" `
+        -o "UserKnownHostsFile=$knownHostsFile" `
+        -o "CheckHostIP=no" `
+        "$user@localhost" @extra
 }
 
 function Invoke-QemuVMDiagnose {
@@ -2332,13 +2403,13 @@ function Invoke-HostInstall {
     # Host install é apenas disponível em sistemas Linux/macOS nativo
     # Windows deve usar VM, pois não há pacotes Debian/Ubuntu nativos
     throw @"
-Erro: 'host install' nao eh suportado no Windows.
+Erro: 'host install' nao e suportado no Windows.
 
 No Windows, use apenas:
   ea11ctl vm install (baixa a imagem VM Debian pre-configurada)
   ea11ctl vm start    (inicia a VM com Emacs + espeakup)
 
-A instalacao nativa (host install) eh suportada apenas em:
+A instalacao nativa (host install) e suportada apenas em:
   - Linux com Debian 11+/Ubuntu 20.04+
   - macOS (com bash shell nativo)
 
