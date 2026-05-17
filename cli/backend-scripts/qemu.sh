@@ -121,13 +121,438 @@ qemu_print_runtime_config() {
     printf 'QEMU_FULLSCREEN=%s\n' "$QEMU_FULLSCREEN"
 }
 
+################################################################################
+# Mapeamento de chaves amigáveis (interface) para variáveis QEMU internas
+################################################################################
+
+config_friendly_to_internal() {
+    # Retorna o nome interno (QEMU_*) para uma chave amigável.
+    # Sai com código 1 se a chave não for reconhecida.
+    local key="$1"
+    case "$key" in
+        accel)           printf 'QEMU_ACCEL\n'        ;;
+        cpu-model)       printf 'QEMU_CPU_MODEL\n'    ;;
+        cpus)            printf 'QEMU_CPUS\n'         ;;
+        memory)          printf 'QEMU_MEMORY_MB\n'    ;;
+        net-device)      printf 'QEMU_NET_DEVICE\n'   ;;
+        disk-if)         printf 'QEMU_DISK_IF\n'      ;;
+        disk-cache)      printf 'QEMU_DISK_CACHE\n'   ;;
+        disk-discard)    printf 'QEMU_DISK_DISCARD\n' ;;
+        video)           printf 'QEMU_VIDEO_DEVICE\n' ;;
+        fullscreen)      printf 'QEMU_FULLSCREEN\n'   ;;
+        # Aliases em português
+        memória|memoria)           printf 'QEMU_MEMORY_MB\n'    ;;
+        processadores|cpus-pt)     printf 'QEMU_CPUS\n'         ;;
+        tela-cheia)                printf 'QEMU_FULLSCREEN\n'   ;;
+        rede)                      printf 'QEMU_NET_DEVICE\n'   ;;
+        vídeo|video-pt)            printf 'QEMU_VIDEO_DEVICE\n' ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+config_all_friendly_keys() {
+    printf '%s\n' accel cpu-model cpus memory net-device disk-if disk-cache disk-discard video fullscreen
+}
+
+config_friendly_label() {
+    # Rótulo em português para exibição ao usuário.
+    case "$1" in
+        accel)       printf 'Aceleração\n'      ;;
+        cpu-model)   printf 'Modelo de CPU\n'   ;;
+        cpus)        printf 'CPUs\n'            ;;
+        memory)      printf 'Memória (MB)\n'    ;;
+        net-device)  printf 'Dispositivo de rede\n' ;;
+        disk-if)     printf 'Interface de disco\n' ;;
+        disk-cache)  printf 'Cache de disco\n'  ;;
+        disk-discard) printf 'Descarte/TRIM\n'  ;;
+        video)       printf 'Dispositivo de vídeo\n' ;;
+        fullscreen)  printf 'Tela cheia\n'      ;;
+        *)           printf '%s\n' "$1"         ;;
+    esac
+}
+
+config_friendly_description() {
+    case "$1" in
+        accel)        printf 'Aceleração de hardware usada pelo QEMU.\n' ;;
+        cpu-model)    printf 'Modelo de CPU exposto para a VM.\n' ;;
+        cpus)         printf 'Quantidade de CPUs virtuais.\n' ;;
+        memory)       printf 'Memória RAM da VM, em MB.\n' ;;
+        net-device)   printf 'Dispositivo de rede virtual.\n' ;;
+        disk-if)      printf 'Interface do disco principal.\n' ;;
+        disk-cache)   printf 'Política de cache do disco.\n' ;;
+        disk-discard) printf 'Política de descarte/TRIM do disco.\n' ;;
+        video)        printf 'Dispositivo de vídeo virtual.\n' ;;
+        fullscreen)   printf 'Inicia a VM em tela cheia.\n' ;;
+        *)            printf '%s\n' "$1" ;;
+    esac
+}
+
+config_allowed_values_hint() {
+    case "$1" in
+        fullscreen) printf 'on, off\n' ;;
+        accel)      printf 'hvf, kvm, tcg, whpx, none\n' ;;
+        *)          printf '(sem restrição de valores definida)\n' ;;
+    esac
+}
+
+config_get_internal_value() {
+    # Devolve o valor atual da variável interna $1 (já carregada via qemu_load_runtime_config).
+    local var="$1"
+    printf '%s\n' "${!var:-}"
+}
+
+config_normalize_fullscreen() {
+    local v
+    v=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    case "$v" in
+        on|true|yes|1|ligado)  printf 'on\n';  return 0 ;;
+        off|false|no|0|desligado) printf 'off\n'; return 0 ;;
+        *)
+            printf ''
+            return 1
+            ;;
+    esac
+}
+
+config_validate_and_normalize() {
+    # Valida e normaliza o valor para a chave amigável.
+    # Imprime o valor normalizado no stdout se válido.
+    # Imprime mensagem de erro no stderr e retorna 1 se inválido.
+    local friendly_key="$1"
+    local value="$2"
+    case "$friendly_key" in
+        cpus)
+            if ! printf '%s' "$value" | grep -qE '^[1-9][0-9]*$'; then
+                printf 'Erro: valor inválido para '\''cpus'\''.\n\n' >&2
+                printf 'Valor recebido: %s\n' "$value" >&2
+                printf 'Formato esperado: número inteiro positivo.\n\n' >&2
+                printf 'Exemplos:\n' >&2
+                printf '  ea11ctl vm config set cpus 2\n' >&2
+                printf '  ea11ctl vm config set cpus 4\n' >&2
+                printf '  ea11ctl vm config set cpus 8\n' >&2
+                return 1
+            fi
+            printf '%s\n' "$value"
+            ;;
+        memory)
+            if ! printf '%s' "$value" | grep -qE '^[1-9][0-9]*$'; then
+                printf 'Erro: valor inválido para '\''memory'\''.\n\n' >&2
+                printf 'Valor recebido: %s\n' "$value" >&2
+                printf 'Formato esperado: número inteiro positivo em MB.\n\n' >&2
+                printf 'Exemplos:\n' >&2
+                printf '  ea11ctl vm config set memory 2048\n' >&2
+                printf '  ea11ctl vm config set memory 4096\n' >&2
+                printf '  ea11ctl vm config set memory 8192\n' >&2
+                return 1
+            fi
+            printf '%s\n' "$value"
+            ;;
+        fullscreen)
+            local norm
+            if ! norm=$(config_normalize_fullscreen "$value"); then
+                printf 'Erro: valor inválido para '\''fullscreen'\''.\n\n' >&2
+                printf 'Valor recebido: %s\n' "$value" >&2
+                printf 'Valores aceitos: on, off, true, false, yes, no, 1, 0, ligado, desligado\n\n' >&2
+                printf 'Exemplos:\n' >&2
+                printf '  ea11ctl vm config set fullscreen on\n' >&2
+                printf '  ea11ctl vm config set fullscreen off\n' >&2
+                return 1
+            fi
+            printf '%s\n' "$norm"
+            ;;
+        accel)
+            case "$value" in
+                hvf|kvm|tcg|whpx|none) printf '%s\n' "$value" ;;
+                *)
+                    printf 'Erro: valor inválido para '\''accel'\''.\n\n' >&2
+                    printf 'Valor recebido: %s\n' "$value" >&2
+                    printf 'Valores conhecidos: hvf, kvm, tcg, whpx, none\n\n' >&2
+                    printf 'Exemplos:\n' >&2
+                    printf '  ea11ctl vm config set accel hvf\n' >&2
+                    printf '  ea11ctl vm config set accel kvm\n' >&2
+                    printf '  ea11ctl vm config set accel tcg\n' >&2
+                    return 1
+                    ;;
+            esac
+            ;;
+        *)
+            printf '%s\n' "$value"
+            ;;
+    esac
+}
+
+config_set_var() {
+    # Aplica o valor normalizado na variável de ambiente correspondente.
+    local friendly_key="$1"
+    local value="$2"
+    local internal_var
+    internal_var=$(config_friendly_to_internal "$friendly_key")
+    printf -v "$internal_var" '%s' "$value"
+}
+
+config_get_var() {
+    local friendly_key="$1"
+    local internal_var
+    internal_var=$(config_friendly_to_internal "$friendly_key")
+    printf '%s\n' "${!internal_var:-}"
+}
+
+config_print_fullscreen_label() {
+    case "$1" in
+        on) printf 'ativado\n' ;;
+        off) printf 'desativado\n' ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+qemu_cmd_config_show_friendly() {
+    local cfg
+    cfg=$(qemu_runtime_config_file)
+    qemu_load_runtime_config
+
+    printf 'Configuração da VM\n'
+    printf '\n'
+    printf 'Arquivo:\n'
+    printf '  %s\n' "$cfg"
+    printf '\n'
+    printf 'Desempenho:\n'
+    printf '  CPUs: %s\n' "$QEMU_CPUS"
+    printf '  Memória: %s MB\n' "$QEMU_MEMORY_MB"
+    printf '  Aceleração: %s\n' "$QEMU_ACCEL"
+    printf '  Modelo de CPU: %s\n' "$QEMU_CPU_MODEL"
+    printf '\n'
+    printf 'Vídeo:\n'
+    printf '  Dispositivo: %s\n' "$QEMU_VIDEO_DEVICE"
+    printf '  Tela cheia: %s\n' "$(config_print_fullscreen_label "$QEMU_FULLSCREEN")"
+    printf '\n'
+    printf 'Disco:\n'
+    printf '  Interface: %s\n' "$QEMU_DISK_IF"
+    printf '  Cache: %s\n' "$QEMU_DISK_CACHE"
+    printf '  Descarte/TRIM: %s\n' "$QEMU_DISK_DISCARD"
+    printf '\n'
+    printf 'Rede:\n'
+    printf '  Dispositivo: %s\n' "$QEMU_NET_DEVICE"
+}
+
+qemu_cmd_config_list() {
+    qemu_load_runtime_config
+
+    printf 'Configurações disponíveis:\n'
+    local key
+    while IFS= read -r key; do
+        local internal_var current_val description allowed example
+        internal_var=$(config_friendly_to_internal "$key")
+        current_val="${!internal_var:-}"
+        description=$(config_friendly_description "$key")
+
+        printf '\n'
+        printf '%s\n' "$key"
+        printf '  Descrição: %s' "$description"
+        printf '  Chave interna: %s\n' "$internal_var"
+        printf '  Valor atual: %s\n' "$current_val"
+
+        allowed=$(config_allowed_values_hint "$key")
+        case "$key" in
+            fullscreen|accel)
+                printf '  Valores aceitos: %s\n' "$allowed"
+                ;;
+        esac
+
+        printf '  Exemplo: ea11ctl vm config set %s %s\n' "$key" "$current_val"
+    done < <(config_all_friendly_keys)
+}
+
+qemu_cmd_config_get() {
+    local friendly_key="$1"
+    local raw="${2:-}"
+    local internal_var current_val label
+
+    if ! internal_var=$(config_friendly_to_internal "$friendly_key" 2>/dev/null); then
+        printf 'Erro: configuração desconhecida: %s\n\n' "$friendly_key" >&2
+        printf 'Use:\n' >&2
+        printf '  ea11ctl vm config list\n\n' >&2
+        printf 'Exemplos:\n' >&2
+        printf '  ea11ctl vm config get memory\n' >&2
+        printf '  ea11ctl vm config get cpus\n' >&2
+        printf '  ea11ctl vm config get fullscreen\n' >&2
+        return 1
+    fi
+
+    qemu_load_runtime_config
+    current_val="${!internal_var:-}"
+
+    if [[ "$raw" == '--raw' ]]; then
+        printf '%s=%s\n' "$internal_var" "$current_val"
+        return 0
+    fi
+
+    label=$(config_friendly_label "$friendly_key")
+    printf '%s:\n' "$label"
+    printf '  Chave amigável: %s\n' "$friendly_key"
+    printf '  Chave interna: %s\n' "$internal_var"
+
+    case "$friendly_key" in
+        memory)
+            printf '  Valor atual: %s MB\n' "$current_val"
+            ;;
+        *)
+            printf '  Valor atual: %s\n' "$current_val"
+            ;;
+    esac
+}
+
+qemu_cmd_config_set() {
+    # Suporta tanto "set CHAVE VALOR" quanto "set CHAVE=VALOR [CHAVE=VALOR ...]".
+    if [[ $# -eq 0 ]]; then
+        printf 'Erro: use: ea11ctl vm config set CHAVE VALOR\n' >&2
+        printf 'Ou:   ea11ctl vm config set CHAVE=VALOR [CHAVE=VALOR ...]\n' >&2
+        return 1
+    fi
+
+    qemu_load_runtime_config
+
+    local -a pairs=()
+
+    # Detecta se o primeiro argumento contém '=' — modo key=value.
+    if printf '%s' "$1" | grep -q '='; then
+        # Todos os argumentos são key=value.
+        local arg
+        for arg in "$@"; do
+            if ! printf '%s' "$arg" | grep -q '='; then
+                printf 'Erro: argumento inválido: %s\n' "$arg" >&2
+                printf 'No modo key=value, todos os argumentos devem conter "=".\n' >&2
+                printf 'Exemplo: ea11ctl vm config set memory=8192 cpus=4 fullscreen=off\n' >&2
+                return 1
+            fi
+            pairs+=("$arg")
+        done
+    elif [[ $# -ge 2 ]]; then
+        # Modo "set CHAVE VALOR" (dois argumentos).
+        pairs+=("${1}=${2}")
+    else
+        printf 'Erro: uso: ea11ctl vm config set CHAVE VALOR\n' >&2
+        printf 'Ou:   ea11ctl vm config set CHAVE=VALOR [CHAVE=VALOR ...]\n' >&2
+        return 1
+    fi
+
+    local -a changed_keys=()
+    local -a old_values=()
+    local -a new_values=()
+
+    local pair
+    for pair in "${pairs[@]}"; do
+        local fkey fvalue
+        fkey="${pair%%=*}"
+        fvalue="${pair#*=}"
+
+        local internal_var
+        if ! internal_var=$(config_friendly_to_internal "$fkey" 2>/dev/null); then
+            printf 'Erro: configuração desconhecida: %s\n\n' "$fkey" >&2
+            printf 'Use:\n' >&2
+            printf '  ea11ctl vm config list\n\n' >&2
+            printf 'Exemplos:\n' >&2
+            printf '  ea11ctl vm config set memory 4096\n' >&2
+            printf '  ea11ctl vm config set cpus 4\n' >&2
+            printf '  ea11ctl vm config set fullscreen off\n' >&2
+            return 1
+        fi
+
+        local old_val normalized
+        old_val="${!internal_var:-}"
+
+        if ! normalized=$(config_validate_and_normalize "$fkey" "$fvalue"); then
+            return 1
+        fi
+
+        config_set_var "$fkey" "$normalized"
+        changed_keys+=("$fkey")
+        old_values+=("$old_val")
+        new_values+=("$normalized")
+    done
+
+    qemu_save_runtime_config
+
+    printf 'Configuração atualizada.\n'
+    local i
+    for i in "${!changed_keys[@]}"; do
+        local fkey="${changed_keys[$i]}"
+        local label
+        label=$(config_friendly_label "$fkey")
+        printf '\n'
+        printf '%s:\n' "$label"
+        case "$fkey" in
+            memory)
+                printf '  Valor anterior: %s MB\n' "${old_values[$i]}"
+                printf '  Novo valor: %s MB\n' "${new_values[$i]}"
+                ;;
+            fullscreen)
+                printf '  Valor anterior: %s\n' "$(config_print_fullscreen_label "${old_values[$i]}")"
+                printf '  Novo valor: %s\n' "$(config_print_fullscreen_label "${new_values[$i]}")"
+                ;;
+            *)
+                printf '  Valor anterior: %s\n' "${old_values[$i]}"
+                printf '  Novo valor: %s\n' "${new_values[$i]}"
+                ;;
+        esac
+    done
+    printf '\nA alteração será aplicada na próxima vez que a VM for iniciada.\n'
+}
+
+qemu_cmd_config_help() {
+    cat << 'EOF'
+ea11ctl vm config - Gerenciar configurações da VM
+
+Uso:
+  ea11ctl vm config                          Mostra configuração amigável
+  ea11ctl vm config --raw                    Mostra variáveis técnicas (QEMU_*)
+  ea11ctl vm config list                     Lista todas as chaves configuráveis
+  ea11ctl vm config get CHAVE [--raw]        Consulta um valor
+  ea11ctl vm config set CHAVE VALOR          Define um valor
+  ea11ctl vm config set CHAVE=VALOR [...]    Define um ou mais valores
+  ea11ctl vm config path                     Mostra o caminho do arquivo de config
+  ea11ctl vm config reset                    Reseta para valores padrão
+  ea11ctl vm config help                     Mostra esta ajuda
+
+Chaves disponíveis:
+  cpus         memória      accel        cpu-model
+  net-device   disk-if      disk-cache   disk-discard
+  video        fullscreen
+
+Exemplos:
+  ea11ctl vm config set memory 4096
+  ea11ctl vm config set cpus 4
+  ea11ctl vm config set fullscreen off
+  ea11ctl vm config set memory=8192 cpus=4 fullscreen=off
+  ea11ctl vm config get memory
+  ea11ctl vm config get memory --raw
+EOF
+}
+
 qemu_cmd_config() {
     local action="${1:-show}"
     shift || true
 
     case "$action" in
-        show|list)
+        show)
+            qemu_cmd_config_show_friendly
+            ;;
+        --raw)
             qemu_print_runtime_config
+            ;;
+        list)
+            qemu_cmd_config_list
+            ;;
+        get)
+            if [[ $# -eq 0 ]]; then
+                printf 'Erro: informe a chave. Exemplo: ea11ctl vm config get memory\n' >&2
+                return 1
+            fi
+            qemu_cmd_config_get "$1" "${2:-}"
+            ;;
+        set)
+            qemu_cmd_config_set "$@"
             ;;
         path)
             printf '%s\n' "$(qemu_runtime_config_file)"
@@ -137,8 +562,11 @@ qemu_cmd_config() {
             qemu_save_runtime_config
             ea11_backend_info "Configuracao resetada para defaults em $(qemu_runtime_config_file)"
             ;;
+        help|-h|--help)
+            qemu_cmd_config_help
+            ;;
         *)
-            ea11_backend_die "Acao de config desconhecida: $action"
+            ea11_backend_die "Ação de config desconhecida: $action. Use: ea11ctl vm config help"
             ;;
     esac
 }

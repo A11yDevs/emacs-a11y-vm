@@ -614,6 +614,7 @@ function Get-DefaultQemuRuntimeConfig {
         diskCache = 'writeback'
         diskDiscard = 'unmap'
         videoDevice = 'virtio-vga'
+        fullscreen = 'on'
     }
 }
 
@@ -687,6 +688,330 @@ function Show-QemuRuntimeConfig {
     Write-Host "QEMU_VIDEO_DEVICE=$($cfg.videoDevice)"
 }
 
+################################################################################
+# Mapeamento de chaves amigáveis para o schema JSON de config
+################################################################################
+
+$Script:ConfigKeyMap = @{
+    'accel'       = 'accel'
+    'cpu-model'   = 'cpuModel'
+    'cpus'        = 'cpus'
+    'memory'      = 'memoryMb'
+    'net-device'  = 'netDevice'
+    'disk-if'     = 'diskInterface'
+    'disk-cache'  = 'diskCache'
+    'disk-discard'= 'diskDiscard'
+    'video'       = 'videoDevice'
+    'fullscreen'  = 'fullscreen'
+    # aliases PT-BR
+    'memoria'     = 'memoryMb'
+    'memória'     = 'memoryMb'
+    'processadores' = 'cpus'
+    'tela-cheia'  = 'fullscreen'
+    'rede'        = 'netDevice'
+    'vídeo'       = 'videoDevice'
+    'video-pt'    = 'videoDevice'
+}
+
+$Script:ConfigInternalKeys = @(
+    'accel', 'cpu-model', 'cpus', 'memory', 'net-device',
+    'disk-if', 'disk-cache', 'disk-discard', 'video', 'fullscreen'
+)
+
+function Get-ConfigInternalKey {
+    param([string]$FriendlyKey)
+    $k = $FriendlyKey.ToLowerInvariant()
+    if ($Script:ConfigKeyMap.ContainsKey($k)) {
+        return $Script:ConfigKeyMap[$k]
+    }
+    return $null
+}
+
+function Get-ConfigFriendlyLabel {
+    param([string]$FriendlyKey)
+    switch ($FriendlyKey) {
+        'accel'       { return 'Aceleração' }
+        'cpu-model'   { return 'Modelo de CPU' }
+        'cpus'        { return 'CPUs' }
+        'memory'      { return 'Memória (MB)' }
+        'net-device'  { return 'Dispositivo de rede' }
+        'disk-if'     { return 'Interface de disco' }
+        'disk-cache'  { return 'Cache de disco' }
+        'disk-discard'{ return 'Descarte/TRIM' }
+        'video'       { return 'Dispositivo de vídeo' }
+        'fullscreen'  { return 'Tela cheia' }
+        default       { return $FriendlyKey }
+    }
+}
+
+function Get-ConfigFriendlyDescription {
+    param([string]$FriendlyKey)
+    switch ($FriendlyKey) {
+        'accel'       { return 'Aceleração de hardware usada pelo QEMU.' }
+        'cpu-model'   { return 'Modelo de CPU exposto para a VM.' }
+        'cpus'        { return 'Quantidade de CPUs virtuais.' }
+        'memory'      { return 'Memória RAM da VM, em MB.' }
+        'net-device'  { return 'Dispositivo de rede virtual.' }
+        'disk-if'     { return 'Interface do disco principal.' }
+        'disk-cache'  { return 'Política de cache do disco.' }
+        'disk-discard'{ return 'Política de descarte/TRIM do disco.' }
+        'video'       { return 'Dispositivo de vídeo virtual.' }
+        'fullscreen'  { return 'Inicia a VM em tela cheia.' }
+        default       { return $FriendlyKey }
+    }
+}
+
+function Format-FullscreenLabel {
+    param([string]$Value)
+    if ($Value -eq 'on') { return 'ativado' }
+    if ($Value -eq 'off') { return 'desativado' }
+    return $Value
+}
+
+function ConvertTo-FullscreenNormalized {
+    param([string]$Value)
+    switch ($Value.ToLowerInvariant()) {
+        { $_ -in 'on','true','yes','1','ligado' }   { return 'on' }
+        { $_ -in 'off','false','no','0','desligado' }{ return 'off' }
+        default { return $null }
+    }
+}
+
+function Assert-ConfigValue {
+    # Valida e retorna valor normalizado, ou $null em erro.
+    param([string]$FriendlyKey, [string]$Value)
+    switch ($FriendlyKey) {
+        'cpus' {
+            if ($Value -match '^[1-9][0-9]*$') { return $Value }
+            Write-Host "Erro: valor inválido para 'cpus'." -ForegroundColor Red
+            Write-Host ''
+            Write-Host "Valor recebido: $Value"
+            Write-Host 'Formato esperado: número inteiro positivo.'
+            Write-Host ''
+            Write-Host 'Exemplos:'
+            Write-Host '  ea11ctl vm config set cpus 2'
+            Write-Host '  ea11ctl vm config set cpus 4'
+            Write-Host '  ea11ctl vm config set cpus 8'
+            return $null
+        }
+        'memory' {
+            if ($Value -match '^[1-9][0-9]*$') { return $Value }
+            Write-Host "Erro: valor inválido para 'memory'." -ForegroundColor Red
+            Write-Host ''
+            Write-Host "Valor recebido: $Value"
+            Write-Host 'Formato esperado: número inteiro positivo em MB.'
+            Write-Host ''
+            Write-Host 'Exemplos:'
+            Write-Host '  ea11ctl vm config set memory 2048'
+            Write-Host '  ea11ctl vm config set memory 4096'
+            Write-Host '  ea11ctl vm config set memory 8192'
+            return $null
+        }
+        'fullscreen' {
+            $norm = ConvertTo-FullscreenNormalized -Value $Value
+            if ($null -ne $norm) { return $norm }
+            Write-Host "Erro: valor inválido para 'fullscreen'." -ForegroundColor Red
+            Write-Host ''
+            Write-Host "Valor recebido: $Value"
+            Write-Host 'Valores aceitos: on, off, true, false, yes, no, 1, 0, ligado, desligado'
+            Write-Host ''
+            Write-Host 'Exemplos:'
+            Write-Host '  ea11ctl vm config set fullscreen on'
+            Write-Host '  ea11ctl vm config set fullscreen off'
+            return $null
+        }
+        'accel' {
+            $valid = @('hvf','kvm','tcg','whpx','none')
+            if ($valid -contains $Value.ToLowerInvariant()) { return $Value.ToLowerInvariant() }
+            Write-Host "Erro: valor inválido para 'accel'." -ForegroundColor Red
+            Write-Host ''
+            Write-Host "Valor recebido: $Value"
+            Write-Host 'Valores conhecidos: hvf, kvm, tcg, whpx, none'
+            Write-Host ''
+            Write-Host 'Exemplos:'
+            Write-Host '  ea11ctl vm config set accel hvf'
+            Write-Host '  ea11ctl vm config set accel kvm'
+            Write-Host '  ea11ctl vm config set accel tcg'
+            return $null
+        }
+        default { return $Value }
+    }
+}
+
+function Show-QemuRuntimeConfigFriendly {
+    $cfgPath = Get-QemuRuntimeConfigPath
+    $cfg = Get-QemuRuntimeConfig
+
+    Write-Host 'Configuração da VM'
+    Write-Host ''
+    Write-Host 'Arquivo:'
+    Write-Host "  $cfgPath"
+    Write-Host ''
+    Write-Host 'Desempenho:'
+    Write-Host "  CPUs: $($cfg.cpus)"
+    Write-Host "  Memória: $($cfg.memoryMb) MB"
+    Write-Host "  Aceleração: $($cfg.accel)"
+    Write-Host "  Modelo de CPU: $($cfg.cpuModel)"
+    Write-Host ''
+    Write-Host 'Vídeo:'
+    Write-Host "  Dispositivo: $($cfg.videoDevice)"
+    Write-Host "  Tela cheia: $(Format-FullscreenLabel $cfg.fullscreen)"
+    Write-Host ''
+    Write-Host 'Disco:'
+    Write-Host "  Interface: $($cfg.diskInterface)"
+    Write-Host "  Cache: $($cfg.diskCache)"
+    Write-Host "  Descarte/TRIM: $($cfg.diskDiscard)"
+    Write-Host ''
+    Write-Host 'Rede:'
+    Write-Host "  Dispositivo: $($cfg.netDevice)"
+}
+
+function Show-QemuConfigList {
+    $cfg = Get-QemuRuntimeConfig
+    Write-Host 'Configurações disponíveis:'
+    foreach ($fkey in $Script:ConfigInternalKeys) {
+        $internalKey = Get-ConfigInternalKey -FriendlyKey $fkey
+        $currentVal = $cfg[$internalKey]
+        $description = Get-ConfigFriendlyDescription -FriendlyKey $fkey
+        Write-Host ''
+        Write-Host $fkey
+        Write-Host "  Descrição: $description"
+        Write-Host "  Chave interna: $internalKey"
+        Write-Host "  Valor atual: $currentVal"
+        if ($fkey -in 'fullscreen','accel') {
+            switch ($fkey) {
+                'fullscreen' { Write-Host '  Valores aceitos: on, off' }
+                'accel'      { Write-Host '  Valores aceitos: hvf, kvm, tcg, whpx, none' }
+            }
+        }
+        Write-Host "  Exemplo: ea11ctl vm config set $fkey $currentVal"
+    }
+}
+
+function Show-QemuConfigGet {
+    param([string]$FriendlyKey, [bool]$Raw = $false)
+    $internalKey = Get-ConfigInternalKey -FriendlyKey $FriendlyKey
+    if ($null -eq $internalKey) {
+        Write-Host "Erro: configuração desconhecida: $FriendlyKey" -ForegroundColor Red
+        Write-Host ''
+        Write-Host 'Use:'
+        Write-Host '  ea11ctl vm config list'
+        Write-Host ''
+        Write-Host 'Exemplos:'
+        Write-Host '  ea11ctl vm config get memory'
+        Write-Host '  ea11ctl vm config get cpus'
+        Write-Host '  ea11ctl vm config get fullscreen'
+        return $false
+    }
+    $cfg = Get-QemuRuntimeConfig
+    $currentVal = $cfg[$internalKey]
+    if ($Raw) {
+        Write-Host "$internalKey=$currentVal"
+        return $true
+    }
+    $label = Get-ConfigFriendlyLabel -FriendlyKey $FriendlyKey
+    Write-Host "${label}:"
+    Write-Host "  Chave amigável: $FriendlyKey"
+    Write-Host "  Chave interna: $internalKey"
+    if ($FriendlyKey -eq 'memory') {
+        Write-Host "  Valor atual: $currentVal MB"
+    } else {
+        Write-Host "  Valor atual: $currentVal"
+    }
+    return $true
+}
+
+function Invoke-QemuConfigSet {
+    param([string[]]$Pairs)
+    $cfg = Get-QemuRuntimeConfig
+    $changedKeys = [System.Collections.Generic.List[string]]::new()
+    $oldValues   = [System.Collections.Generic.List[string]]::new()
+    $newValues   = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($pair in $Pairs) {
+        $eqIdx = $pair.IndexOf('=')
+        if ($eqIdx -lt 0) {
+            Write-Host "Erro: argumento inválido: $pair" -ForegroundColor Red
+            Write-Host 'No modo key=value, todos os argumentos devem conter "=".'
+            Write-Host 'Exemplo: ea11ctl vm config set memory=8192 cpus=4 fullscreen=off'
+            return $false
+        }
+        $fkey  = $pair.Substring(0, $eqIdx).ToLowerInvariant()
+        $fval  = $pair.Substring($eqIdx + 1)
+        $internalKey = Get-ConfigInternalKey -FriendlyKey $fkey
+        if ($null -eq $internalKey) {
+            Write-Host "Erro: configuração desconhecida: $fkey" -ForegroundColor Red
+            Write-Host ''
+            Write-Host 'Use:'
+            Write-Host '  ea11ctl vm config list'
+            Write-Host ''
+            Write-Host 'Exemplos:'
+            Write-Host '  ea11ctl vm config set memory 4096'
+            Write-Host '  ea11ctl vm config set cpus 4'
+            Write-Host '  ea11ctl vm config set fullscreen off'
+            return $false
+        }
+        $normalized = Assert-ConfigValue -FriendlyKey $fkey -Value $fval
+        if ($null -eq $normalized) { return $false }
+
+        $changedKeys.Add($fkey)
+        $oldValues.Add([string]$cfg[$internalKey])
+        $newValues.Add($normalized)
+        $cfg[$internalKey] = $normalized
+    }
+
+    Save-QemuRuntimeConfig -Config $cfg
+    Write-Host 'Configuração atualizada.'
+
+    for ($i = 0; $i -lt $changedKeys.Count; $i++) {
+        $fkey  = $changedKeys[$i]
+        $label = Get-ConfigFriendlyLabel -FriendlyKey $fkey
+        Write-Host ''
+        Write-Host "${label}:"
+        if ($fkey -eq 'memory') {
+            Write-Host "  Valor anterior: $($oldValues[$i]) MB"
+            Write-Host "  Novo valor: $($newValues[$i]) MB"
+        } elseif ($fkey -eq 'fullscreen') {
+            Write-Host "  Valor anterior: $(Format-FullscreenLabel $oldValues[$i])"
+            Write-Host "  Novo valor: $(Format-FullscreenLabel $newValues[$i])"
+        } else {
+            Write-Host "  Valor anterior: $($oldValues[$i])"
+            Write-Host "  Novo valor: $($newValues[$i])"
+        }
+    }
+    Write-Host ''
+    Write-Host 'A alteração será aplicada na próxima vez que a VM for iniciada.'
+    return $true
+}
+
+function Show-QemuConfigHelp {
+    Write-Host 'ea11ctl vm config - Gerenciar configurações da VM'
+    Write-Host ''
+    Write-Host 'Uso:'
+    Write-Host '  ea11ctl vm config                          Mostra configuração amigável'
+    Write-Host '  ea11ctl vm config --raw                    Mostra variáveis técnicas (QEMU_*)'
+    Write-Host '  ea11ctl vm config list                     Lista todas as chaves configuráveis'
+    Write-Host '  ea11ctl vm config get CHAVE [--raw]        Consulta um valor'
+    Write-Host '  ea11ctl vm config set CHAVE VALOR          Define um valor'
+    Write-Host '  ea11ctl vm config set CHAVE=VALOR [...]    Define um ou mais valores'
+    Write-Host '  ea11ctl vm config path                     Mostra caminho do arquivo de config'
+    Write-Host '  ea11ctl vm config reset                    Reseta para valores padrão'
+    Write-Host '  ea11ctl vm config help                     Mostra esta ajuda'
+    Write-Host ''
+    Write-Host 'Chaves disponíveis:'
+    Write-Host '  cpus         memory       accel        cpu-model'
+    Write-Host '  net-device   disk-if      disk-cache   disk-discard'
+    Write-Host '  video        fullscreen'
+    Write-Host ''
+    Write-Host 'Exemplos:'
+    Write-Host '  ea11ctl vm config set memory 4096'
+    Write-Host '  ea11ctl vm config set cpus 4'
+    Write-Host '  ea11ctl vm config set fullscreen off'
+    Write-Host '  ea11ctl vm config set memory=8192 cpus=4 fullscreen=off'
+    Write-Host '  ea11ctl vm config get memory'
+    Write-Host '  ea11ctl vm config get memory --raw'
+}
+
 function Invoke-QemuVMConfig {
     param([string[]]$Tokens)
 
@@ -696,15 +1021,45 @@ function Invoke-QemuVMConfig {
     }
 
     switch ($action) {
-        'show' { Show-QemuRuntimeConfig }
-        'list' { Show-QemuRuntimeConfig }
+        'show' { Show-QemuRuntimeConfigFriendly }
+        '--raw' { Show-QemuRuntimeConfig }
+        'list' { Show-QemuConfigList }
+        'get' {
+            if ($Tokens.Length -lt 2) {
+                Write-Host 'Erro: informe a chave. Exemplo: ea11ctl vm config get memory' -ForegroundColor Red
+                return
+            }
+            $raw = ($Tokens.Length -ge 3 -and $Tokens[2] -eq '--raw')
+            $ok = Show-QemuConfigGet -FriendlyKey $Tokens[1].ToLowerInvariant() -Raw $raw
+            if (-not $ok) { exit 1 }
+        }
+        'set' {
+            if ($Tokens.Length -lt 2) {
+                Write-Host 'Erro: use: ea11ctl vm config set CHAVE VALOR' -ForegroundColor Red
+                Write-Host 'Ou:   ea11ctl vm config set CHAVE=VALOR [CHAVE=VALOR ...]'
+                return
+            }
+            $rest = $Tokens[1..($Tokens.Length - 1)]
+            # Detecta modo key=value ou "CHAVE VALOR"
+            if ($rest[0] -match '=') {
+                $ok = Invoke-QemuConfigSet -Pairs $rest
+            } else {
+                if ($rest.Length -lt 2) {
+                    Write-Host 'Erro: use: ea11ctl vm config set CHAVE VALOR' -ForegroundColor Red
+                    return
+                }
+                $ok = Invoke-QemuConfigSet -Pairs @("$($rest[0])=$($rest[1])")
+            }
+            if (-not $ok) { exit 1 }
+        }
         'path' { Write-Host (Get-QemuRuntimeConfigPath) }
         'reset' {
             Save-QemuRuntimeConfig -Config (Get-DefaultQemuRuntimeConfig)
             Write-EA11Info "Configuracao resetada para defaults em $(Get-QemuRuntimeConfigPath)"
         }
+        { $_ -in 'help','-h','--help' } { Show-QemuConfigHelp }
         default {
-            throw "Acao de config desconhecida: $action"
+            throw "Ação de config desconhecida: $action. Use: ea11ctl vm config help"
         }
     }
 }
