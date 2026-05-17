@@ -3666,17 +3666,22 @@ function Start-InteractiveShell {
     }
 }
 
-try {
-    if ($Args.Length -eq 0) {
-        Start-InteractiveShell
-        exit 0
-    }
 
-    Invoke-RootCommand -Tokens $Args
-}
-catch {
-    Write-EA11Error $_.Exception.Message
-    Write-Host ''
-    Show-Help
-    exit 1
+if ($Args.Length -eq 0) {
+    # Modo interativo: nunca sair com erro por comando inválido
+    try {
+        Start-InteractiveShell
+    } catch {
+        Write-EA11Error $_.Exception.Message
+    }
+    exit 0
+} else {
+    try {
+        Invoke-RootCommand -Tokens $Args
+    } catch {
+        Write-EA11Error $_.Exception.Message
+        Write-Host ''
+        Show-Help
+        exit 1
+    }
 }
