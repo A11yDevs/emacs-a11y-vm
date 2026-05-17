@@ -578,7 +578,7 @@ function Get-QemuStateFilePath {
 }
 
 function Get-QemuRuntimeConfigPath {
-    return (Join-Path (Get-QemuStateDirectory) 'config.json')
+    return (Join-Path (Get-QemuStateDirectory) 'config.env')
 }
 
 function Get-DefaultQemuRuntimeConfig {
