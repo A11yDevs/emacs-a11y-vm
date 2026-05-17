@@ -416,8 +416,25 @@ function Invoke-SelfUpdate {
             throw "Nao foi possivel baixar arquivos de update. Ultimo erro: $lastErrorMessage"
         }
 
+        $bom = [byte[]](0xEF, 0xBB, 0xBF)
         foreach ($file in $files) {
-            Copy-Item -Path (Join-Path $tmpDir $file) -Destination (Join-Path $installDir $file) -Force
+            $src = Join-Path $tmpDir $file
+            $dst = Join-Path $installDir $file
+            if ($file -like '*.ps1') {
+                # Garante UTF-8 BOM para Windows PowerShell 5.x (sem BOM, PS5 lê como ANSI)
+                $bytes = [System.IO.File]::ReadAllBytes($src)
+                $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+                if (-not $hasBom) {
+                    $withBom = New-Object byte[] ($bom.Length + $bytes.Length)
+                    [Array]::Copy($bom, $withBom, $bom.Length)
+                    [Array]::Copy($bytes, 0, $withBom, $bom.Length, $bytes.Length)
+                    [System.IO.File]::WriteAllBytes($dst, $withBom)
+                } else {
+                    [System.IO.File]::WriteAllBytes($dst, $bytes)
+                }
+            } else {
+                Copy-Item -Path $src -Destination $dst -Force
+            }
         }
     }
     finally {

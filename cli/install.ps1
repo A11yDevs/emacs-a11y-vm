@@ -188,6 +188,19 @@ foreach ($file in $files) {
     }
 
     Invoke-WebRequest -Uri $file.Url -OutFile $dest -UseBasicParsing
+
+    # Garante UTF-8 BOM em .ps1 para Windows PowerShell 5.x (sem BOM, PS5 lê como ANSI)
+    if ($file.Name -like '*.ps1') {
+        $bom = [byte[]](0xEF, 0xBB, 0xBF)
+        $bytes = [System.IO.File]::ReadAllBytes($dest)
+        $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+        if (-not $hasBom) {
+            $withBom = New-Object byte[] ($bom.Length + $bytes.Length)
+            [Array]::Copy($bom, $withBom, $bom.Length)
+            [Array]::Copy($bytes, 0, $withBom, $bom.Length, $bytes.Length)
+            [System.IO.File]::WriteAllBytes($dest, $withBom)
+        }
+    }
 }
 
 $pathChanged = Add-ToUserPath -PathToAdd $installDir
