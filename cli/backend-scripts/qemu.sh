@@ -744,6 +744,25 @@ qemu_apply_macos_desktop_args() {
     )
 }
 
+qemu_apply_windows_desktop_args() {
+    local -n _cmd_ref=$1
+    local fullscreen_mode normalized
+
+    fullscreen_mode="${QEMU_FULLSCREEN:-on}"
+    normalized=$(printf '%s' "$fullscreen_mode" | tr '[:upper:]' '[:lower:]')
+
+    _cmd_ref+=(
+        -device "${QEMU_VIDEO_DEVICE:-virtio-vga}"
+        -display sdl
+    )
+
+    case "$normalized" in
+        on|true|yes|1|ligado)
+            _cmd_ref+=(-full-screen)
+            ;;
+    esac
+}
+
 qemu_runtime_memory_mb() {
     if [[ -n "${QEMU_MEMORY_MB:-}" ]]; then
         printf '%s\n' "$QEMU_MEMORY_MB"
@@ -907,7 +926,7 @@ qemu_cmd_start() {
         else
             case "$(uname -s)" in
                 MINGW*|MSYS*|CYGWIN*|Windows_NT)
-                    qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}" -display sdl -full-screen)
+                    qemu_apply_windows_desktop_args qemu_cmd
                     ;;
                 *)
                     qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}")
@@ -971,7 +990,7 @@ qemu_cmd_start() {
                 else
                     case "$(uname -s)" in
                         MINGW*|MSYS*|CYGWIN*|Windows_NT)
-                            qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}" -display sdl -full-screen)
+                            qemu_apply_windows_desktop_args qemu_cmd
                             ;;
                         *)
                             qemu_cmd+=(-device "${QEMU_VIDEO_DEVICE:-virtio-vga}")

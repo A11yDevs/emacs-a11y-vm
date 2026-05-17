@@ -780,6 +780,28 @@ function ConvertTo-FullscreenNormalized {
     }
 }
 
+function Get-QemuDesktopDisplayArgs {
+    param([string]$FullscreenMode)
+
+    $normalized = ConvertTo-FullscreenNormalized -Value $FullscreenMode
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        $normalized = 'on'
+    }
+
+    if (Test-IsMacOSHost) {
+        return @('-display', "cocoa,zoom-to-fit=on,full-screen=$normalized", '-k', 'en-us')
+    }
+
+    if (Test-IsWindowsHost) {
+        if ($normalized -eq 'on') {
+            return @('-display', 'sdl', '-full-screen')
+        }
+        return @('-display', 'sdl')
+    }
+
+    return @()
+}
+
 function Assert-ConfigValue {
     # Valida e retorna valor normalizado, ou $null em erro.
     param([string]$FriendlyKey, [string]$Value)
@@ -1839,6 +1861,7 @@ function Invoke-QemuVMStart {
     $diskCache = [string]$runtimeCfg.diskCache
     $diskDiscard = [string]$runtimeCfg.diskDiscard
     $videoDevice = [string]$runtimeCfg.videoDevice
+    $fullscreenMode = [string]$runtimeCfg.fullscreen
     $disableHostHomeShare = Has-Flag -Tokens $Tokens -Flags @('--no-host-home-share')
     $smbServer = Get-OptionValue -Tokens $Tokens -Names @('--smb-server') -Default $null
     $smbShare = Get-OptionValue -Tokens $Tokens -Names @('--smb-share') -Default $null
@@ -1924,12 +1947,7 @@ function Invoke-QemuVMStart {
         $qemuArgs += @('-nographic', '-serial', 'stdio')
     }
     else {
-        if (Test-IsMacOSHost) {
-            $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
-        }
-        elseif (Test-IsWindowsHost) {
-            $qemuArgs += @('-display', 'sdl', '-full-screen')
-        }
+        $qemuArgs += Get-QemuDesktopDisplayArgs -FullscreenMode $fullscreenMode
 
         $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
     }
@@ -1976,12 +1994,7 @@ function Invoke-QemuVMStart {
                 $qemuArgs += @('-nographic', '-serial', 'stdio')
             }
             else {
-                if (Test-IsMacOSHost) {
-                    $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
-                }
-                elseif (Test-IsWindowsHost) {
-                    $qemuArgs += @('-display', 'sdl', '-full-screen')
-                }
+                $qemuArgs += Get-QemuDesktopDisplayArgs -FullscreenMode $fullscreenMode
 
                 $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
             }
@@ -2010,12 +2023,7 @@ function Invoke-QemuVMStart {
                 $qemuArgs += @('-nographic', '-serial', 'stdio')
             }
             else {
-                if (Test-IsMacOSHost) {
-                    $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
-                }
-                elseif (Test-IsWindowsHost) {
-                    $qemuArgs += @('-display', 'sdl', '-full-screen')
-                }
+                $qemuArgs += Get-QemuDesktopDisplayArgs -FullscreenMode $fullscreenMode
 
                 $qemuArgs += Get-QemuAudioArgs
             }
@@ -2048,12 +2056,7 @@ function Invoke-QemuVMStart {
                 $qemuArgs += @('-nographic', '-serial', 'stdio')
             }
             else {
-                if (Test-IsMacOSHost) {
-                    $qemuArgs += @('-display', 'cocoa,zoom-to-fit=on,full-screen=on', '-k', 'en-us')
-                }
-                elseif (Test-IsWindowsHost) {
-                    $qemuArgs += @('-display', 'sdl', '-full-screen')
-                }
+                $qemuArgs += Get-QemuDesktopDisplayArgs -FullscreenMode $fullscreenMode
 
                 $qemuArgs += Get-QemuAudioArgs -Backend $fallbackAudio -SupportedDrivers $supportedAudioDrivers
             }
