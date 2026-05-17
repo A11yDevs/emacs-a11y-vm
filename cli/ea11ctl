@@ -782,6 +782,17 @@ interactive_prompt() {
             set)
                 handle_vm_config_set "${args%%=*}" "${args#*=}"
                 ;;
+               debug)
+                   if [[ "$args" == "on" ]]; then
+                       export EA11_DEBUG=1
+                       echo "DEBUG ativado."
+                   elif [[ "$args" == "off" ]]; then
+                       unset EA11_DEBUG
+                       echo "DEBUG desativado."
+                   else
+                       echo "Valor inválido para debug. Use 'on' ou 'off'."
+                   fi
+                   ;;
             exit)
                 break
                 ;;
