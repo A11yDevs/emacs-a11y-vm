@@ -648,6 +648,8 @@ function Merge-QemuRuntimeConfig {
 function Get-QemuRuntimeConfig {
     $defaults = Get-DefaultQemuRuntimeConfig
     $cfgPath = Get-QemuRuntimeConfigPath
+    $cfgDir = [System.IO.Path]::GetDirectoryName($cfgPath)
+    if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null }
 
     if (-not (Test-Path $cfgPath)) {
         return $defaults
@@ -672,6 +674,8 @@ function Save-QemuRuntimeConfig {
     param([hashtable]$Config)
 
     $cfgPath = Get-QemuRuntimeConfigPath
+    $cfgDir = [System.IO.Path]::GetDirectoryName($cfgPath)
+    if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null }
     $content = ""
     foreach ($key in $Config.Keys) {
         $content += "$key=$($Config[$key])`n"
@@ -860,6 +864,8 @@ function Assert-ConfigValue {
 
 function Show-QemuRuntimeConfigFriendly {
     $cfgPath = Get-QemuRuntimeConfigPath
+    $cfgDir = [System.IO.Path]::GetDirectoryName($cfgPath)
+    if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null }
     $cfg = Get-QemuRuntimeConfig
 
     Write-Host 'Configuração da VM'
@@ -1086,6 +1092,8 @@ function Invoke-QemuVMConfig {
 
 function Invoke-QemuVMOptimize {
     $cfgPath = Get-QemuRuntimeConfigPath
+    $cfgDir = [System.IO.Path]::GetDirectoryName($cfgPath)
+    if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null }
     if (Test-Path $cfgPath) {
         $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
         $backupPath = "$cfgPath.bak-$stamp"
