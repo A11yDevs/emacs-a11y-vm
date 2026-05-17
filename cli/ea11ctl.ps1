@@ -44,7 +44,10 @@ Uso:
   ea11ctl vm close|-c [-n|--name VM]
   ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
   ea11ctl vm host-share|-H list
-  ea11ctl vm config [show|path|reset]
+    ea11ctl vm config [show|--raw|list|path|reset|help]
+    ea11ctl vm config get CHAVE [--raw]
+    ea11ctl vm config set CHAVE VALOR
+    ea11ctl vm config set CHAVE=VALOR [CHAVE=VALOR ...]
   ea11ctl vm optimize
   ea11ctl vm diagnose|-d [-n|--name VM] [-L|--lines N]
   ea11ctl vm status|-q [-n|--name VM]
@@ -2963,15 +2966,25 @@ ssh
             @"
 Configuração da VM:
 
-show     mostra configuração atual
+show     mostra configuração amigável
+--raw    mostra configuração técnica (QEMU_*)
+list     lista chaves configuráveis
+get      consulta um valor (ex.: get memory)
+set      altera um valor (ex.: set memory 4096)
 path     mostra caminho da configuração
 reset    redefine configuração da VM
+help     mostra ajuda do vm config
 back     volta
 exit     sai
 
 Exemplos:
 
 show
+--raw
+list
+get memory
+set memory 8192
+set memory=8192 cpus=4 fullscreen=off
 path
 reset
 "@ | Write-Host
@@ -3032,7 +3045,7 @@ function Get-ContextCommandList {
 
     switch ($Context) {
         'vm' { return @('help','?','install','list','start','stop','close','remove','delete','diagnose','status','ssh','host-share','config','optimize','back','exit','quit','clear') }
-        'vm_config' { return @('help','?','show','path','reset','back','exit','quit','clear') }
+        'vm_config' { return @('help','?','show','--raw','list','get','set','path','reset','back','exit','quit','clear') }
         'vm_host_share' { return @('help','?','list','back','exit','quit','clear') }
         'host' { return @('help','?','install','back','exit','quit','clear') }
         default { return @('help','?','version','self-update','update','uninstall','vm','host','status','clear','exit','quit') }
