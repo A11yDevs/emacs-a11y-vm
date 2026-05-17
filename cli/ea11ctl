@@ -206,8 +206,10 @@ invoke_self_update() {
     local tmp_dir
     tmp_dir=$(mktemp -d -t ea11ctl-update-XXXXXX)
     trap "rm -rf '$tmp_dir'" EXIT
-    
+    mkdir -p "$tmp_dir/backend-scripts"
+
     local files=(ea11ctl ea11ctl.ps1 ea11ctl.cmd install.sh VERSION)
+    local backend_files=(backend-scripts/common.sh backend-scripts/qemu.sh backend-scripts/host.sh)
     local cache_bust
     cache_bust=$(date +%s)
     
@@ -218,7 +220,7 @@ invoke_self_update() {
         ea11_info "Tentando download dos arquivos via ref '$ref'..."
         download_ok=1
         
-        for file in "${files[@]}"; do
+        for file in "${files[@]}" "${backend_files[@]}"; do
             local dest="$tmp_dir/$file"
             local url="https://raw.githubusercontent.com/$EA11CTL_OWNER/$EA11CTL_REPO/$ref/cli/$file?cb=$cache_bust"
             
@@ -239,7 +241,7 @@ invoke_self_update() {
         return 1
     fi
     
-    # Copiar os arquivos baixados
+    # Copiar os arquivos principais
     for file in "${files[@]}"; do
         local src="$tmp_dir/$file"
         local dest="$install_dir/$file"
@@ -248,6 +250,18 @@ invoke_self_update() {
             [[ "$file" == "ea11ctl" ]] && chmod +x "$dest"
         fi
     done
+
+    # Copiar backend scripts para o diretório de instalação
+    mkdir -p "$install_dir/backend-scripts"
+    for file in "${backend_files[@]}"; do
+        local src="$tmp_dir/$file"
+        local dest="$install_dir/$file"
+        if [[ -f "$src" ]]; then
+            cp "$src" "$dest"
+        fi
+    done
+    chmod +x "$install_dir/backend-scripts/qemu.sh" \
+              "$install_dir/backend-scripts/host.sh" 2>/dev/null || true
 
     sync_backend_scripts_from_remote || true
     
