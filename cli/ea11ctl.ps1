@@ -2966,6 +2966,11 @@ function Start-InteractiveShell {
             continue
         }
 
+        # Saida imediata para comandos globais de encerramento.
+        if ($trimmed -match '^(?i)\s*(exit|quit)\s*$') {
+            break
+        }
+
         # Parser simples: separa por espacos.
         $tokens = $trimmed -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
         $tokens = Normalize-InteractiveAliases -Context $context -Tokens $tokens
