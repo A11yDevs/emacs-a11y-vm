@@ -3552,13 +3552,13 @@ function Show-SensitiveNotice {
         return
     }
 
-    if ($Command.Length -ge 2 -and $Command[0] -eq 'host' -and $Command[1] -in @('install','-i')) {
+    if ($Command.Length -ge 2 -and $Command[0] -eq 'host' -in @('install','-i')) {
         Write-Host 'Esta ação iniciará a instalação nativa no host.'
         Write-Host 'Ela pode instalar pacotes e alterar arquivos do sistema.'
         return
     }
 
-    if ($Command.Length -ge 2 -and $Command[0] -eq 'vm' -and $Command[1] -in @('remove','-r','delete')) {
+    if ($Command.Length -ge 2 -and $Command[0] -eq 'vm' -in @('remove','-r','delete')) {
         Write-Host 'Esta ação pode remover arquivos da VM.'
         return
     }

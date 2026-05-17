@@ -776,27 +776,28 @@ trim_whitespace() {
 }
 
 interactive_prompt() {
-    local context="$1"
-    case "$context" in
-        root)
-            printf 'ea11ctl> '
-            ;;
-        vm)
-            printf 'ea11ctl vm> '
-            ;;
-        vm_config)
-            printf 'ea11ctl vm config> '
-            ;;
-        vm_host_share)
-            printf 'ea11ctl vm host-share> '
-            ;;
-        host)
-            printf 'ea11ctl host> '
-            ;;
-        *)
-            printf 'ea11ctl> '
-            ;;
-    esac
+    while true; do
+        read -p "ea11ctl> " cmd args
+        case "$cmd" in
+            set)
+                if [[ "$args" == "debug=on" ]]; then
+                    export EA11_DEBUG=1
+                    echo "Modo debug ativado."
+                elif [[ "$args" == "debug=off" ]]; then
+                    unset EA11_DEBUG
+                    echo "Modo debug desativado."
+                else
+                    echo "Uso: set debug=on|off"
+                fi
+                ;;
+            exit)
+                break
+                ;;
+            *)
+                echo "Comando desconhecido: $cmd"
+                ;;
+        esac
+    done
 }
 
 is_root_command_token() {
