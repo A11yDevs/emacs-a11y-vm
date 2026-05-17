@@ -1,0 +1,94 @@
+Você está no repositório novo A11yDevs/a11yctl e deve implementar a migração completa do CLI antigo ea11ctl do repositório A11yDevs/emacs-a11y-vm para este repositório standalone.
+
+Objetivo:
+Transformar este repositório no novo lar oficial do CLI, renomeando o comando principal para a11yctl, mantendo ea11ctl como alias de compatibilidade, migrando o diretório de estado de ~/.emacs-a11y-vm para ~/.a11yctl, e ajustando self-update, instalador e documentação.
+
+Escopo obrigatório:
+1. Criar ou ajustar os arquivos na raiz do repositório:
+   a11yctl.ps1
+   a11yctl.cmd
+   ea11ctl.ps1
+   ea11ctl.cmd
+   install.ps1
+   README.md
+   VERSION
+
+2. Usar como base o comportamento do CLI antigo em cli/ea11ctl.ps1 do repositório emacs-a11y-vm, preservando a lógica existente sempre que possível.
+
+3. Renomear o comando principal:
+   ea11ctl -> a11yctl
+   O comando ea11ctl deve continuar existindo como wrapper de compatibilidade, exibindo aviso de depreciação e delegando para a11yctl.
+
+4. Preservar a lógica de bootstrap UTF-8 BOM para PowerShell 5 no novo a11yctl.ps1.
+
+5. Alterar o diretório de estado:
+   antigo: ~/.emacs-a11y-vm
+   novo: ~/.a11yctl
+
+6. Implementar migração de estado e VMs:
+   - detectar ~/.emacs-a11y-vm
+   - copiar VMs, discos e arquivos de configuração para ~/.a11yctl
+   - nunca apagar automaticamente o diretório antigo
+   - nunca sobrescrever discos já existentes no destino
+   - quando houver conflito de nome, gravar com sufixo .migrated antes da extensão
+   - expor comando explícito:
+     a11yctl migrate
+     a11yctl migrate-state
+
+7. Atualizar self-update:
+   - trocar URLs do repositório antigo para A11yDevs/a11yctl
+   - remover prefixo /cli/ das URLs
+   - baixar os arquivos da raiz do novo repositório
+   - incluir também os wrappers ea11ctl no conjunto de arquivos atualizados
+
+8. Atualizar o instalador install.ps1:
+   - repositório: A11yDevs/a11yctl
+   - branch: main
+   - instalar em ~/.a11yctl/bin no Windows, isto é, USERPROFILE/.a11yctl/bin
+   - adicionar esse diretório ao PATH do usuário
+   - baixar os arquivos da raiz do repositório
+   - instalar também os wrappers ea11ctl
+   - detectar instalação legada e migrar automaticamente os dados, sem apagar o diretório antigo
+
+9. Atualizar README.md do novo repositório com:
+   - instalação
+   - uso básico
+   - migração do ea11ctl
+   - explicação do novo diretório ~/.a11yctl
+   - compatibilidade temporária com ea11ctl
+   - instruções de self-update
+
+10. Atualizar VERSION para 0.2.0.
+
+11. Se existirem referências textuais a ea11ctl ou ~/.emacs-a11y-vm em mensagens, help, prompts interativos e exemplos, trocar para a11yctl e ~/.a11yctl, exceto nos pontos em que a referência antiga é necessária para detectar e migrar o estado legado.
+
+Restrições:
+1. Não fazer simplificações agressivas do CLI. Preserve o máximo possível da lógica atual.
+2. Não remover compatibilidade com ea11ctl nesta versão.
+3. Não apagar automaticamente ~/.emacs-a11y-vm.
+4. Não alterar comportamento não relacionado à migração, exceto o necessário para renomear o produto e o layout do repositório.
+
+Critérios de aceitação:
+1. a11yctl.ps1 é o CLI principal.
+2. ea11ctl.ps1 é apenas wrapper de compatibilidade.
+3. Existe comando migrate e migrate-state no dispatch principal.
+4. Self-update não aponta mais para emacs-a11y-vm nem usa /cli/.
+5. Install.ps1 instala os arquivos corretos na nova pasta.
+6. VERSION está em 0.2.0.
+7. README documenta claramente a migração.
+
+Forma de trabalho esperada:
+1. Primeiro localizar o dispatch principal e os pontos que controlam estado, self-update e install.
+2. Depois editar minimamente os arquivos necessários.
+3. Validar após editar:
+   - procurar por referências remanescentes indevidas a emacs-a11y-vm e /cli/
+   - verificar se migrate e migrate-state estão no dispatch
+   - verificar se a versão ficou 0.2.0
+   - verificar se install.ps1 aponta para a11yctl e para ~/.a11yctl/bin
+4. Ao final, reportar:
+   - arquivos alterados
+   - resumo objetivo das mudanças
+   - validações executadas
+   - riscos restantes, se houver
+
+Se você encontrar uma pasta já preparada com os arquivos do novo CLI, pode aproveitá-la como base, mas revise tudo antes de concluir para garantir que atende integralmente aos requisitos acima.
