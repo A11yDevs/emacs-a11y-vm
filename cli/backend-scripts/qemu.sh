@@ -985,10 +985,12 @@ qemu_cmd_list() {
         unset VM_NAME QEMU_PID SSH_PORT SYSTEM_IMAGE DATA_DISK LOG_FILE STATE
         # shellcheck source=/dev/null
         source "$state_file"
+        local state_name
+        state_name="${VM_NAME:-$(basename "$state_file" .env)}"
         if qemu_is_running "${QEMU_PID:-}"; then
-            printf '%s\trunning\tssh:%s\n' "$VM_NAME" "$SSH_PORT"
+            printf '%s\trunning\tssh:%s\n' "$state_name" "${SSH_PORT:-$EA11_DEFAULT_SSH_PORT}"
         else
-            printf '%s\tstopped\tssh:%s\n' "$VM_NAME" "${SSH_PORT:-$EA11_DEFAULT_SSH_PORT}"
+            printf '%s\tstopped\tssh:%s\n' "$state_name" "${SSH_PORT:-$EA11_DEFAULT_SSH_PORT}"
         fi
     done
     shopt -u nullglob

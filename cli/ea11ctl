@@ -128,7 +128,7 @@ invoke_version_command() {
     local_version=$(get_local_cli_version)
     echo "ea11ctl v$local_version"
     
-    if ! has_flag "$@" --check-update -c; then
+    if ! has_flag --check-update "$@" && ! has_flag -c "$@"; then
         return 0
     fi
     
@@ -159,7 +159,7 @@ invoke_version_command() {
 
 invoke_self_update() {
     local force=0
-    if has_flag "$@" --force -f; then
+    if has_flag --force "$@" || has_flag -f "$@"; then
         force=1
     fi
     
@@ -274,43 +274,6 @@ invoke_self_update() {
 # Funções Utilitárias
 #################################################################################
 
-has_flag() {
-    local flag
-    for arg in "$@"; do
-        for flag in "$@"; do
-            if [[ "$arg" == "$flag" ]]; then
-                return 0
-            fi
-        done
-    done
-    return 1
-}
-
-has_flag() {
-    local searching=1
-    for arg in "$@"; do
-        if [[ $searching -eq 1 ]]; then
-            if [[ "$arg" == "--"* ]] || [[ "$arg" == "-"* ]]; then
-                searching=0
-            fi
-            continue
-        fi
-        
-        for flag in "$@"; do
-            [[ "$flag" == "$arg" ]] && return 0
-        done
-    done
-    
-    for flag in "$@"; do
-        for arg in "$@"; do
-            [[ "$arg" == "$flag" ]] && return 0
-        done
-    done
-    
-    return 1
-}
-
-# Versão corrigida
 has_flag() {
     local needle="$1"
     shift
@@ -776,37 +739,45 @@ trim_whitespace() {
 }
 
 interactive_prompt() {
-    while true; do
-        read -p "ea11ctl> " cmd args
-        case "$cmd" in
-            set)
-                handle_vm_config_set "${args%%=*}" "${args#*=}"
-                ;;
-               debug)
-                   if [[ "$args" == "on" ]]; then
-                       export EA11_DEBUG=1
-                       echo "DEBUG ativado."
-                   elif [[ "$args" == "off" ]]; then
-                       unset EA11_DEBUG
-                       echo "DEBUG desativado."
-                   else
-                       echo "Valor inválido para debug. Use 'on' ou 'off'."
-                   fi
-                   ;;
-            exit)
-                break
-                ;;
-            *)
-                echo "Comando desconhecido: $cmd"
-                ;;
-        esac
-    done
+    local context="$1"
+    case "$context" in
+        vm) printf 'ea11ctl vm> ' ;;
+        vm_config) printf 'ea11ctl vm config> ' ;;
+        vm_host_share) printf 'ea11ctl vm host-share> ' ;;
+        host) printf 'ea11ctl host> ' ;;
+        *) printf 'ea11ctl> ' ;;
+    esac
+}
+
+set_interactive_debug_mode() {
+    local mode="${1:-status}"
+    case "$mode" in
+        on|1|true)
+            export EA11_DEBUG=1
+            echo 'DEBUG ativado para esta sessão interativa.'
+            ;;
+        off|0|false)
+            unset EA11_DEBUG
+            echo 'DEBUG desativado para esta sessão interativa.'
+            ;;
+        status)
+            if [[ "${EA11_DEBUG:-0}" == '1' ]]; then
+                echo 'DEBUG está ativado.'
+            else
+                echo 'DEBUG está desativado.'
+            fi
+            ;;
+        *)
+            echo "Valor inválido para debug: $mode"
+            echo "Use: debug on | debug off | debug status"
+            ;;
+    esac
 }
 
 is_root_command_token() {
     local token="$1"
     case "$token" in
-        help|\?|version|--version|self-update|update|uninstall|vm|host|status|clear|exit|quit)
+        help|\?|version|--version|self-update|update|uninstall|vm|host|status|debug|clear|exit|quit)
             return 0
             ;;
         *)
@@ -868,6 +839,11 @@ resolve_context_command() {
     case "$first" in
         help|\?)
             RESOLVE_ACTION='help'
+            return 0
+            ;;
+        debug)
+            RESOLVE_ACTION='debug_toggle'
+            RESOLVED_COMMAND=("$@")
             return 0
             ;;
         exit|quit)
@@ -986,6 +962,7 @@ self-update   atualiza o ea11ctl
 vm            entra no contexto de VM
 host          entra no contexto de instalação nativa
 status        mostra o status da VM padrão
+debug         ativa/desativa debug da sessão (on|off|status)
 clear         limpa a tela
 exit          sai
 
@@ -994,6 +971,7 @@ Exemplos:
 vm
 vm status
 vm start --headless
+debug on
 self-update -f
 EOF
             ;;
@@ -1016,6 +994,7 @@ ssh            conecta via SSH
 host-share     gerencia compartilhamento do host
 config         entra em configuração da VM
 optimize       otimiza a VM
+debug          ativa/desativa debug da sessão (on|off|status)
 back           volta
 exit           sai
 
@@ -1023,6 +1002,7 @@ Exemplos:
 
 status
 start --headless
+start --debug
 diagnose -T -L 80
 ssh
 EOF
@@ -1183,19 +1163,19 @@ list_context_commands() {
     local context="$1"
     case "$context" in
         root)
-            printf '%s\n' help '?' version self-update update uninstall vm host status clear exit quit
+            printf '%s\n' help '?' version self-update update uninstall vm host status debug clear exit quit
             ;;
         vm)
-            printf '%s\n' help '?' install version check-update list start stop close remove delete diagnose status ssh host-share config optimize back exit quit clear
+            printf '%s\n' help '?' install version check-update list start stop close remove delete diagnose status ssh host-share config optimize debug back exit quit clear
             ;;
         vm_config)
-            printf '%s\n' help '?' show --raw list get set path reset back exit quit clear
+            printf '%s\n' help '?' show --raw list get set path reset debug back exit quit clear
             ;;
         vm_host_share)
-            printf '%s\n' help '?' list back exit quit clear
+            printf '%s\n' help '?' list debug back exit quit clear
             ;;
         host)
-            printf '%s\n' help '?' install back exit quit clear
+            printf '%s\n' help '?' install debug back exit quit clear
             ;;
     esac
 }
@@ -1319,8 +1299,9 @@ start_interactive_shell() {
     echo
 
     while true; do
-        interactive_prompt "$context"
-        if ! IFS= read -r line; then
+        local prompt
+        prompt="$(interactive_prompt "$context")"
+        if ! IFS= read -r -p "$prompt" line; then
             echo
             break
         fi
@@ -1361,6 +1342,10 @@ start_interactive_shell() {
                 ;;
             status_unavailable)
                 echo 'Não há status específico neste contexto.'
+                continue
+                ;;
+            debug_toggle)
+                set_interactive_debug_mode "${NORMALIZED_TOKENS[1]:-status}"
                 continue
                 ;;
         esac
@@ -1416,7 +1401,7 @@ Uso:
   ea11ctl vm version|-V [-n|--name VM]
   ea11ctl vm check-update|-U [-n|--name VM]
   ea11ctl vm list|-l
-  ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
+    ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--debug]
   ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
   ea11ctl vm close|-c [-n|--name VM] [-t|--timeout SEGUNDOS]
   ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
@@ -1436,6 +1421,7 @@ Defaults:
   VM: debian-a11y
   SSH user: a11ydevs
   SSH port: 2222
+    Debug: use EA11_DEBUG=1 ou passe --debug em vm start
 
 QEMU:
     Imagem de sistema: ~/.emacs-a11y-vm/debian-a11ydevs.qcow2

@@ -62,7 +62,7 @@ Uso:
   
   ea11ctl vm install|-i
   ea11ctl vm list|-l
-  ea11ctl vm start|-s [-n|--name VM] [-h|--headless]
+    ea11ctl vm start|-s [-n|--name VM] [-h|--headless] [--debug]
   ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
   ea11ctl vm close|-c [-n|--name VM]
   ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
@@ -77,6 +77,7 @@ Uso:
   ea11ctl vm ssh|-x [-u|--user USER] [-p|--port PORT] [-- extra-args]
 
 Nota: Dentro da VM (guest context), execute: ea11ctl share
+Debug: use EA11_DEBUG=1 ou passe --debug em vm start
 "@
 }
 
@@ -3220,6 +3221,7 @@ ssh            conecta via SSH
 host-share     entra em compartilhamento do host
 config         entra em configuração da VM
 optimize       otimiza a VM
+debug          ativa/desativa debug da sessão (on|off|status)
 back           volta
 exit           sai
 
@@ -3227,6 +3229,7 @@ Exemplos:
 
 status
 start --headless
+start --debug
 diagnose -T -L 80
 ssh
 "@ | Write-Host
@@ -3295,6 +3298,7 @@ uninstall     desinstala a CLI local
 vm            entra no contexto de VM
 host          entra no contexto de instalação nativa
 status        mostra o status da VM padrão
+debug         ativa/desativa debug da sessão (on|off|status)
 clear         limpa a tela
 exit          sai
 
@@ -3303,6 +3307,7 @@ Exemplos:
 vm
 vm status
 vm start --headless
+debug on
 self-update -f
 "@ | Write-Host
         }
@@ -3313,11 +3318,38 @@ function Get-ContextCommandList {
     param([string]$Context)
 
     switch ($Context) {
-        'vm' { return @('help','?','install','list','start','stop','close','remove','delete','diagnose','status','ssh','host-share','config','optimize','back','exit','quit','clear') }
-        'vm_config' { return @('help','?','show','--raw','list','get','set','path','reset','back','exit','quit','clear') }
-        'vm_host_share' { return @('help','?','list','back','exit','quit','clear') }
-        'host' { return @('help','?','install','back','exit','quit','clear') }
-        default { return @('help','?','version','self-update','update','uninstall','vm','host','status','clear','exit','quit') }
+        'vm' { return @('help','?','install','list','start','stop','close','remove','delete','diagnose','status','ssh','host-share','config','optimize','debug','back','exit','quit','clear') }
+        'vm_config' { return @('help','?','show','--raw','list','get','set','path','reset','debug','back','exit','quit','clear') }
+        'vm_host_share' { return @('help','?','list','debug','back','exit','quit','clear') }
+        'host' { return @('help','?','install','debug','back','exit','quit','clear') }
+        default { return @('help','?','version','self-update','update','uninstall','vm','host','status','debug','clear','exit','quit') }
+    }
+}
+
+function Set-InteractiveDebugMode {
+    param([string]$Mode = 'status')
+
+    switch ($Mode.ToLowerInvariant()) {
+        { $_ -in @('on','1','true') } {
+            $env:EA11_DEBUG = '1'
+            Write-Host 'DEBUG ativado para esta sessão interativa.'
+        }
+        { $_ -in @('off','0','false') } {
+            Remove-Item Env:EA11_DEBUG -ErrorAction SilentlyContinue
+            Write-Host 'DEBUG desativado para esta sessão interativa.'
+        }
+        'status' {
+            if ($env:EA11_DEBUG -eq '1') {
+                Write-Host 'DEBUG está ativado.'
+            }
+            else {
+                Write-Host 'DEBUG está desativado.'
+            }
+        }
+        default {
+            Write-Host "Valor inválido para debug: $Mode"
+            Write-Host 'Use: debug on | debug off | debug status'
+        }
     }
 }
 
@@ -3371,7 +3403,7 @@ function Test-ContextHasCommand {
 function Is-RootToken {
     param([string]$Token)
 
-    return $Token -in @('help','?','version','--version','self-update','update','uninstall','vm','host','status','clear','exit','quit')
+    return $Token -in @('help','?','version','--version','self-update','update','uninstall','vm','host','status','debug','clear','exit','quit')
 }
 
 function Normalize-InteractiveAliases {
@@ -3418,6 +3450,7 @@ function Resolve-ContextCommand {
     switch ($first) {
         'help' { $result.Action = 'help'; return $result }
         '?' { $result.Action = 'help'; return $result }
+        'debug' { $result.Action = 'debug_toggle'; $result.Command = @($Tokens); return $result }
         'exit' { $result.Action = 'exit'; return $result }
         'quit' { $result.Action = 'exit'; return $result }
         'clear' { $result.Action = 'clear'; return $result }
@@ -3655,6 +3688,14 @@ function Start-InteractiveShell {
                 }
                 'status_unavailable' {
                     Write-Host 'Não há status específico neste contexto.'
+                    continue
+                }
+                'debug_toggle' {
+                    $mode = 'status'
+                    if ($tokens.Length -ge 2) {
+                        $mode = [string]$tokens[1]
+                    }
+                    Set-InteractiveDebugMode -Mode $mode
                     continue
                 }
             }
