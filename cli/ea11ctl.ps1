@@ -2074,6 +2074,10 @@ function Invoke-QemuVMStart {
 
     $runtimeCfg = Get-QemuRuntimeConfig
 
+    # Detecta modo debug: EA11_DEBUG=1 ou --debug
+    $debugMode = $false
+    if ($env:EA11_DEBUG -eq '1' -or ($Tokens -contains '--debug')) { $debugMode = $true }
+
     $vmName = Get-VMName -Tokens $Tokens
     $sshPort = Get-IntOptionValue -Tokens $Tokens -Names @('--port', '--ssh-port', '-p') -Default 2222 -OptionName '--ssh-port'
     $memory = Get-IntOptionValue -Tokens $Tokens -Names @('--memory', '-m') -Default ([int]$runtimeCfg['QEMU_MEMORY_MB']) -OptionName '--memory'
@@ -2113,6 +2117,8 @@ function Invoke-QemuVMStart {
     $stdoutLog = Join-Path $logsDir "$vmName-stdout.log"
     $stderrLog = Join-Path $logsDir "$vmName-stderr.log"
     $argsLog = Join-Path $logsDir "$vmName-qemu-args.log"
+    $debugCmdFile = Join-Path $logsDir 'last-qemu-cmd.txt'
+    $debugLogFile = Join-Path $logsDir 'qemu.log'
 
     $hostMemoryMb = Get-HostPhysicalMemoryMB
     if (($null -ne $hostMemoryMb) -and ($memory -gt $hostMemoryMb)) {
@@ -2189,18 +2195,28 @@ function Invoke-QemuVMStart {
 
     Write-EA11Info "Iniciando VM QEMU '$vmName'..."
     Write-QemuArgsLog -Path $argsLog -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs
-    $startParams = @{
-        FilePath = $qemuExecutable
-        ArgumentList = $qemuArgs
-        PassThru = $true
-        RedirectStandardOutput = $stdoutLog
-        RedirectStandardError = $stderrLog
+    if ($debugMode) {
+        # Salva comando e log detalhado
+        Set-Content -Path $debugCmdFile -Value ("$qemuExecutable " + ($qemuArgs -join ' '))
+        $startParams = @{
+            FilePath = $qemuExecutable
+            ArgumentList = $qemuArgs
+            PassThru = $true
+            RedirectStandardOutput = $debugLogFile
+            RedirectStandardError = $debugLogFile
+        }
+    } else {
+        $startParams = @{
+            FilePath = $qemuExecutable
+            ArgumentList = $qemuArgs
+            PassThru = $true
+            RedirectStandardOutput = $stdoutLog
+            RedirectStandardError = $stderrLog
+        }
     }
-
     if ((Test-IsWindowsHost) -and $headless) {
         $startParams.WindowStyle = 'Hidden'
     }
-
     $proc = Start-Process @startParams
 
     Start-Sleep -Seconds 2
@@ -2308,10 +2324,19 @@ function Invoke-QemuVMStart {
 
     if (-not $alive) {
         $lastError = ''
-        if (Test-Path $stderrLog) {
+        if ($debugMode -and (Test-Path $debugLogFile)) {
+            $lastError = (Get-Content -Path $debugLogFile -Tail 40 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+            Write-EA11Error "Falha ao iniciar QEMU para '$vmName'."
+            Write-EA11Error "Veja o comando usado em: $debugCmdFile"
+            Write-EA11Error "Veja o log detalhado em: $debugLogFile"
+            Write-Host $lastError
+            throw "Falha ao iniciar QEMU para '$vmName'. Veja logs em $debugLogFile e comando em $debugCmdFile."
+        } elseif (Test-Path $stderrLog) {
             $lastError = (Get-Content -Path $stderrLog -Tail 20 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+            throw "Falha ao iniciar QEMU para '$vmName'. Log: $stderrLog`n$lastError"
+        } else {
+            throw "Falha ao iniciar QEMU para '$vmName'."
         }
-        throw "Falha ao iniciar QEMU para '$vmName'. Log: $stderrLog`n$lastError"
     }
 
     Save-QemuState -VMName $vmName -State @{
