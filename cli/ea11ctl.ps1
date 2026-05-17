@@ -27,6 +27,7 @@ if ($PSVersionTable.PSVersion.Major -lt 6 -and $PSCommandPath) {
 $OutputEncoding           = [System.Text.Encoding]::UTF8
 
 $ErrorActionPreference = 'Stop'
+$script:IsInteractiveShell = $false
 $EA11CTL_FALLBACK_VERSION = '0.1.37'
 $EA11CTL_OWNER = 'A11yDevs'
 $EA11CTL_REPO = 'emacs-a11y-vm'
@@ -1140,7 +1141,10 @@ function Invoke-QemuVMConfig {
             }
             $raw = ($Tokens.Length -ge 3 -and $Tokens[2] -eq '--raw')
             $ok = Show-QemuConfigGet -FriendlyKey $Tokens[1].ToLowerInvariant() -Raw $raw
-            if (-not $ok) { exit 1 }
+            if (-not $ok) {
+                if ($script:IsInteractiveShell) { return }
+                exit 1
+            }
         }
         'set' {
             if ($Tokens.Length -lt 2) {
@@ -1159,7 +1163,10 @@ function Invoke-QemuVMConfig {
                 }
                 $ok = Invoke-QemuConfigSet -Pairs @("$($rest[0])=$($rest[1])")
             }
-            if (-not $ok) { exit 1 }
+            if (-not $ok) {
+                if ($script:IsInteractiveShell) { return }
+                exit 1
+            }
         }
         'path' { Write-Host (Get-QemuRuntimeConfigPath) }
         'reset' {
@@ -3316,6 +3323,25 @@ function Show-CommandSuggestion {
     }
 }
 
+function Test-ContextHasCommand {
+    param(
+        [string]$Context,
+        [string]$Token
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Token)) {
+        return $false
+    }
+
+    foreach ($cmd in (Get-ContextCommandList -Context $Context)) {
+        if ($cmd.Equals($Token, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Is-RootToken {
     param([string]$Token)
 
@@ -3558,75 +3584,85 @@ function Start-InteractiveShell {
     Write-Host 'Digite exit para sair.'
     Write-Host ''
 
-    $context = 'root'
-    while ($true) {
-        $promptText = Get-InteractivePrompt -Context $context
-        $line = Read-Host -Prompt ($promptText -replace '>\s$','')
-        if ($null -eq $line) {
-            break
-        }
+    $script:IsInteractiveShell = $true
+    try {
+        $context = 'root'
+        while ($true) {
+            $promptText = Get-InteractivePrompt -Context $context
+            $line = Read-Host -Prompt ($promptText -replace '>\s$','')
+            if ($null -eq $line) {
+                break
+            }
 
-        $trimmed = $line.Trim()
-        if ([string]::IsNullOrWhiteSpace($trimmed)) {
-            continue
-        }
+            $trimmed = $line.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed)) {
+                continue
+            }
 
-        # Saida imediata para comandos globais de encerramento.
-        if ($trimmed -match '^(?i)\s*(exit|quit)\s*$') {
-            break
-        }
+            # Saida imediata para comandos globais de encerramento.
+            if ($trimmed -match '^(?i)\s*(exit|quit)\s*$') {
+                break
+            }
 
-        # Parser simples: separa por espacos.
-        $tokens = $trimmed -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-        $tokens = Normalize-InteractiveAliases -Context $context -Tokens $tokens
-        $resolved = Resolve-ContextCommand -Context $context -Tokens $tokens
+            # Parser simples: separa por espacos.
+            $tokens = $trimmed -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            $tokens = Normalize-InteractiveAliases -Context $context -Tokens $tokens
+            $resolved = Resolve-ContextCommand -Context $context -Tokens $tokens
 
-        switch ($resolved.Action) {
-            'noop' { continue }
-            'help' { Show-InteractiveContextHelp -Context $context; continue }
-            'clear' { Clear-Host; continue }
-            'exit' { break }
-            'back' {
-                if ($context -eq 'root') {
-                    Write-Host 'Você já está no contexto raiz.'
+            switch ($resolved.Action) {
+                'noop' { continue }
+                'help' { Show-InteractiveContextHelp -Context $context; continue }
+                'clear' { Clear-Host; continue }
+                'exit' { break }
+                'back' {
+                    if ($context -eq 'root') {
+                        Write-Host 'Você já está no contexto raiz.'
+                    }
+                    else {
+                        $context = [string]$resolved.NextContext
+                    }
+                    continue
                 }
-                else {
+                'enter_context' {
                     $context = [string]$resolved.NextContext
+                    continue
                 }
-                continue
+                'status_unavailable' {
+                    Write-Host 'Não há status específico neste contexto.'
+                    continue
+                }
             }
-            'enter_context' {
-                $context = [string]$resolved.NextContext
-                continue
-            }
-            'status_unavailable' {
-                Write-Host 'Não há status específico neste contexto.'
-                continue
-            }
-        }
 
-        $cmd = @($resolved.Command)
-        if ($cmd.Length -eq 0) {
-            continue
-        }
-
-        if (Is-SensitiveCommand -Command $cmd) {
-            if (-not (Confirm-SensitiveCommand -Command $cmd)) {
+            $cmd = @($resolved.Command)
+            if ($cmd.Length -eq 0) {
                 continue
             }
-        }
 
-        try {
-            Invoke-RootCommand -Tokens $cmd
+            if (Is-SensitiveCommand -Command $cmd) {
+                if (-not (Confirm-SensitiveCommand -Command $cmd)) {
+                    continue
+                }
+            }
+
+            try {
+                Invoke-RootCommand -Tokens $cmd
+            }
+            catch {
+                if (-not [string]::IsNullOrWhiteSpace($_.Exception.Message)) {
+                    Write-EA11Error $_.Exception.Message
+                }
+                if (-not (Test-ContextHasCommand -Context $context -Token $tokens[0])) {
+                    Write-Host ''
+                    Write-Host "Comando desconhecido: $($tokens[0])"
+                    Show-CommandSuggestion -Context $context -Typed $tokens[0]
+                }
+                Write-Host ''
+                Write-Host 'Digite help para ver os comandos disponíveis.'
+            }
         }
-        catch {
-            Write-EA11Error $_.Exception.Message
-            Write-Host ''
-            Write-Host "Comando desconhecido: $($tokens[0])"
-            Show-CommandSuggestion -Context $context -Typed $tokens[0]
-            Write-Host ''
-            Write-Host 'Digite help para ver os comandos disponíveis.'
-        }
+    }
+    finally {
+        $script:IsInteractiveShell = $false
     }
 }
 

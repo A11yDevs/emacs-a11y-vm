@@ -1219,6 +1219,23 @@ suggest_command() {
     fi
 }
 
+is_context_command() {
+    local context="$1"
+    local typed="$2"
+    local cmd
+
+    [[ -z "$typed" ]] && return 1
+
+    while IFS= read -r cmd; do
+        [[ -z "$cmd" ]] && continue
+        if [[ "$cmd" == "$typed" ]]; then
+            return 0
+        fi
+    done < <(list_context_commands "$context")
+
+    return 1
+}
+
 dispatch_host_command() {
     local command="${1:-}"
     shift || true
@@ -1355,9 +1372,11 @@ start_interactive_shell() {
         fi
 
         if ! dispatch_host_command "${RESOLVED_COMMAND[@]}"; then
-            echo
-            echo "Comando desconhecido: ${NORMALIZED_TOKENS[0]}"
-            suggest_command "$context" "${NORMALIZED_TOKENS[0]}"
+            if ! is_context_command "$context" "${NORMALIZED_TOKENS[0]}"; then
+                echo
+                echo "Comando desconhecido: ${NORMALIZED_TOKENS[0]}"
+                suggest_command "$context" "${NORMALIZED_TOKENS[0]}"
+            fi
             echo
             echo 'Digite help para ver os comandos disponíveis.'
         fi
