@@ -672,7 +672,11 @@ function Save-QemuRuntimeConfig {
     param([hashtable]$Config)
 
     $cfgPath = Get-QemuRuntimeConfigPath
-    $Config | ConvertTo-Json -Depth 5 | Set-Content -Path $cfgPath -Encoding utf8
+    $content = ""
+    foreach ($key in $Config.Keys) {
+        $content += "$key=$($Config[$key])`n"
+    }
+    $content | Set-Content -Path $cfgPath -Encoding utf8
 }
 
 function Show-QemuRuntimeConfig {
