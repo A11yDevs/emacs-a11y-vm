@@ -1459,6 +1459,7 @@ EOF
 # Main
 #################################################################################
 
+
 main() {
     local context
     context=$(get_execution_context)
@@ -1469,9 +1470,13 @@ main() {
     fi
 
     dispatch_command "$context" "$@"
+    return $?
 }
 
 # Executar main com tratamento de erro
-if ! main "$@"; then
-    exit 1
+main "$@"
+exit_code=$?
+# Só sair com erro se NÃO for modo interativo
+if [[ -n "${1:-}" ]] && (( exit_code != 0 )); then
+    exit $exit_code
 fi
