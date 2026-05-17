@@ -31,6 +31,7 @@ function Show-Help {
 ea11ctl - CLI do projeto emacs-a11y-vm [HOST - WINDOWS]
 
 Uso:
+  ea11ctl (abre modo interativo)
   ea11ctl help|-h|--help
   ea11ctl version|--version [-c|--check-update]
   ea11ctl self-update|update [-f|--force]
@@ -42,6 +43,7 @@ Uso:
   ea11ctl vm stop|-S [-n|--name VM] [-f|--force]
   ea11ctl vm close|-c [-n|--name VM]
   ea11ctl vm remove|-r|delete [-n|--name VM] [--data] [--system] [--all] [--force] [--yes]
+  ea11ctl vm host-share|-H list
   ea11ctl vm config [show|path|reset]
   ea11ctl vm optimize
   ea11ctl vm diagnose|-d [-n|--name VM] [-L|--lines N]
@@ -2397,6 +2399,28 @@ function Invoke-VMShareFolder {
     }
 }
 
+function Invoke-VMHostShare {
+    param([string[]]$Tokens)
+
+    if ($null -eq $Tokens -or $Tokens.Length -eq 0) {
+        $Tokens = @('list')
+    }
+
+    $action = $Tokens[0]
+    switch ($action) {
+        'list' {
+            $rest = @()
+            if ($Tokens.Length -gt 1) {
+                $rest = $Tokens[1..($Tokens.Length - 1)]
+            }
+            Invoke-VMShareFolder -Tokens (@('list') + $rest)
+        }
+        default {
+            throw "Acao desconhecida de host-share: $action. Use: ea11ctl vm host-share list"
+        }
+    }
+}
+
 function Invoke-HostInstall {
     param([string[]]$InstallArgs)
     
@@ -2495,20 +2519,28 @@ function Invoke-VMCommand {
         { $_ -in @('ssh', '-x') } {
             Invoke-QemuVMSSH -Tokens $rest
         }
+        { $_ -in @('share-folder', '-F') } {
+            Invoke-VMShareFolder -Tokens $rest
+        }
+        { $_ -in @('host-share', '-H') } {
+            Invoke-VMHostShare -Tokens $rest
+        }
         default { throw "Subcomando vm desconhecido: $sub" }
     }
 }
 
-try {
-    if ($Args.Length -eq 0) {
+function Invoke-RootCommand {
+    param([string[]]$Tokens)
+
+    if ($null -eq $Tokens -or $Tokens.Length -eq 0) {
         Show-Help
-        exit 0
+        return
     }
 
-    $root = $Args[0]
+    $root = $Tokens[0]
     $rest = @()
-    if ($Args.Length -gt 1) {
-        $rest = $Args[1..($Args.Length - 1)]
+    if ($Tokens.Length -gt 1) {
+        $rest = $Tokens[1..($Tokens.Length - 1)]
     }
 
     switch ($root) {
@@ -2526,6 +2558,475 @@ try {
             throw "Comando desconhecido: $root"
         }
     }
+}
+
+function Get-InteractivePrompt {
+    param([string]$Context)
+
+    switch ($Context) {
+        'vm' { return 'ea11ctl vm> ' }
+        'vm_config' { return 'ea11ctl vm config> ' }
+        'vm_host_share' { return 'ea11ctl vm host-share> ' }
+        'host' { return 'ea11ctl host> ' }
+        default { return 'ea11ctl> ' }
+    }
+}
+
+function Show-InteractiveContextHelp {
+    param([string]$Context)
+
+    switch ($Context) {
+        'vm' {
+            @"
+Comandos de VM:
+
+install        instala a VM
+list           lista VMs
+start          inicia a VM
+stop           para a VM
+close          fecha a VM
+remove         remove a VM
+delete         remove a VM (alias)
+diagnose       diagnostica a VM
+status         mostra status da VM
+ssh            conecta via SSH
+host-share     entra em compartilhamento do host
+config         entra em configuração da VM
+optimize       otimiza a VM
+back           volta
+exit           sai
+
+Exemplos:
+
+status
+start --headless
+diagnose -T -L 80
+ssh
+"@ | Write-Host
+        }
+        'vm_config' {
+            @"
+Configuração da VM:
+
+show     mostra configuração atual
+path     mostra caminho da configuração
+reset    redefine configuração da VM
+back     volta
+exit     sai
+
+Exemplos:
+
+show
+path
+reset
+"@ | Write-Host
+        }
+        'vm_host_share' {
+            @"
+Compartilhamento do host:
+
+list     lista compartilhamentos
+back     volta
+exit     sai
+
+Exemplo:
+
+list
+"@ | Write-Host
+        }
+        'host' {
+            @"
+Instalação nativa no host:
+
+install  inicia a instalação nativa
+back     volta
+exit     sai
+
+Exemplo:
+
+install
+"@ | Write-Host
+        }
+        default {
+            @"
+Comandos disponíveis:
+
+version       mostra a versão do ea11ctl
+self-update   atualiza o ea11ctl
+update        alias de self-update
+uninstall     desinstala a CLI local
+vm            entra no contexto de VM
+host          entra no contexto de instalação nativa
+status        mostra o status da VM padrão
+clear         limpa a tela
+exit          sai
+
+Exemplos:
+
+vm
+vm status
+vm start --headless
+self-update -f
+"@ | Write-Host
+        }
+    }
+}
+
+function Get-ContextCommandList {
+    param([string]$Context)
+
+    switch ($Context) {
+        'vm' { return @('help','?','install','list','start','stop','close','remove','delete','diagnose','status','ssh','host-share','config','optimize','back','exit','quit','clear') }
+        'vm_config' { return @('help','?','show','path','reset','back','exit','quit','clear') }
+        'vm_host_share' { return @('help','?','list','back','exit','quit','clear') }
+        'host' { return @('help','?','install','back','exit','quit','clear') }
+        default { return @('help','?','version','self-update','update','uninstall','vm','host','status','clear','exit','quit') }
+    }
+}
+
+function Show-CommandSuggestion {
+    param(
+        [string]$Context,
+        [string]$Typed
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Typed)) {
+        return
+    }
+
+    $suggestions = New-Object System.Collections.Generic.List[string]
+    foreach ($cmd in (Get-ContextCommandList -Context $Context)) {
+        if ($cmd.StartsWith($Typed, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $cmd.Contains($Typed, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $suggestions.Add($cmd)
+        }
+    }
+
+    if ($suggestions.Count -gt 0) {
+        Write-Host ''
+        Write-Host 'Talvez você quis dizer:'
+        foreach ($s in $suggestions) {
+            Write-Host $s
+        }
+    }
+}
+
+function Is-RootToken {
+    param([string]$Token)
+
+    return $Token -in @('help','?','version','--version','self-update','update','uninstall','vm','host','status','clear','exit','quit')
+}
+
+function Normalize-InteractiveAliases {
+    param(
+        [string]$Context,
+        [string[]]$Tokens
+    )
+
+    if ($null -eq $Tokens -or $Tokens.Length -eq 0) {
+        return @()
+    }
+
+    $normalized = @($Tokens)
+
+    if ($normalized[0] -eq 'update') {
+        $normalized[0] = 'self-update'
+    }
+
+    if ($Context -eq 'vm' -and $normalized[0] -eq 'delete') {
+        $normalized[0] = 'remove'
+    }
+
+    return $normalized
+}
+
+function Resolve-ContextCommand {
+    param(
+        [string]$Context,
+        [string[]]$Tokens
+    )
+
+    $result = @{
+        Action = 'dispatch'
+        NextContext = $Context
+        Command = @()
+    }
+
+    if ($null -eq $Tokens -or $Tokens.Length -eq 0) {
+        $result.Action = 'noop'
+        return $result
+    }
+
+    $first = $Tokens[0]
+    switch ($first) {
+        'help' { $result.Action = 'help'; return $result }
+        '?' { $result.Action = 'help'; return $result }
+        'exit' { $result.Action = 'exit'; return $result }
+        'quit' { $result.Action = 'exit'; return $result }
+        'clear' { $result.Action = 'clear'; return $result }
+        'back' {
+            $result.Action = 'back'
+            switch ($Context) {
+                'vm' { $result.NextContext = 'root' }
+                'host' { $result.NextContext = 'root' }
+                'vm_config' { $result.NextContext = 'vm' }
+                'vm_host_share' { $result.NextContext = 'vm' }
+                default { $result.NextContext = 'root' }
+            }
+            return $result
+        }
+        'status' {
+            if ($Context -in @('root','vm')) {
+                $result.Action = 'dispatch'
+                $result.Command = @('vm','status')
+            }
+            else {
+                $result.Action = 'status_unavailable'
+            }
+            return $result
+        }
+    }
+
+    switch ($Context) {
+        'root' {
+            if ($first -eq 'vm' -and $Tokens.Length -eq 1) {
+                $result.Action = 'enter_context'
+                $result.NextContext = 'vm'
+                return $result
+            }
+            if ($first -eq 'host' -and $Tokens.Length -eq 1) {
+                $result.Action = 'enter_context'
+                $result.NextContext = 'host'
+                return $result
+            }
+            $result.Command = @($Tokens)
+        }
+        'vm' {
+            if ($first -eq 'config' -and $Tokens.Length -eq 1) {
+                $result.Action = 'enter_context'
+                $result.NextContext = 'vm_config'
+                return $result
+            }
+            if ($first -eq 'host-share' -and $Tokens.Length -eq 1) {
+                $result.Action = 'enter_context'
+                $result.NextContext = 'vm_host_share'
+                return $result
+            }
+
+            if (Is-RootToken -Token $first) {
+                $result.Command = @($Tokens)
+            }
+            else {
+                $result.Command = @('vm') + @($Tokens)
+            }
+        }
+        'vm_config' {
+            if (Is-RootToken -Token $first -or $first -in @('vm','host')) {
+                $result.Command = @($Tokens)
+            }
+            else {
+                $result.Command = @('vm','config') + @($Tokens)
+            }
+        }
+        'vm_host_share' {
+            if (Is-RootToken -Token $first -or $first -in @('vm','host')) {
+                $result.Command = @($Tokens)
+            }
+            else {
+                if ($first -eq 'list') {
+                    # No Windows atual, mapeia para share-folder list.
+                    $tail = @()
+                    if ($Tokens.Length -gt 1) {
+                        $tail = @($Tokens[1..($Tokens.Length - 1)])
+                    }
+                    $result.Command = @('vm','share-folder','list') + $tail
+                }
+                else {
+                    $result.Command = @('vm','host-share') + @($Tokens)
+                }
+            }
+        }
+        'host' {
+            if (Is-RootToken -Token $first -or $first -in @('vm','host')) {
+                $result.Command = @($Tokens)
+            }
+            else {
+                $result.Command = @('host') + @($Tokens)
+            }
+        }
+        default {
+            $result.Command = @($Tokens)
+        }
+    }
+
+    return $result
+}
+
+function Is-SensitiveCommand {
+    param([string[]]$Command)
+
+    if ($null -eq $Command -or $Command.Length -eq 0) {
+        return $false
+    }
+
+    switch ($Command[0]) {
+        'uninstall' { return $true }
+        'host' {
+            if ($Command.Length -ge 2 -and $Command[1] -in @('install','-i')) { return $true }
+        }
+        'vm' {
+            if ($Command.Length -ge 2 -and $Command[1] -in @('remove','-r','delete')) { return $true }
+            if ($Command.Length -ge 3 -and $Command[1] -eq 'config' -and $Command[2] -eq 'reset') { return $true }
+        }
+        'self-update' {
+            if (-not (Has-Flag -Tokens $Command -Flags @('--force','-f'))) { return $true }
+        }
+    }
+
+    return $false
+}
+
+function Show-SensitiveNotice {
+    param([string[]]$Command)
+
+    if ($Command.Length -ge 3 -and $Command[0] -eq 'vm' -and $Command[1] -eq 'config' -and $Command[2] -eq 'reset') {
+        Write-Host 'Esta ação pode redefinir configurações da VM.'
+        Write-Host 'Nenhuma configuração pessoal deve ser apagada sem confirmação explícita.'
+        return
+    }
+
+    if ($Command.Length -ge 2 -and $Command[0] -eq 'host' -and $Command[1] -in @('install','-i')) {
+        Write-Host 'Esta ação iniciará a instalação nativa no host.'
+        Write-Host 'Ela pode instalar pacotes e alterar arquivos do sistema.'
+        return
+    }
+
+    if ($Command.Length -ge 2 -and $Command[0] -eq 'vm' -and $Command[1] -in @('remove','-r','delete')) {
+        Write-Host 'Esta ação pode remover arquivos da VM.'
+        return
+    }
+
+    if ($Command[0] -eq 'uninstall') {
+        Write-Host 'Esta ação pode desinstalar a CLI local.'
+        return
+    }
+
+    if ($Command[0] -eq 'self-update') {
+        Write-Host 'Esta ação atualiza a CLI e altera arquivos locais da instalação.'
+        return
+    }
+
+    Write-Host 'Esta ação altera estado persistente.'
+}
+
+function Confirm-SensitiveCommand {
+    param([string[]]$Command)
+
+    Write-Host ''
+    Write-Host 'Comando equivalente:'
+    Write-Host ('ea11ctl ' + ($Command -join ' '))
+    Write-Host ''
+    Show-SensitiveNotice -Command $Command
+
+    $reply = Read-Host 'Continuar? [s/N]'
+    if ([string]::IsNullOrWhiteSpace($reply)) {
+        Write-Host 'Ação cancelada.'
+        return $false
+    }
+
+    switch ($reply.Trim().ToLowerInvariant()) {
+        's' { return $true }
+        'sim' { return $true }
+        'y' { return $true }
+        'yes' { return $true }
+        default {
+            Write-Host 'Ação cancelada.'
+            return $false
+        }
+    }
+}
+
+function Start-InteractiveShell {
+    Write-Host 'ea11ctl - modo interativo'
+    Write-Host ''
+    Write-Host 'Digite help para ver comandos.'
+    Write-Host 'Digite exit para sair.'
+    Write-Host ''
+
+    $context = 'root'
+    while ($true) {
+        $promptText = Get-InteractivePrompt -Context $context
+        $line = Read-Host -Prompt ($promptText -replace '>\s$','')
+        if ($null -eq $line) {
+            break
+        }
+
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) {
+            continue
+        }
+
+        # Parser simples: separa por espacos.
+        $tokens = $trimmed -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        $tokens = Normalize-InteractiveAliases -Context $context -Tokens $tokens
+        $resolved = Resolve-ContextCommand -Context $context -Tokens $tokens
+
+        switch ($resolved.Action) {
+            'noop' { continue }
+            'help' { Show-InteractiveContextHelp -Context $context; continue }
+            'clear' { Clear-Host; continue }
+            'exit' { break }
+            'back' {
+                if ($context -eq 'root') {
+                    Write-Host 'Você já está no contexto raiz.'
+                }
+                else {
+                    $context = [string]$resolved.NextContext
+                }
+                continue
+            }
+            'enter_context' {
+                $context = [string]$resolved.NextContext
+                continue
+            }
+            'status_unavailable' {
+                Write-Host 'Não há status específico neste contexto.'
+                continue
+            }
+        }
+
+        $cmd = @($resolved.Command)
+        if ($cmd.Length -eq 0) {
+            continue
+        }
+
+        if (Is-SensitiveCommand -Command $cmd) {
+            if (-not (Confirm-SensitiveCommand -Command $cmd)) {
+                continue
+            }
+        }
+
+        try {
+            Invoke-RootCommand -Tokens $cmd
+        }
+        catch {
+            Write-EA11Error $_.Exception.Message
+            Write-Host ''
+            Write-Host "Comando desconhecido: $($tokens[0])"
+            Show-CommandSuggestion -Context $context -Typed $tokens[0]
+            Write-Host ''
+            Write-Host 'Digite help para ver os comandos disponíveis.'
+        }
+    }
+}
+
+try {
+    if ($Args.Length -eq 0) {
+        Start-InteractiveShell
+        exit 0
+    }
+
+    Invoke-RootCommand -Tokens $Args
 }
 catch {
     Write-EA11Error $_.Exception.Message

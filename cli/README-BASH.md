@@ -61,6 +61,41 @@ ea11ctl help
 
 ## Uso
 
+### Modo Interativo Acessível
+
+Quando você executa `ea11ctl` sem argumentos no host, a CLI abre o modo interativo:
+
+```text
+ea11ctl - modo interativo
+
+Digite help para ver comandos.
+Digite exit para sair.
+
+ea11ctl>
+```
+
+Contextos disponíveis:
+
+- `ea11ctl>`
+- `ea11ctl vm>`
+- `ea11ctl vm config>`
+- `ea11ctl vm host-share>`
+- `ea11ctl host>`
+
+Comandos globais em qualquer contexto:
+
+- `help` e `?`
+- `back`
+- `status`
+- `clear`
+- `exit` e `quit`
+
+Observações:
+
+- O modo interativo é textual e compatível com leitores de tela.
+- O modo direto continua funcionando igual.
+- Ações sensíveis pedem confirmação com padrão negativo `[s/N]`.
+
 ### Comandos Principais
 
 #### Ajuda
@@ -83,6 +118,33 @@ ea11ctl version --check-update  # Verifica se há atualizações disponíveis
 ```bash
 ea11ctl self-update              # Atualiza se houver nova versão
 ea11ctl update --force           # Força atualização
+```
+
+### Exemplos no modo interativo
+
+```text
+$ ea11ctl
+ea11ctl> vm
+ea11ctl vm> status
+ea11ctl vm> start --headless
+ea11ctl vm> config
+ea11ctl vm config> show
+ea11ctl vm config> back
+ea11ctl vm> host-share
+ea11ctl vm host-share> list
+ea11ctl vm host-share> back
+ea11ctl vm> back
+ea11ctl> host
+ea11ctl host> install
+ea11ctl host> exit
+```
+
+Comandos completos também funcionam no prompt interativo:
+
+```text
+ea11ctl> vm status
+ea11ctl> vm start --headless
+ea11ctl> vm config show
 ```
 
 ### Gerenciamento de VM

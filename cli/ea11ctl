@@ -751,6 +751,596 @@ invoke_uninstall() {
 }
 
 #################################################################################
+# Modo Interativo (Host)
+#################################################################################
+
+trim_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+interactive_prompt() {
+    local context="$1"
+    case "$context" in
+        root)
+            printf 'ea11ctl> '
+            ;;
+        vm)
+            printf 'ea11ctl vm> '
+            ;;
+        vm_config)
+            printf 'ea11ctl vm config> '
+            ;;
+        vm_host_share)
+            printf 'ea11ctl vm host-share> '
+            ;;
+        host)
+            printf 'ea11ctl host> '
+            ;;
+        *)
+            printf 'ea11ctl> '
+            ;;
+    esac
+}
+
+is_root_command_token() {
+    local token="$1"
+    case "$token" in
+        help|\?|version|--version|self-update|update|uninstall|vm|host|status|clear|exit|quit)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+parse_interactive_line() {
+    local line="$1"
+    local trimmed
+    trimmed="$(trim_whitespace "$line")"
+
+    INTERACTIVE_TOKENS=()
+    if [[ -z "$trimmed" ]]; then
+        return 1
+    fi
+
+    # Parser simples e previsivel para leitores de tela.
+    read -r -a INTERACTIVE_TOKENS <<< "$trimmed"
+    return 0
+}
+
+normalize_aliases() {
+    local context="$1"
+    shift
+
+    NORMALIZED_TOKENS=("$@")
+    if [[ ${#NORMALIZED_TOKENS[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    case "${NORMALIZED_TOKENS[0]}" in
+        update)
+            NORMALIZED_TOKENS[0]='self-update'
+            ;;
+    esac
+
+    if [[ "$context" == 'vm' ]] && [[ "${NORMALIZED_TOKENS[0]}" == 'delete' ]]; then
+        NORMALIZED_TOKENS[0]='remove'
+    fi
+}
+
+resolve_context_command() {
+    local context="$1"
+    shift
+
+    RESOLVE_ACTION='dispatch'
+    RESOLVE_NEXT_CONTEXT="$context"
+    RESOLVED_COMMAND=()
+
+    if [[ $# -eq 0 ]]; then
+        RESOLVE_ACTION='noop'
+        return 0
+    fi
+
+    local first="$1"
+
+    case "$first" in
+        help|\?)
+            RESOLVE_ACTION='help'
+            return 0
+            ;;
+        exit|quit)
+            RESOLVE_ACTION='exit'
+            return 0
+            ;;
+        clear)
+            RESOLVE_ACTION='clear'
+            return 0
+            ;;
+        back)
+            RESOLVE_ACTION='back'
+            case "$context" in
+                root)
+                    RESOLVE_NEXT_CONTEXT='root'
+                    ;;
+                vm|host)
+                    RESOLVE_NEXT_CONTEXT='root'
+                    ;;
+                vm_config|vm_host_share)
+                    RESOLVE_NEXT_CONTEXT='vm'
+                    ;;
+                *)
+                    RESOLVE_NEXT_CONTEXT='root'
+                    ;;
+            esac
+            return 0
+            ;;
+        status)
+            case "$context" in
+                root|vm)
+                    RESOLVE_ACTION='dispatch'
+                    RESOLVED_COMMAND=(vm status)
+                    ;;
+                *)
+                    RESOLVE_ACTION='status_unavailable'
+                    ;;
+            esac
+            return 0
+            ;;
+    esac
+
+    case "$context" in
+        root)
+            if [[ "$first" == 'vm' ]] && [[ $# -eq 1 ]]; then
+                RESOLVE_ACTION='enter_context'
+                RESOLVE_NEXT_CONTEXT='vm'
+                return 0
+            fi
+            if [[ "$first" == 'host' ]] && [[ $# -eq 1 ]]; then
+                RESOLVE_ACTION='enter_context'
+                RESOLVE_NEXT_CONTEXT='host'
+                return 0
+            fi
+            RESOLVED_COMMAND=("$@")
+            ;;
+        vm)
+            if [[ "$first" == 'config' ]] && [[ $# -eq 1 ]]; then
+                RESOLVE_ACTION='enter_context'
+                RESOLVE_NEXT_CONTEXT='vm_config'
+                return 0
+            fi
+            if [[ "$first" == 'host-share' ]] && [[ $# -eq 1 ]]; then
+                RESOLVE_ACTION='enter_context'
+                RESOLVE_NEXT_CONTEXT='vm_host_share'
+                return 0
+            fi
+            if is_root_command_token "$first"; then
+                RESOLVED_COMMAND=("$@")
+            else
+                RESOLVED_COMMAND=(vm "$@")
+            fi
+            ;;
+        vm_config)
+            if is_root_command_token "$first"; then
+                RESOLVED_COMMAND=("$@")
+            elif [[ "$first" == 'vm' ]] || [[ "$first" == 'host' ]]; then
+                RESOLVED_COMMAND=("$@")
+            else
+                RESOLVED_COMMAND=(vm config "$@")
+            fi
+            ;;
+        vm_host_share)
+            if is_root_command_token "$first"; then
+                RESOLVED_COMMAND=("$@")
+            elif [[ "$first" == 'vm' ]] || [[ "$first" == 'host' ]]; then
+                RESOLVED_COMMAND=("$@")
+            else
+                RESOLVED_COMMAND=(vm host-share "$@")
+            fi
+            ;;
+        host)
+            if is_root_command_token "$first"; then
+                RESOLVED_COMMAND=("$@")
+            elif [[ "$first" == 'vm' ]] || [[ "$first" == 'host' ]]; then
+                RESOLVED_COMMAND=("$@")
+            else
+                RESOLVED_COMMAND=(host "$@")
+            fi
+            ;;
+        *)
+            RESOLVED_COMMAND=("$@")
+            ;;
+    esac
+}
+
+show_context_help() {
+    local context="$1"
+    case "$context" in
+        root)
+            cat << 'EOF'
+Comandos disponíveis:
+
+version       mostra a versão do ea11ctl
+self-update   atualiza o ea11ctl
+vm            entra no contexto de VM
+host          entra no contexto de instalação nativa
+status        mostra o status da VM padrão
+clear         limpa a tela
+exit          sai
+
+Exemplos:
+
+vm
+vm status
+vm start --headless
+self-update -f
+EOF
+            ;;
+        vm)
+            cat << 'EOF'
+Comandos de VM:
+
+install        instala a VM
+version        mostra a versão da VM
+check-update   verifica atualização da VM
+list           lista VMs
+start          inicia a VM
+stop           para a VM
+close          fecha a VM com timeout
+remove         remove a VM
+delete         remove a VM (alias)
+diagnose       diagnostica a VM
+status         mostra status da VM
+ssh            conecta via SSH
+host-share     gerencia compartilhamento do host
+config         entra em configuração da VM
+optimize       otimiza a VM
+back           volta
+exit           sai
+
+Exemplos:
+
+status
+start --headless
+diagnose -T -L 80
+ssh
+EOF
+            ;;
+        vm_config)
+            cat << 'EOF'
+Configuração da VM:
+
+show     mostra configuração atual
+path     mostra caminho da configuração
+reset    redefine configuração da VM
+back     volta
+exit     sai
+
+Exemplos:
+
+show
+path
+reset
+EOF
+            ;;
+        vm_host_share)
+            cat << 'EOF'
+Compartilhamento do host:
+
+list     lista compartilhamentos do host
+back     volta
+exit     sai
+
+Exemplos:
+
+list
+EOF
+            ;;
+        host)
+            cat << 'EOF'
+Instalação nativa no host:
+
+install  inicia a instalação nativa
+back     volta
+exit     sai
+
+Exemplos:
+
+install
+EOF
+            ;;
+    esac
+}
+
+is_sensitive_command() {
+    local -a cmd=("$@")
+    local i
+
+    if [[ ${#cmd[@]} -eq 0 ]]; then
+        return 1
+    fi
+
+    case "${cmd[0]}" in
+        uninstall)
+            return 0
+            ;;
+        host)
+            if [[ "${cmd[1]:-}" == 'install' ]] || [[ "${cmd[1]:-}" == '-i' ]]; then
+                return 0
+            fi
+            ;;
+        vm)
+            if [[ "${cmd[1]:-}" == 'remove' ]] || [[ "${cmd[1]:-}" == '-r' ]] || [[ "${cmd[1]:-}" == 'delete' ]]; then
+                return 0
+            fi
+            if [[ "${cmd[1]:-}" == 'config' ]] && [[ "${cmd[2]:-}" == 'reset' ]]; then
+                return 0
+            fi
+            ;;
+        self-update|update)
+            for ((i=1; i<${#cmd[@]}; i++)); do
+                if [[ "${cmd[$i]}" == '--force' ]] || [[ "${cmd[$i]}" == '-f' ]]; then
+                    return 1
+                fi
+            done
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+show_sensitive_notice() {
+    local -a cmd=("$@")
+
+    if [[ "${cmd[0]}" == 'vm' ]] && [[ "${cmd[1]:-}" == 'config' ]] && [[ "${cmd[2]:-}" == 'reset' ]]; then
+        echo 'Esta ação pode redefinir configurações da VM.'
+        echo 'Nenhuma configuração pessoal deve ser apagada sem confirmação explícita.'
+        return 0
+    fi
+
+    if [[ "${cmd[0]}" == 'host' ]] && ([[ "${cmd[1]:-}" == 'install' ]] || [[ "${cmd[1]:-}" == '-i' ]]); then
+        echo 'Esta ação iniciará a instalação nativa no host.'
+        echo 'Ela pode instalar pacotes e alterar arquivos do sistema.'
+        return 0
+    fi
+
+    if [[ "${cmd[0]}" == 'vm' ]] && ([[ "${cmd[1]:-}" == 'remove' ]] || [[ "${cmd[1]:-}" == '-r' ]] || [[ "${cmd[1]:-}" == 'delete' ]]); then
+        echo 'Esta ação pode remover arquivos da VM.'
+        return 0
+    fi
+
+    if [[ "${cmd[0]}" == 'uninstall' ]]; then
+        echo 'Esta ação pode desinstalar a CLI local.'
+        return 0
+    fi
+
+    if [[ "${cmd[0]}" == 'self-update' ]]; then
+        echo 'Esta ação atualiza a CLI e altera arquivos locais da instalação.'
+        return 0
+    fi
+
+    echo 'Esta ação altera estado persistente.'
+}
+
+confirm_sensitive_command() {
+    local -a cmd=("$@")
+    local reply
+
+    echo
+    echo 'Comando equivalente:'
+    echo "ea11ctl ${cmd[*]}"
+    echo
+
+    show_sensitive_notice "${cmd[@]}"
+    printf 'Continuar? [s/N] '
+    read -r reply || true
+
+    reply="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+    case "$reply" in
+        s|sim|y|yes)
+            return 0
+            ;;
+        *)
+            echo 'Ação cancelada.'
+            return 1
+            ;;
+    esac
+}
+
+list_context_commands() {
+    local context="$1"
+    case "$context" in
+        root)
+            printf '%s\n' help '?' version self-update update uninstall vm host status clear exit quit
+            ;;
+        vm)
+            printf '%s\n' help '?' install version check-update list start stop close remove delete diagnose status ssh host-share config optimize back exit quit clear
+            ;;
+        vm_config)
+            printf '%s\n' help '?' show path reset back exit quit clear
+            ;;
+        vm_host_share)
+            printf '%s\n' help '?' list back exit quit clear
+            ;;
+        host)
+            printf '%s\n' help '?' install back exit quit clear
+            ;;
+    esac
+}
+
+suggest_command() {
+    local context="$1"
+    local typed="$2"
+    local cmd
+    local -a suggestions=()
+
+    while IFS= read -r cmd; do
+        [[ -z "$cmd" ]] && continue
+        if [[ "$cmd" == "$typed"* ]] || [[ "$cmd" == *"$typed"* ]]; then
+            suggestions+=("$cmd")
+        fi
+    done < <(list_context_commands "$context")
+
+    if [[ ${#suggestions[@]} -gt 0 ]]; then
+        echo
+        echo 'Talvez você quis dizer:'
+        local suggestion
+        for suggestion in "${suggestions[@]}"; do
+            echo "$suggestion"
+        done
+    fi
+}
+
+dispatch_host_command() {
+    local command="${1:-}"
+    shift || true
+
+    case "$command" in
+        help|-h|--help)
+            show_help
+            ;;
+        version|--version)
+            invoke_version_command "$@"
+            ;;
+        self-update|update)
+            invoke_self_update "$@"
+            ;;
+        uninstall)
+            invoke_uninstall "$@"
+            ;;
+        vm)
+            invoke_vm_command "$@"
+            ;;
+        host)
+            invoke_host_command_main "$@"
+            ;;
+        '')
+            show_help
+            return 0
+            ;;
+        *)
+            ea11_error "Comando desconhecido no contexto host: $command"
+            show_help
+            return 1
+            ;;
+    esac
+}
+
+dispatch_command() {
+    local context="$1"
+    shift || true
+    local command="${1:-}"
+    shift || true
+
+    if [[ "$context" == 'guest' ]]; then
+        case "$command" in
+            help|-h|--help)
+                show_help
+                ;;
+            version|--version)
+                invoke_version_command "$@"
+                ;;
+            share|-S)
+                invoke_guest_share_command "$@"
+                ;;
+            '')
+                show_help
+                return 0
+                ;;
+            *)
+                ea11_error "Comando desconhecido no contexto guest: $command"
+                show_help
+                return 1
+                ;;
+        esac
+        return 0
+    fi
+
+    dispatch_host_command "$command" "$@"
+}
+
+start_interactive_shell() {
+    local context='root'
+    local line
+
+    echo 'ea11ctl - modo interativo'
+    echo
+    echo 'Digite help para ver comandos.'
+    echo 'Digite exit para sair.'
+    echo
+
+    while true; do
+        interactive_prompt "$context"
+        if ! IFS= read -r line; then
+            echo
+            break
+        fi
+
+        if ! parse_interactive_line "$line"; then
+            continue
+        fi
+
+        normalize_aliases "$context" "${INTERACTIVE_TOKENS[@]}"
+        resolve_context_command "$context" "${NORMALIZED_TOKENS[@]}"
+
+        case "$RESOLVE_ACTION" in
+            noop)
+                continue
+                ;;
+            help)
+                show_context_help "$context"
+                continue
+                ;;
+            clear)
+                clear 2>/dev/null || printf '\033c'
+                continue
+                ;;
+            exit)
+                break
+                ;;
+            back)
+                if [[ "$context" == 'root' ]]; then
+                    echo 'Você já está no contexto raiz.'
+                else
+                    context="$RESOLVE_NEXT_CONTEXT"
+                fi
+                continue
+                ;;
+            enter_context)
+                context="$RESOLVE_NEXT_CONTEXT"
+                continue
+                ;;
+            status_unavailable)
+                echo 'Não há status específico neste contexto.'
+                continue
+                ;;
+        esac
+
+        if [[ ${#RESOLVED_COMMAND[@]} -eq 0 ]]; then
+            continue
+        fi
+
+        if is_sensitive_command "${RESOLVED_COMMAND[@]}"; then
+            if ! confirm_sensitive_command "${RESOLVED_COMMAND[@]}"; then
+                continue
+            fi
+        fi
+
+        if ! dispatch_host_command "${RESOLVED_COMMAND[@]}"; then
+            echo
+            echo "Comando desconhecido: ${NORMALIZED_TOKENS[0]}"
+            suggest_command "$context" "${NORMALIZED_TOKENS[0]}"
+            echo
+            echo 'Digite help para ver os comandos disponíveis.'
+        fi
+    done
+}
+
+#################################################################################
 # Help
 #################################################################################
 
@@ -827,63 +1417,12 @@ main() {
     local context
     context=$(get_execution_context)
     local command="${1:-}"
-    shift || true
-    
-    # CONTEXT GUEST
-    if [[ "$context" == "guest" ]]; then
-        case "$command" in
-            help|-h|--help)
-                show_help
-                ;;
-            version|--version)
-                invoke_version_command "$@"
-                ;;
-            share|-S)
-                invoke_guest_share_command "$@"
-                ;;
-            "")
-                show_help
-                exit 0
-                ;;
-            *)
-                ea11_error "Comando desconhecido no contexto guest: $command"
-                show_help
-                exit 1
-                ;;
-        esac
-    
-    # CONTEXT HOST
-    else
-        case "$command" in
-            help|-h|--help)
-                show_help
-                ;;
-            version|--version)
-                invoke_version_command "$@"
-                ;;
-            self-update|update)
-                invoke_self_update "$@"
-                ;;
-            uninstall)
-                invoke_uninstall "$@"
-                ;;
-            vm)
-                invoke_vm_command "$@"
-                ;;
-            host)
-                invoke_host_command_main "$@"
-                ;;
-            "")
-                show_help
-                exit 0
-                ;;
-            *)
-                ea11_error "Comando desconhecido no contexto host: $command"
-                show_help
-                exit 1
-                ;;
-        esac
+    if [[ "$context" == 'host' ]] && [[ -z "$command" ]]; then
+        start_interactive_shell
+        return 0
     fi
+
+    dispatch_command "$context" "$@"
 }
 
 # Executar main com tratamento de erro
