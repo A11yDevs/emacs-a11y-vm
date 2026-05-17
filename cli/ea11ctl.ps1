@@ -4,6 +4,23 @@ param(
     [string[]]$Args
 )
 
+# Bootstrap UTF-8 BOM para Windows PowerShell 5.x:
+# sem BOM, o PS5 interpreta o arquivo como ANSI e corrompe todos os literais acentuados.
+# Ao detectar a ausência de BOM em PS5, re-salva o próprio script com BOM e pede para re-executar.
+if ($PSVersionTable.PSVersion.Major -lt 6 -and $PSCommandPath) {
+    $selfBytes = [System.IO.File]::ReadAllBytes($PSCommandPath)
+    $hasBom = ($selfBytes.Length -ge 3 -and $selfBytes[0] -eq 0xEF -and $selfBytes[1] -eq 0xBB -and $selfBytes[2] -eq 0xBF)
+    if (-not $hasBom) {
+        $bom = [byte[]](0xEF, 0xBB, 0xBF)
+        $withBom = New-Object byte[] ($bom.Length + $selfBytes.Length)
+        [Array]::Copy($bom, $withBom, $bom.Length)
+        [Array]::Copy($selfBytes, 0, $withBom, $bom.Length, $selfBytes.Length)
+        [System.IO.File]::WriteAllBytes($PSCommandPath, $withBom)
+        Write-Host '[ea11ctl] Arquivo atualizado para UTF-8. Execute o comando novamente.' -ForegroundColor Yellow
+        exit 0
+    }
+}
+
 # Garante UTF-8 para exibição correta de caracteres acentuados
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
