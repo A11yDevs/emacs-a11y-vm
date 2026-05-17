@@ -780,15 +780,7 @@ interactive_prompt() {
         read -p "ea11ctl> " cmd args
         case "$cmd" in
             set)
-                if [[ "$args" == "debug=on" ]]; then
-                    export EA11_DEBUG=1
-                    echo "Modo debug ativado."
-                elif [[ "$args" == "debug=off" ]]; then
-                    unset EA11_DEBUG
-                    echo "Modo debug desativado."
-                else
-                    echo "Uso: set debug=on|off"
-                fi
+                handle_vm_config_set "${args%%=*}" "${args#*=}"
                 ;;
             exit)
                 break
