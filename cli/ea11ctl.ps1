@@ -827,11 +827,29 @@ function Assert-ConfigValue {
     param([string]$FriendlyKey, [string]$Value)
     switch ($FriendlyKey) {
         'cpus' {
-            if ($Value -match '^[1-9][0-9]*$') { return $Value }
+            if ($Value -match '^[1-9][0-9]*$') {
+                $limit = Get-ConfigHostLimitInfo -FriendlyKey 'cpus'
+                if (($null -ne $limit) -and ([int]$Value -gt [int]$limit.Max)) {
+                    Write-Host "Erro: valor acima do máximo disponível para 'cpus'." -ForegroundColor Red
+                    Write-Host ''
+                    Write-Host "Valor recebido: $Value"
+                    Write-Host "Máximo disponível: $($limit.Max) ($($limit.Label))"
+                    Write-Host ''
+                    Write-Host 'Exemplos:'
+                    Write-Host '  ea11ctl vm config set cpus 2'
+                    Write-Host '  ea11ctl vm config set cpus 4'
+                    return $null
+                }
+                return $Value
+            }
             Write-Host "Erro: valor inválido para 'cpus'." -ForegroundColor Red
             Write-Host ''
             Write-Host "Valor recebido: $Value"
             Write-Host 'Formato esperado: número inteiro positivo.'
+            $limit = Get-ConfigHostLimitInfo -FriendlyKey 'cpus'
+            if ($null -ne $limit) {
+                Write-Host "Máximo disponível: $($limit.Max) ($($limit.Label))"
+            }
             Write-Host ''
             Write-Host 'Exemplos:'
             Write-Host '  ea11ctl vm config set cpus 2'
@@ -840,11 +858,29 @@ function Assert-ConfigValue {
             return $null
         }
         'memory' {
-            if ($Value -match '^[1-9][0-9]*$') { return $Value }
+            if ($Value -match '^[1-9][0-9]*$') {
+                $limit = Get-ConfigHostLimitInfo -FriendlyKey 'memory'
+                if (($null -ne $limit) -and ([int]$Value -gt [int]$limit.Max)) {
+                    Write-Host "Erro: valor acima do máximo disponível para 'memory'." -ForegroundColor Red
+                    Write-Host ''
+                    Write-Host "Valor recebido: $Value MB"
+                    Write-Host "Máximo disponível: $($limit.Max) $($limit.Unit) ($($limit.Label))"
+                    Write-Host ''
+                    Write-Host 'Exemplos:'
+                    Write-Host '  ea11ctl vm config set memory 2048'
+                    Write-Host '  ea11ctl vm config set memory 4096'
+                    return $null
+                }
+                return $Value
+            }
             Write-Host "Erro: valor inválido para 'memory'." -ForegroundColor Red
             Write-Host ''
             Write-Host "Valor recebido: $Value"
             Write-Host 'Formato esperado: número inteiro positivo em MB.'
+            $limit = Get-ConfigHostLimitInfo -FriendlyKey 'memory'
+            if ($null -ne $limit) {
+                Write-Host "Máximo disponível: $($limit.Max) $($limit.Unit) ($($limit.Label))"
+            }
             Write-Host ''
             Write-Host 'Exemplos:'
             Write-Host '  ea11ctl vm config set memory 2048'
@@ -896,7 +932,15 @@ function Show-QemuRuntimeConfigFriendly {
     Write-Host ''
     Write-Host 'Desempenho:'
     Write-Host "  CPUs: $($cfg['QEMU_CPUS'])"
+    $cpuLimit = Get-ConfigHostLimitInfo -FriendlyKey 'cpus'
+    if ($null -ne $cpuLimit) {
+        Write-Host "  Máximo disponível no host: $($cpuLimit.Max)"
+    }
     Write-Host "  Memória: $($cfg['QEMU_MEMORY_MB']) MB"
+    $memoryLimit = Get-ConfigHostLimitInfo -FriendlyKey 'memory'
+    if ($null -ne $memoryLimit) {
+        Write-Host "  Máximo disponível no host: $($memoryLimit.Max) MB"
+    }
     Write-Host "  Aceleração: $($cfg['QEMU_ACCEL'])"
     Write-Host "  Modelo de CPU: $($cfg['QEMU_CPU_MODEL'])"
     Write-Host ''
@@ -925,6 +969,11 @@ function Show-QemuConfigList {
         Write-Host "  Descrição: $description"
         Write-Host "  Chave interna: $internalKey"
         Write-Host "  Valor atual: $currentVal"
+        $limit = Get-ConfigHostLimitInfo -FriendlyKey $fkey
+        if ($null -ne $limit) {
+            $unitSuffix = if ([string]::IsNullOrWhiteSpace($limit.Unit)) { '' } else { " $($limit.Unit)" }
+            Write-Host "  Máximo disponível: $($limit.Max)$unitSuffix ($($limit.Label))"
+        }
         if ($fkey -in 'fullscreen','accel') {
             switch ($fkey) {
                 'fullscreen' { Write-Host '  Valores aceitos: on, off' }
@@ -964,6 +1013,11 @@ function Show-QemuConfigGet {
         Write-Host "  Valor atual: $currentVal MB"
     } else {
         Write-Host "  Valor atual: $currentVal"
+    }
+    $limit = Get-ConfigHostLimitInfo -FriendlyKey $FriendlyKey
+    if ($null -ne $limit) {
+        $unitSuffix = if ([string]::IsNullOrWhiteSpace($limit.Unit)) { '' } else { " $($limit.Unit)" }
+        Write-Host "  Máximo disponível: $($limit.Max)$unitSuffix ($($limit.Label))"
     }
     return $true
 }
@@ -1049,6 +1103,14 @@ function Show-QemuConfigHelp {
     Write-Host '  cpus         memory       accel        cpu-model'
     Write-Host '  net-device   disk-if      disk-cache   disk-discard'
     Write-Host '  video        fullscreen'
+    $cpuLimit = Get-ConfigHostLimitInfo -FriendlyKey 'cpus'
+    if ($null -ne $cpuLimit) {
+        Write-Host "  Máximo de cpus no host: $($cpuLimit.Max)"
+    }
+    $memoryLimit = Get-ConfigHostLimitInfo -FriendlyKey 'memory'
+    if ($null -ne $memoryLimit) {
+        Write-Host "  Máximo de memory no host: $($memoryLimit.Max) MB"
+    }
     Write-Host ''
     Write-Host 'Exemplos:'
     Write-Host '  ea11ctl vm config set memory 4096'
@@ -1484,6 +1546,140 @@ function New-QemuBaseArgs {
     return $args
 }
 
+function Get-HostPhysicalMemoryMB {
+    try {
+        if (Test-IsWindowsHost) {
+            if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+                $bytes = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory
+            }
+            else {
+                $bytes = (Get-WmiObject Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory
+            }
+            if ($bytes) {
+                return [int]([double]$bytes / 1MB)
+            }
+        }
+        elseif (Test-IsMacOSHost) {
+            $bytes = & sysctl -n hw.memsize 2>$null
+            if ($LASTEXITCODE -eq 0 -and $bytes) {
+                return [int]([double]$bytes / 1MB)
+            }
+        }
+        elseif (Test-Path '/proc/meminfo') {
+            $line = Get-Content -Path '/proc/meminfo' -ErrorAction Stop | Select-String -Pattern '^MemTotal:\s+(\d+)\s+kB$' | Select-Object -First 1
+            if ($line.Matches.Count -gt 0) {
+                return [int]([double]$line.Matches[0].Groups[1].Value / 1024)
+            }
+        }
+    }
+    catch {
+    }
+
+    return $null
+}
+
+function Get-HostLogicalCpuCount {
+    try {
+        if (Test-IsWindowsHost) {
+            if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+                $cpuCount = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).NumberOfLogicalProcessors
+            }
+            else {
+                $cpuCount = (Get-WmiObject Win32_ComputerSystem -ErrorAction Stop).NumberOfLogicalProcessors
+            }
+            if ($cpuCount) {
+                return [int]$cpuCount
+            }
+        }
+        elseif (Test-IsMacOSHost) {
+            $cpuCount = & sysctl -n hw.logicalcpu 2>$null
+            if ($LASTEXITCODE -eq 0 -and $cpuCount) {
+                return [int]$cpuCount
+            }
+        }
+        else {
+            $cpuCount = & getconf _NPROCESSORS_ONLN 2>$null
+            if ($LASTEXITCODE -eq 0 -and $cpuCount) {
+                return [int]$cpuCount
+            }
+        }
+    }
+    catch {
+    }
+
+    return $null
+}
+
+function Get-ConfigHostLimitInfo {
+    param([string]$FriendlyKey)
+
+    switch ($FriendlyKey) {
+        'memory' {
+            $max = Get-HostPhysicalMemoryMB
+            if ($null -ne $max) {
+                return @{ Max = $max; Unit = 'MB'; Label = 'RAM física do host' }
+            }
+        }
+        'cpus' {
+            $max = Get-HostLogicalCpuCount
+            if ($null -ne $max) {
+                return @{ Max = $max; Unit = ''; Label = 'CPUs lógicas do host' }
+            }
+        }
+    }
+
+    return $null
+}
+
+function Write-QemuArgsLog {
+    param(
+        [string]$Path,
+        [string]$QemuExecutable,
+        [string[]]$QemuArgs
+    )
+
+    $lines = @('# QEMU arguments for ea11ctl', $QemuExecutable)
+    $lines += $QemuArgs
+    ($lines -join [Environment]::NewLine) + [Environment]::NewLine | Set-Content -Path $Path -Encoding UTF8
+}
+
+function Show-QemuLaunchSummary {
+    param(
+        [string]$VMName,
+        [int]$Memory,
+        [int]$Cpus,
+        [string]$AccelMode,
+        [string]$CpuModel,
+        [string]$NetDevice,
+        [string]$DiskInterface,
+        [string]$DiskCache,
+        [string]$DiskDiscard,
+        [string]$VideoDevice,
+        [string]$FullscreenMode,
+        [bool]$Headless,
+        [int]$SshPort,
+        [string]$QemuExecutable,
+        [string]$ArgsLog
+    )
+
+    Write-EA11Info 'Parâmetros efetivos da inicialização:'
+    Write-Host "  vm=$VMName"
+    Write-Host "  memory_mb=$Memory"
+    Write-Host "  cpus=$Cpus"
+    Write-Host "  accel=$AccelMode"
+    Write-Host "  cpu_model=$CpuModel"
+    Write-Host "  net_device=$NetDevice"
+    Write-Host "  disk_if=$DiskInterface"
+    Write-Host "  disk_cache=$DiskCache"
+    Write-Host "  disk_discard=$DiskDiscard"
+    Write-Host "  video=$VideoDevice"
+    Write-Host "  fullscreen=$FullscreenMode"
+    Write-Host "  headless=$Headless"
+    Write-Host "  ssh_port=$SshPort"
+    Write-Host "  qemu=$QemuExecutable"
+    Write-Host "  qemu_args_log=$ArgsLog"
+}
+
 function Ensure-QemuImg {
     $candidates = @(
         "$env:ProgramFiles\qemu\qemu-img.exe",
@@ -1893,6 +2089,8 @@ function Invoke-QemuVMStart {
     $smbPassword = Get-OptionValue -Tokens $Tokens -Names @('--smb-password') -Default $null
     $qemuExecutable = Resolve-QemuSystemExecutable -Headless:$headless
     $supportedAudioDrivers = Get-QemuAvailableAudioDrivers -QemuExecutable $qemuExecutable
+    $effectiveAccelMode = $accelMode
+    $effectiveCpuModel = $cpuModel
 
     $existing = Load-QemuState -VMName $vmName
     if ($existing -and $existing.pid) {
@@ -1907,6 +2105,12 @@ function Invoke-QemuVMStart {
     $logsDir = Get-QemuLogsDirectory
     $stdoutLog = Join-Path $logsDir "$vmName-stdout.log"
     $stderrLog = Join-Path $logsDir "$vmName-stderr.log"
+    $argsLog = Join-Path $logsDir "$vmName-qemu-args.log"
+
+    $hostMemoryMb = Get-HostPhysicalMemoryMB
+    if (($null -ne $hostMemoryMb) -and ($memory -gt $hostMemoryMb)) {
+        Write-EA11Warn "Memória configurada ($memory MB) excede a RAM física detectada do host ($hostMemoryMb MB). O QEMU ainda pode iniciar por overcommit, mas o host pode ficar instável."
+    }
 
     $hostHomeShare = $null
     $hostHomeShareMode = $null
@@ -1977,8 +2181,7 @@ function Invoke-QemuVMStart {
     }
 
     Write-EA11Info "Iniciando VM QEMU '$vmName'..."
-    $argsLog = Join-Path $logsDir "$vmName-qemu-args.log"
-    ($qemuArgs -join [Environment]::NewLine) | Set-Content -Path $argsLog -Encoding UTF8
+    Write-QemuArgsLog -Path $argsLog -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs
     $startParams = @{
         FilePath = $qemuExecutable
         ArgumentList = $qemuArgs
@@ -2023,6 +2226,7 @@ function Invoke-QemuVMStart {
                 $qemuArgs += Get-QemuAudioArgs -Backend $audioBackend -SupportedDrivers $supportedAudioDrivers
             }
 
+            Write-QemuArgsLog -Path $argsLog -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs
             $startParams.ArgumentList = $qemuArgs
             $proc = Start-Process @startParams
             Start-Sleep -Seconds 2
@@ -2038,6 +2242,7 @@ function Invoke-QemuVMStart {
 
         if ($lastError -match 'WHPX|Unexpected VP exit code|APX|MPX') {
             Write-EA11Warn 'WHPX falhou no host atual. Retentando automaticamente com aceleracao TCG (modo compatibilidade)...'
+            $effectiveAccelMode = 'tcg'
 
             $qemuArgs = New-QemuBaseArgs -Memory $memory -Cpus $cpus -SystemDisk $systemDisk -UserDataDisk $userDataDisk -NetdevValue $netdevValue -NetDevice $netDevice -DiskInterface $diskInterface -DiskCache $diskCache -DiskDiscard $diskDiscard -VideoDevice $videoDevice -HostHomeShare $hostHomeShare -HostHomeShareMode $hostHomeShareMode -HostUser $hostUserForGuest
 
@@ -2052,6 +2257,7 @@ function Invoke-QemuVMStart {
                 $qemuArgs += Get-QemuAudioArgs
             }
 
+            Write-QemuArgsLog -Path $argsLog -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs
             $startParams.ArgumentList = $qemuArgs
             $proc = Start-Process @startParams
             Start-Sleep -Seconds 2
@@ -2085,6 +2291,7 @@ function Invoke-QemuVMStart {
                 $qemuArgs += Get-QemuAudioArgs -Backend $fallbackAudio -SupportedDrivers $supportedAudioDrivers
             }
 
+            Write-QemuArgsLog -Path $argsLog -QemuExecutable $qemuExecutable -QemuArgs $qemuArgs
             $startParams.ArgumentList = $qemuArgs
             $proc = Start-Process @startParams
             Start-Sleep -Seconds 2
@@ -2111,6 +2318,7 @@ function Invoke-QemuVMStart {
         homeMount = '/home'
         stdoutLog = $stdoutLog
         stderrLog = $stderrLog
+        qemuArgsLog = $argsLog
         hostHomeSharePath = if ($hostHomeShare) { $hostHomeShare.HostPath } else { $null }
         hostHomeShareTag = if ($hostHomeShare) { $hostHomeShare.MountTag } else { $null }
         hostHomeShareMode = if ($hostHomeShareMode) { $hostHomeShareMode } else { $null }
@@ -2124,6 +2332,7 @@ function Invoke-QemuVMStart {
     Write-Host "VM: $vmName"
     Write-Host "Backend: qemu"
     Write-Host "PID: $($proc.Id)"
+    Show-QemuLaunchSummary -VMName $vmName -Memory $memory -Cpus $cpus -AccelMode $effectiveAccelMode -CpuModel $effectiveCpuModel -NetDevice $netDevice -DiskInterface $diskInterface -DiskCache $diskCache -DiskDiscard $diskDiscard -VideoDevice $videoDevice -FullscreenMode $fullscreenMode -Headless:$headless -SshPort $sshPort -QemuExecutable $qemuExecutable -ArgsLog $argsLog
     Write-Host "SSH: localhost:$sshPort"
     Write-Host "Sistema: $systemDisk"
     Write-Host "Dados (/home): $userDataDisk"

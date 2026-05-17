@@ -16,6 +16,10 @@ qemu_log_file() {
     printf '%s/%s.qemu.log\n' "$EA11_LOG_DIR" "$1"
 }
 
+qemu_args_log_file() {
+    printf '%s/%s.qemu.args.log\n' "$EA11_LOG_DIR" "$1"
+}
+
 qemu_share_config_file() {
     printf '%s\n' "$EA11_QEMU_SHARE_CONFIG"
 }
@@ -28,6 +32,98 @@ qemu_runtime_config_backup_file() {
     local stamp
     stamp=$(date +%Y%m%d-%H%M%S)
     printf '%s.bak-%s\n' "$(qemu_runtime_config_file)" "$stamp"
+}
+
+qemu_host_physical_memory_mb() {
+    case "$(uname -s)" in
+        Darwin*)
+            sysctl -n hw.memsize 2>/dev/null | awk '{printf "%d\n", $1 / 1048576}'
+            ;;
+        Linux*)
+            awk '/MemTotal:/ {printf "%d\n", $2 / 1024}' /proc/meminfo 2>/dev/null
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+qemu_host_logical_cpus() {
+    case "$(uname -s)" in
+        Darwin*)
+            sysctl -n hw.logicalcpu 2>/dev/null
+            ;;
+        Linux*)
+            getconf _NPROCESSORS_ONLN 2>/dev/null
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+config_host_limit_value() {
+    case "$1" in
+        memory)
+            qemu_host_physical_memory_mb
+            ;;
+        cpus)
+            qemu_host_logical_cpus
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+config_host_limit_label() {
+    case "$1" in
+        memory) printf 'RAM física do host\n' ;;
+        cpus) printf 'CPUs lógicas do host\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+config_host_limit_unit() {
+    case "$1" in
+        memory) printf 'MB\n' ;;
+        cpus) printf '' ;;
+        *) return 1 ;;
+    esac
+}
+
+qemu_write_args_log() {
+    local args_log_file="$1"
+    shift
+    printf '# QEMU arguments for ea11ctl\n' > "$args_log_file"
+    printf '%q\n' "$@" >> "$args_log_file"
+}
+
+qemu_print_launch_summary() {
+    local vm_name="$1"
+    local mem_mb="$2"
+    local cpu_count="$3"
+    local ssh_port="$4"
+    local headless="$5"
+    local args_log_file="$6"
+    local effective_accel="$7"
+    local effective_cpu_model="$8"
+
+    ea11_backend_info 'Parâmetros efetivos da inicialização:'
+    printf '  vm=%s\n' "$vm_name"
+    printf '  memory_mb=%s\n' "$mem_mb"
+    printf '  cpus=%s\n' "$cpu_count"
+    printf '  accel=%s\n' "$effective_accel"
+    printf '  cpu_model=%s\n' "$effective_cpu_model"
+    printf '  net_device=%s\n' "$QEMU_NET_DEVICE"
+    printf '  disk_if=%s\n' "$QEMU_DISK_IF"
+    printf '  disk_cache=%s\n' "$QEMU_DISK_CACHE"
+    printf '  disk_discard=%s\n' "$QEMU_DISK_DISCARD"
+    printf '  video=%s\n' "$QEMU_VIDEO_DEVICE"
+    printf '  fullscreen=%s\n' "$QEMU_FULLSCREEN"
+    printf '  headless=%s\n' "$headless"
+    printf '  ssh_port=%s\n' "$ssh_port"
+    printf '  qemu_args_log=%s\n' "$args_log_file"
 }
 
 qemu_default_accel() {
@@ -228,11 +324,25 @@ config_validate_and_normalize() {
                 printf 'Erro: valor inválido para '\''cpus'\''.\n\n' >&2
                 printf 'Valor recebido: %s\n' "$value" >&2
                 printf 'Formato esperado: número inteiro positivo.\n\n' >&2
+                if limit=$(config_host_limit_value cpus 2>/dev/null); then
+                    printf 'Máximo disponível: %s (%s)\n\n' "$limit" "$(config_host_limit_label cpus)" >&2
+                fi
                 printf 'Exemplos:\n' >&2
                 printf '  ea11ctl vm config set cpus 2\n' >&2
                 printf '  ea11ctl vm config set cpus 4\n' >&2
                 printf '  ea11ctl vm config set cpus 8\n' >&2
                 return 1
+            fi
+            if limit=$(config_host_limit_value cpus 2>/dev/null); then
+                if [[ "$value" -gt "$limit" ]]; then
+                    printf 'Erro: valor acima do máximo disponível para '\''cpus'\''.\n\n' >&2
+                    printf 'Valor recebido: %s\n' "$value" >&2
+                    printf 'Máximo disponível: %s (%s)\n\n' "$limit" "$(config_host_limit_label cpus)" >&2
+                    printf 'Exemplos:\n' >&2
+                    printf '  ea11ctl vm config set cpus 2\n' >&2
+                    printf '  ea11ctl vm config set cpus 4\n' >&2
+                    return 1
+                fi
             fi
             printf '%s\n' "$value"
             ;;
@@ -241,11 +351,25 @@ config_validate_and_normalize() {
                 printf 'Erro: valor inválido para '\''memory'\''.\n\n' >&2
                 printf 'Valor recebido: %s\n' "$value" >&2
                 printf 'Formato esperado: número inteiro positivo em MB.\n\n' >&2
+                if limit=$(config_host_limit_value memory 2>/dev/null); then
+                    printf 'Máximo disponível: %s MB (%s)\n\n' "$limit" "$(config_host_limit_label memory)" >&2
+                fi
                 printf 'Exemplos:\n' >&2
                 printf '  ea11ctl vm config set memory 2048\n' >&2
                 printf '  ea11ctl vm config set memory 4096\n' >&2
                 printf '  ea11ctl vm config set memory 8192\n' >&2
                 return 1
+            fi
+            if limit=$(config_host_limit_value memory 2>/dev/null); then
+                if [[ "$value" -gt "$limit" ]]; then
+                    printf 'Erro: valor acima do máximo disponível para '\''memory'\''.\n\n' >&2
+                    printf 'Valor recebido: %s MB\n' "$value" >&2
+                    printf 'Máximo disponível: %s MB (%s)\n\n' "$limit" "$(config_host_limit_label memory)" >&2
+                    printf 'Exemplos:\n' >&2
+                    printf '  ea11ctl vm config set memory 2048\n' >&2
+                    printf '  ea11ctl vm config set memory 4096\n' >&2
+                    return 1
+                fi
             fi
             printf '%s\n' "$value"
             ;;
@@ -319,7 +443,13 @@ qemu_cmd_config_show_friendly() {
     printf '\n'
     printf 'Desempenho:\n'
     printf '  CPUs: %s\n' "$QEMU_CPUS"
+    if limit=$(config_host_limit_value cpus 2>/dev/null); then
+        printf '  Máximo disponível no host: %s\n' "$limit"
+    fi
     printf '  Memória: %s MB\n' "$QEMU_MEMORY_MB"
+    if limit=$(config_host_limit_value memory 2>/dev/null); then
+        printf '  Máximo disponível no host: %s MB\n' "$limit"
+    fi
     printf '  Aceleração: %s\n' "$QEMU_ACCEL"
     printf '  Modelo de CPU: %s\n' "$QEMU_CPU_MODEL"
     printf '\n'
@@ -352,6 +482,16 @@ qemu_cmd_config_list() {
         printf '  Descrição: %s' "$description"
         printf '  Chave interna: %s\n' "$internal_var"
         printf '  Valor atual: %s\n' "$current_val"
+        if limit=$(config_host_limit_value "$key" 2>/dev/null); then
+            local unit label
+            unit=$(config_host_limit_unit "$key" 2>/dev/null || true)
+            label=$(config_host_limit_label "$key")
+            if [[ -n "$unit" ]]; then
+                printf '  Máximo disponível: %s %s (%s)\n' "$limit" "$unit" "$label"
+            else
+                printf '  Máximo disponível: %s (%s)\n' "$limit" "$label"
+            fi
+        fi
 
         allowed=$(config_allowed_values_hint "$key")
         case "$key" in
@@ -403,6 +543,16 @@ qemu_cmd_config_get() {
             printf '  Valor atual: %s\n' "$current_val"
             ;;
     esac
+    if limit=$(config_host_limit_value "$friendly_key" 2>/dev/null); then
+        local unit label
+        unit=$(config_host_limit_unit "$friendly_key" 2>/dev/null || true)
+        label=$(config_host_limit_label "$friendly_key")
+        if [[ -n "$unit" ]]; then
+            printf '  Máximo disponível: %s %s (%s)\n' "$limit" "$unit" "$label"
+        else
+            printf '  Máximo disponível: %s (%s)\n' "$limit" "$label"
+        fi
+    fi
 }
 
 qemu_cmd_config_set() {
@@ -521,14 +671,24 @@ Chaves disponíveis:
   cpus         memória      accel        cpu-model
   net-device   disk-if      disk-cache   disk-discard
   video        fullscreen
+EOF
+
+        if limit=$(config_host_limit_value cpus 2>/dev/null); then
+                printf 'Máximo de cpus no host: %s\n' "$limit"
+        fi
+        if limit=$(config_host_limit_value memory 2>/dev/null); then
+                printf 'Máximo de memory no host: %s MB\n' "$limit"
+        fi
+
+        cat << 'EOF'
 
 Exemplos:
-  ea11ctl vm config set memory 4096
-  ea11ctl vm config set cpus 4
-  ea11ctl vm config set fullscreen off
-  ea11ctl vm config set memory=8192 cpus=4 fullscreen=off
-  ea11ctl vm config get memory
-  ea11ctl vm config get memory --raw
+    ea11ctl vm config set memory 4096
+    ea11ctl vm config set cpus 4
+    ea11ctl vm config set fullscreen off
+    ea11ctl vm config set memory=8192 cpus=4 fullscreen=off
+    ea11ctl vm config get memory
+    ea11ctl vm config get memory --raw
 EOF
 }
 
@@ -839,7 +999,7 @@ qemu_cmd_list() {
 }
 
 qemu_cmd_start() {
-    local vm_name ssh_port headless system_image data_disk log_file mem_mb cpu_count net_device
+    local vm_name ssh_port headless system_image data_disk log_file args_log_file mem_mb cpu_count net_device host_mem_mb effective_accel effective_cpu_model
     vm_name=$(qemu_parse_vm_name "$@")
     ssh_port=$(qemu_parse_ssh_port "$@")
     headless=0
@@ -858,11 +1018,20 @@ qemu_cmd_start() {
     system_image="${EA11_SYSTEM_IMAGE:-$EA11_DEFAULT_SYSTEM_IMAGE}"
     data_disk="${EA11_HOME}/${vm_name}-home.qcow2"
     log_file=$(qemu_log_file "$vm_name")
+    args_log_file=$(qemu_args_log_file "$vm_name")
     qemu_load_runtime_config
     mem_mb=$(qemu_runtime_memory_mb)
     cpu_count=$(qemu_runtime_cpus)
     net_device=$(qemu_net_device_name)
+    effective_accel="${QEMU_ACCEL:-$(qemu_default_accel)}"
+    effective_cpu_model="${QEMU_CPU_MODEL:-$(qemu_default_cpu_model)}"
     qemu_load_share_config
+
+    if host_mem_mb=$(qemu_host_physical_memory_mb 2>/dev/null); then
+        if [[ -n "$host_mem_mb" ]] && [[ "$mem_mb" -gt "$host_mem_mb" ]]; then
+            ea11_backend_warn "Memória configurada (${mem_mb} MB) excede a RAM física detectada do host (${host_mem_mb} MB). O QEMU ainda pode iniciar por overcommit, mas o host pode ficar instável."
+        fi
+    fi
 
     if [[ "$SHARE_MODE" == 'ssh' ]] && [[ -z "$SHARE_SSH_USER" || -z "$SHARE_SSH_PATH" ]]; then
         ea11_backend_warn 'Compartilhamento ssh sem --ssh-user/--ssh-path definidos; guest pode nao montar automaticamente.'
@@ -937,6 +1106,7 @@ qemu_cmd_start() {
         fi
     fi
 
+    qemu_write_args_log "$args_log_file" "${qemu_cmd[@]}"
     nohup "${qemu_cmd[@]}" > "$log_file" 2>&1 < /dev/null &
     local qemu_pid=$!
     sleep 3
@@ -947,6 +1117,8 @@ qemu_cmd_start() {
             ea11_backend_warn 'Falha no acelerador HVF detectada, tentando fallback com TCG.'
             accel_args=(-accel tcg)
             cpu_args=(-cpu qemu64)
+            effective_accel='tcg'
+            effective_cpu_model='qemu64'
             qemu_cmd=(
                 qemu-system-x86_64
                 "${accel_args[@]}"
@@ -1001,6 +1173,7 @@ qemu_cmd_start() {
                 fi
             fi
 
+            qemu_write_args_log "$args_log_file" "${qemu_cmd[@]}"
             nohup "${qemu_cmd[@]}" > "$log_file" 2>&1 < /dev/null &
             qemu_pid=$!
             sleep 3
@@ -1021,6 +1194,7 @@ qemu_cmd_start() {
     qemu_save_state "$vm_name"
 
     ea11_backend_info "VM QEMU '$vm_name' iniciada com PID ${qemu_pid}."
+    qemu_print_launch_summary "$vm_name" "$mem_mb" "$cpu_count" "$ssh_port" "$headless" "$args_log_file" "$effective_accel" "$effective_cpu_model"
     ea11_backend_info "SSH: ssh -p ${ssh_port} ${EA11_DEFAULT_SSH_USER}@localhost"
     ea11_backend_info "Compartilhamento do host: modo=${SHARE_MODE}"
 }
