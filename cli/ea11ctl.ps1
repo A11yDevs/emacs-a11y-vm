@@ -608,41 +608,17 @@ function Get-DefaultQemuRuntimeConfig {
     }
 
     return @{
-        accel = $accel
-        cpuModel = $cpuModel
-        cpus = 4
-        memoryMb = 4096
-        netDevice = 'virtio-net-pci'
-        diskInterface = 'virtio'
-        diskCache = 'writeback'
-        diskDiscard = 'unmap'
-        videoDevice = 'virtio-vga'
-        fullscreen = 'on'
+        QEMU_ACCEL        = $accel
+        QEMU_CPU_MODEL    = $cpuModel
+        QEMU_CPUS         = 4
+        QEMU_MEMORY_MB    = 4096
+        QEMU_NET_DEVICE   = 'virtio-net-pci'
+        QEMU_DISK_IF      = 'virtio'
+        QEMU_DISK_CACHE   = 'writeback'
+        QEMU_DISK_DISCARD = 'unmap'
+        QEMU_VIDEO_DEVICE = 'virtio-vga'
+        QEMU_FULLSCREEN   = 'on'
     }
-}
-
-function Merge-QemuRuntimeConfig {
-    param(
-        [hashtable]$Base,
-        [object]$Override
-    )
-
-    if (-not $Override) {
-        return $Base
-    }
-
-    $merged = @{}
-    foreach ($k in $Base.Keys) {
-        $merged[$k] = $Base[$k]
-    }
-
-    foreach ($prop in $Override.PSObject.Properties) {
-        if ($null -ne $prop.Value -and $merged.ContainsKey($prop.Name)) {
-            $merged[$prop.Name] = $prop.Value
-        }
-    }
-
-    return $merged
 }
 
 function Get-QemuRuntimeConfig {
@@ -656,13 +632,19 @@ function Get-QemuRuntimeConfig {
     }
 
     try {
-        $raw = Get-Content -Path $cfgPath -Raw -ErrorAction Stop
-        if ([string]::IsNullOrWhiteSpace($raw)) {
-            return $defaults
-        }
+        $merged = @{}
+        foreach ($k in $defaults.Keys) { $merged[$k] = $defaults[$k] }
 
-        $parsed = $raw | ConvertFrom-Json
-        return (Merge-QemuRuntimeConfig -Base $defaults -Override $parsed)
+        foreach ($line in (Get-Content -Path $cfgPath -ErrorAction Stop)) {
+            $line = $line.Trim()
+            if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#')) { continue }
+            $eqIdx = $line.IndexOf('=')
+            if ($eqIdx -lt 0) { continue }
+            $key = $line.Substring(0, $eqIdx).Trim()
+            $val = $line.Substring($eqIdx + 1).Trim()
+            if ($merged.ContainsKey($key)) { $merged[$key] = $val }
+        }
+        return $merged
     }
     catch {
         Write-EA11Warn "Falha ao ler config runtime em $cfgPath. Usando defaults."
@@ -676,43 +658,43 @@ function Save-QemuRuntimeConfig {
     $cfgPath = Get-QemuRuntimeConfigPath
     $cfgDir = [System.IO.Path]::GetDirectoryName($cfgPath)
     if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null }
-    $content = ""
-    foreach ($key in $Config.Keys) {
-        $content += "$key=$($Config[$key])`n"
+    $lines = @('# Configuracao de runtime do QEMU para ea11ctl', '# Edite com cuidado. Valores invalidos podem impedir o boot.')
+    foreach ($key in ($Config.Keys | Sort-Object)) {
+        $lines += "$key=$($Config[$key])"
     }
-    $content | Set-Content -Path $cfgPath -Encoding utf8
+    ($lines -join "`n") + "`n" | Set-Content -Path $cfgPath -Encoding utf8
 }
 
 function Show-QemuRuntimeConfig {
     $config = Get-QemuRuntimeConfig
-    foreach ($key in $config.Keys) {
+    foreach ($key in ($config.Keys | Sort-Object)) {
         Write-Host "$key=$($config[$key])"
     }
 }
 
 ################################################################################
-# Mapeamento de chaves amigáveis para o schema JSON de config
+# Mapeamento de chaves amigáveis para o schema QEMU_* de config
 ################################################################################
 
 $Script:ConfigKeyMap = @{
-    'accel'       = 'accel'
-    'cpu-model'   = 'cpuModel'
-    'cpus'        = 'cpus'
-    'memory'      = 'memoryMb'
-    'net-device'  = 'netDevice'
-    'disk-if'     = 'diskInterface'
-    'disk-cache'  = 'diskCache'
-    'disk-discard'= 'diskDiscard'
-    'video'       = 'videoDevice'
-    'fullscreen'  = 'fullscreen'
+    'accel'         = 'QEMU_ACCEL'
+    'cpu-model'     = 'QEMU_CPU_MODEL'
+    'cpus'          = 'QEMU_CPUS'
+    'memory'        = 'QEMU_MEMORY_MB'
+    'net-device'    = 'QEMU_NET_DEVICE'
+    'disk-if'       = 'QEMU_DISK_IF'
+    'disk-cache'    = 'QEMU_DISK_CACHE'
+    'disk-discard'  = 'QEMU_DISK_DISCARD'
+    'video'         = 'QEMU_VIDEO_DEVICE'
+    'fullscreen'    = 'QEMU_FULLSCREEN'
     # aliases PT-BR
-    'memoria'     = 'memoryMb'
-    'memória'     = 'memoryMb'
-    'processadores' = 'cpus'
-    'tela-cheia'  = 'fullscreen'
-    'rede'        = 'netDevice'
-    'vídeo'       = 'videoDevice'
-    'video-pt'    = 'videoDevice'
+    'memoria'       = 'QEMU_MEMORY_MB'
+    'memória'       = 'QEMU_MEMORY_MB'
+    'processadores' = 'QEMU_CPUS'
+    'tela-cheia'    = 'QEMU_FULLSCREEN'
+    'rede'          = 'QEMU_NET_DEVICE'
+    'vídeo'         = 'QEMU_VIDEO_DEVICE'
+    'video-pt'      = 'QEMU_VIDEO_DEVICE'
 }
 
 $Script:ConfigInternalKeys = @(
@@ -874,22 +856,22 @@ function Show-QemuRuntimeConfigFriendly {
     Write-Host "  $cfgPath"
     Write-Host ''
     Write-Host 'Desempenho:'
-    Write-Host "  CPUs: $($cfg.cpus)"
-    Write-Host "  Memória: $($cfg.memoryMb) MB"
-    Write-Host "  Aceleração: $($cfg.accel)"
-    Write-Host "  Modelo de CPU: $($cfg.cpuModel)"
+    Write-Host "  CPUs: $($cfg['QEMU_CPUS'])"
+    Write-Host "  Memória: $($cfg['QEMU_MEMORY_MB']) MB"
+    Write-Host "  Aceleração: $($cfg['QEMU_ACCEL'])"
+    Write-Host "  Modelo de CPU: $($cfg['QEMU_CPU_MODEL'])"
     Write-Host ''
     Write-Host 'Vídeo:'
-    Write-Host "  Dispositivo: $($cfg.videoDevice)"
-    Write-Host "  Tela cheia: $(Format-FullscreenLabel $cfg.fullscreen)"
+    Write-Host "  Dispositivo: $($cfg['QEMU_VIDEO_DEVICE'])"
+    Write-Host "  Tela cheia: $(Format-FullscreenLabel $cfg['QEMU_FULLSCREEN'])"
     Write-Host ''
     Write-Host 'Disco:'
-    Write-Host "  Interface: $($cfg.diskInterface)"
-    Write-Host "  Cache: $($cfg.diskCache)"
-    Write-Host "  Descarte/TRIM: $($cfg.diskDiscard)"
+    Write-Host "  Interface: $($cfg['QEMU_DISK_IF'])"
+    Write-Host "  Cache: $($cfg['QEMU_DISK_CACHE'])"
+    Write-Host "  Descarte/TRIM: $($cfg['QEMU_DISK_DISCARD'])"
     Write-Host ''
     Write-Host 'Rede:'
-    Write-Host "  Dispositivo: $($cfg.netDevice)"
+    Write-Host "  Dispositivo: $($cfg['QEMU_NET_DEVICE'])"
 }
 
 function Show-QemuConfigList {
@@ -1852,19 +1834,19 @@ function Invoke-QemuVMStart {
 
     $vmName = Get-VMName -Tokens $Tokens
     $sshPort = Get-IntOptionValue -Tokens $Tokens -Names @('--port', '--ssh-port', '-p') -Default 2222 -OptionName '--ssh-port'
-    $memory = Get-IntOptionValue -Tokens $Tokens -Names @('--memory', '-m') -Default ([int]$runtimeCfg.memoryMb) -OptionName '--memory'
-    $cpus = Get-IntOptionValue -Tokens $Tokens -Names @('--cpus') -Default ([int]$runtimeCfg.cpus) -OptionName '--cpus'
+    $memory = Get-IntOptionValue -Tokens $Tokens -Names @('--memory', '-m') -Default ([int]$runtimeCfg['QEMU_MEMORY_MB']) -OptionName '--memory'
+    $cpus = Get-IntOptionValue -Tokens $Tokens -Names @('--cpus') -Default ([int]$runtimeCfg['QEMU_CPUS']) -OptionName '--cpus'
     $userDataSize = Get-IntOptionValue -Tokens $Tokens -Names @('--user-data-size') -Default 10 -OptionName '--user-data-size'
     $headless = Has-Flag -Tokens $Tokens -Flags @('--headless', '-h')
     $audioBackend = Get-OptionValue -Tokens $Tokens -Names @('--audio-backend') -Default 'auto'
-    $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default ([string]$runtimeCfg.accel)
-    $cpuModel = [string]$runtimeCfg.cpuModel
-    $netDevice = [string]$runtimeCfg.netDevice
-    $diskInterface = [string]$runtimeCfg.diskInterface
-    $diskCache = [string]$runtimeCfg.diskCache
-    $diskDiscard = [string]$runtimeCfg.diskDiscard
-    $videoDevice = [string]$runtimeCfg.videoDevice
-    $fullscreenMode = [string]$runtimeCfg.fullscreen
+    $accelMode = Get-OptionValue -Tokens $Tokens -Names @('--accel') -Default ([string]$runtimeCfg['QEMU_ACCEL'])
+    $cpuModel = [string]$runtimeCfg['QEMU_CPU_MODEL']
+    $netDevice = [string]$runtimeCfg['QEMU_NET_DEVICE']
+    $diskInterface = [string]$runtimeCfg['QEMU_DISK_IF']
+    $diskCache = [string]$runtimeCfg['QEMU_DISK_CACHE']
+    $diskDiscard = [string]$runtimeCfg['QEMU_DISK_DISCARD']
+    $videoDevice = [string]$runtimeCfg['QEMU_VIDEO_DEVICE']
+    $fullscreenMode = [string]$runtimeCfg['QEMU_FULLSCREEN']
     $disableHostHomeShare = Has-Flag -Tokens $Tokens -Flags @('--no-host-home-share')
     $smbServer = Get-OptionValue -Tokens $Tokens -Names @('--smb-server') -Default $null
     $smbShare = Get-OptionValue -Tokens $Tokens -Names @('--smb-share') -Default $null
