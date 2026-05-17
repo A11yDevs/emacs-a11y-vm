@@ -676,19 +676,10 @@ function Save-QemuRuntimeConfig {
 }
 
 function Show-QemuRuntimeConfig {
-    $cfgPath = Get-QemuRuntimeConfigPath
-    $cfg = Get-QemuRuntimeConfig
-
-    Write-Host "config_file=$cfgPath"
-    Write-Host "QEMU_ACCEL=$($cfg.accel)"
-    Write-Host "QEMU_CPU_MODEL=$($cfg.cpuModel)"
-    Write-Host "QEMU_CPUS=$($cfg.cpus)"
-    Write-Host "QEMU_MEMORY_MB=$($cfg.memoryMb)"
-    Write-Host "QEMU_NET_DEVICE=$($cfg.netDevice)"
-    Write-Host "QEMU_DISK_IF=$($cfg.diskInterface)"
-    Write-Host "QEMU_DISK_CACHE=$($cfg.diskCache)"
-    Write-Host "QEMU_DISK_DISCARD=$($cfg.diskDiscard)"
-    Write-Host "QEMU_VIDEO_DEVICE=$($cfg.videoDevice)"
+    $config = Get-QemuRuntimeConfig
+    foreach ($key in $config.Keys) {
+        Write-Host "$key=$($config[$key])"
+    }
 }
 
 ################################################################################
@@ -2107,7 +2098,8 @@ function Invoke-QemuVMStart {
         Write-Host "Host home (9p): $($hostHomeShare.HostPath) -> $($hostHomeShare.GuestMountPoint)"
     }
     elseif (($hostHomeShareMode -eq 'smb') -and $hostHomeShare -and $qemuSmbShare) {
-        Write-Host "Host home (SMB): $($hostHomeShare.HostPath) -> //$($qemuSmbShare.Server)/$($qemuSmbShare.Share) -> $($qemuSmbShare.GuestMountPoint)"
+        $guestMount = if ($hostHomeGuestMountPoint) { [string]$hostHomeGuestMountPoint } else { '/home/hosthome' }
+        Write-Host "Host home (SMB): $($hostHomeShare.HostPath) -> //$($qemuSmbShare.Server)/$($qemuSmbShare.Share) -> $guestMount"
     }
 }
 

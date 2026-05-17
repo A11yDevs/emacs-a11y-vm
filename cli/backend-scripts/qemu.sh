@@ -384,7 +384,9 @@ qemu_cmd_config_get() {
     current_val="${!internal_var:-}"
 
     if [[ "$raw" == '--raw' ]]; then
-        printf '%s=%s\n' "$internal_var" "$current_val"
+        for var in "${!QEMU_@}"; do
+            printf '%s=%s\n' "$var" "${!var}"
+        done
         return 0
     fi
 
