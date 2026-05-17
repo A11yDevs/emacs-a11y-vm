@@ -998,11 +998,20 @@ qemu_cmd_list() {
     fi
 }
 
+
 qemu_cmd_start() {
-    local vm_name ssh_port headless system_image data_disk log_file args_log_file mem_mb cpu_count net_device host_mem_mb effective_accel effective_cpu_model
+    local vm_name ssh_port headless system_image data_disk log_file args_log_file mem_mb cpu_count net_device host_mem_mb effective_accel effective_cpu_model debug_mode debug_flag
     vm_name=$(qemu_parse_vm_name "$@")
     ssh_port=$(qemu_parse_ssh_port "$@")
     headless=0
+    debug_mode=0
+    debug_flag=0
+    for arg in "$@"; do
+        [[ "$arg" == "--debug" ]] && debug_flag=1
+    done
+    if [[ "${EA11_DEBUG:-}" == "1" ]] || [[ $debug_flag -eq 1 ]]; then
+        debug_mode=1
+    fi
     if ea11_backend_has_flag --headless "$@" || ea11_backend_has_flag -h "$@"; then
         headless=1
     fi
@@ -1106,8 +1115,20 @@ qemu_cmd_start() {
         fi
     fi
 
+
     qemu_write_args_log "$args_log_file" "${qemu_cmd[@]}"
-    nohup "${qemu_cmd[@]}" > "$log_file" 2>&1 < /dev/null &
+    if [[ $debug_mode -eq 1 ]]; then
+        # Log comando e saída detalhada
+        local debug_dir="$HOME/.emacs-a11y-vm/qemu"
+        mkdir -p "$debug_dir"
+        local cmd_file="$debug_dir/last-qemu-cmd.txt"
+        local log_file_debug="$debug_dir/qemu.log"
+        printf '%s\n' "${qemu_cmd[@]}" > "$cmd_file"
+        nohup "${qemu_cmd[@]}" > "$log_file_debug" 2>&1 < /dev/null &
+        log_file="$log_file_debug"
+    else
+        nohup "${qemu_cmd[@]}" > "$log_file" 2>&1 < /dev/null &
+    fi
     local qemu_pid=$!
     sleep 3
 
@@ -1180,8 +1201,16 @@ qemu_cmd_start() {
         fi
     fi
 
+
     if ! qemu_is_running "$qemu_pid"; then
-        ea11_backend_die "Falha ao iniciar VM QEMU '$vm_name'. Veja log em $log_file"
+        if [[ $debug_mode -eq 1 ]]; then
+            ea11_backend_error "Falha ao iniciar VM QEMU '$vm_name'."
+            ea11_backend_error "Veja o comando usado em: $HOME/.emacs-a11y-vm/qemu/last-qemu-cmd.txt"
+            ea11_backend_error "Veja o log detalhado em: $HOME/.emacs-a11y-vm/qemu/qemu.log"
+        else
+            ea11_backend_die "Falha ao iniciar VM QEMU '$vm_name'. Veja log em $log_file"
+        fi
+        return 1
     fi
 
     VM_NAME="$vm_name"
