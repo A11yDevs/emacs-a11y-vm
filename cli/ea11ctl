@@ -1427,7 +1427,7 @@ Uso:
     ea11ctl vm config set CHAVE=VALOR [CHAVE=VALOR ...]
   ea11ctl vm optimize
   
-  ea11ctl host install|-i (Instalacao nativa Debian/Ubuntu)
+  ea11ctl host install|-i (Instalação nativa Debian/Ubuntu)
 
 Defaults:
   VM: debian-a11y
