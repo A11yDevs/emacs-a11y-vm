@@ -4,6 +4,11 @@ param(
     [string[]]$Args
 )
 
+# Garante UTF-8 para exibição correta de caracteres acentuados
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+$OutputEncoding           = [System.Text.Encoding]::UTF8
+
 $ErrorActionPreference = 'Stop'
 $EA11CTL_FALLBACK_VERSION = '0.1.37'
 $EA11CTL_OWNER = 'A11yDevs'
