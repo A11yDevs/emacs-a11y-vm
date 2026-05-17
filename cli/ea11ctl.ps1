@@ -3307,9 +3307,10 @@ function Show-CommandSuggestion {
     }
 
     $suggestions = New-Object System.Collections.Generic.List[string]
+
     foreach ($cmd in (Get-ContextCommandList -Context $Context)) {
         if ($cmd.StartsWith($Typed, [System.StringComparison]::OrdinalIgnoreCase) -or
-            $cmd.Contains($Typed, [System.StringComparison]::OrdinalIgnoreCase)) {
+            ($cmd.IndexOf($Typed, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)) {
             $suggestions.Add($cmd)
         }
     }
